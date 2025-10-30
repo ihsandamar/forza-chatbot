@@ -1,0 +1,115 @@
+from src.graphs.graph import EnhancedQueryExtractionGraph
+from src.graphs.generic_sql_graph import GenericSQLGraph
+from src.graphs.graph_repository import GraphRepository
+
+from src.graphs.query_extraction_graph import QueryExtractionGraph
+from src.graphs.text2sql_graph import Text2SQLGraph
+from src.models.models import LLM
+from src.graphs.chat_graph import ChatGraph
+from src.services.config_loader import ConfigLoader
+from langchain_community.utilities import SQLDatabase
+
+# TODO: Add Dynamic Module Discovery and Loading  
+
+def graph(name: str) -> ChatGraph:
+    """
+    Returns a graph object based on the specified name.
+    
+    :param name: Name of the graph
+    :return: Graph object
+    :rtype: MainGraph
+    """
+
+    config = ConfigLoader.load_config()
+    OPENAI_API_KEY = config.llm.api_key
+
+    llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
+    repo = GraphRepository(llm=llm)
+    return repo.get_raw(name)
+
+
+def text2sql_graph():
+    config = ConfigLoader.load_config("config/text2sql_config.yaml")
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+    db = SQLDatabase.from_uri(config.database.uri)
+    graph = Text2SQLGraph(llm=llm, db=db).build_graph()
+    return graph
+
+
+
+
+def supervisor_graph():
+    return graph("supervisor").build_graph()
+
+
+
+def master_report_document_graph():
+    config = ConfigLoader.load_config("config/text2sql_config.yaml")
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+    db = SQLDatabase.from_uri(config.database.uri)
+    graph = GenericSQLGraph(llm=llm, db=db).build_graph()
+    return graph
+
+
+def generic_sql_document_graph():
+    config = ConfigLoader.load_config("config/generic_sql_document_config.yaml")
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+    db = SQLDatabase.from_uri(config.database.uri)
+    graph = GenericSQLGraph(llm=llm, db=db).build_graph()
+    return graph
+
+
+def generic_sql_payment_graph():
+    config = ConfigLoader.load_config("config/generic_sql_payment_config.yaml") 
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+    db = SQLDatabase.from_uri(config.database.uri)
+    graph = GenericSQLGraph(llm=llm, db=db).build_graph()
+    return graph
+
+
+
+def forza_rag():
+    return graph("forza_rag").build_graph()
+
+
+def sefim_rag():
+    return graph("sefim_rag").build_graph()
+
+
+def gib_mevzuat():
+    return graph("gib_mevzuat").build_graph()
+
+
+def forza_toolkit():
+    return graph("forza_toolkit").build_graph()
+
+
+def query_extraction():
+    from src.graphs.generic_sql_graph import SQLAgentConfiguration
+    
+    config = ConfigLoader.load_config("config/master_report_document_config.yaml") 
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+    db = SQLDatabase.from_uri(config.database.uri)
+    
+    # Convert raw config to SQLAgentConfiguration object
+    raw_assistant_config = getattr(config, 'sql_agent_configuration', None)
+    assistant_config = SQLAgentConfiguration.create_from_config(raw_assistant_config)
+    
+    print(f"DEBUG query_extraction - raw_assistant_config type: {type(raw_assistant_config)}")
+    print(f"DEBUG query_extraction - assistant_config type: {type(assistant_config)}")
+    print(f"DEBUG query_extraction - assistant_config.table_name: {assistant_config.table_name}")
+    
+    graph = EnhancedQueryExtractionGraph(llm=llm, db=db, assistant_configuration=assistant_config).build_graph()
+    return graph
+
+
+def enhanced_query_extraction():
+    config = ConfigLoader.load_config("config/master_report_document_config.yaml")
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+    db = SQLDatabase.from_uri(config.database.uri)
+    graph = EnhancedQueryExtractionGraph(llm=llm, db=db).build_graph()
+    return graph
+
+
+def vegaforza_navigation():
+    return graph("vegaforza_navigation").build_graph()

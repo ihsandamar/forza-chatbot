@@ -1,0 +1,350 @@
+{
+  "web_pages_catalog": [
+    {
+      "metadata": {
+        "page_id": "accounting_plan_list",
+        "url_route": "https://test.vegaforza.com/apps/accounting-plan/list",
+        "title": "Hesap Planı",
+        "category": "accounting",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Forza hesap planı sayfası. Seçilen dönemdeki tüm hesap planları getirilir. Yeni hesap planı ekleme ve değişiklik yapmak için butonlar bulunur",
+      "structured_data": {
+        "functions": [
+          "hesap planı listesi",
+          "yeni hesap planı",
+          "hesap planı düzenleme",
+          "hesap planı silme",
+          "excelden hesap planı aktarımı",
+          "başlangıç(default) hesap planı aktarımı"
+        ],
+        "keywords": [
+          "muhasebe",
+          "hesap planı"
+        ],
+        "related_terms": [
+          "accounting",
+          "slip plans"
+        ],
+        "user_types": [
+          "accounting"
+        ]
+      },
+      "user_expressions": [
+        "Mevcut hesap planlarını görmek istorum",
+        "hesap planı sayfasına git",
+        "hesaplar listesi",
+        "muahsebe hesaplarını getir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer_list",
+        "url_route": "https://test.vegaforza.com/apps/customer/list",
+        "title": "Cari",
+        "category": "customer",
+        "page_type": "mainpage"
+      },
+      "embedding_content": "Mevcut ticari olarak cari listesini verir.",
+      "structured_data": {
+        "functions": [
+          "cari listesi",
+          "cari detayını için buton",
+          "yeni cari ekleme"
+        ],
+        "keywords": [
+          "cari",
+          "ticari hesaplar"
+        ],
+        "related_terms": [
+          "customers"
+        ],
+        "user_types": [
+          "customer"
+        ]
+      },
+      "user_expressions": [
+        "Cari listesini göster",
+        "carileri getir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "master_reports",
+        "url_route": "https://test.vegaforza.com/apps/master-reports/turnover",
+        "title": "Satış Analizleri",
+        "category": "master_report",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Şefim Master Raporları, restoran ve cafe işletmelerinin finansal performansını, satış cirolarını, personel performansını ve operasyonel metrikleri detaylı olarak analiz ettikleri raporlama sistemidir. Bu sistem restoran yöneticilerinin işletme sağlığını takip etmesini sağlar. Çeşitli grafikler ve tablolar bulunmaktadır.",
+      "structured_data": {
+        "functions": [
+          "Ciro raporu",
+          "açık masalar raporu",
+          "adisyon raporu",
+          "satış karşılaştırma",
+          "personel raporu",
+          "ürün satış detay raporu",
+          "gelir-gider raporu",
+          "açık hesap raporu",
+          "iptal/iskonto/iade raporu",
+          "tarih ve saat filtreleme",
+          "şube filtreleme"
+        ],
+        "keywords": [
+          "Ciro raporu",
+          "açık masalar raporu",
+          "adisyon raporu",
+          "satış karşılaştırma",
+          "personel raporu",
+          "ürün satış detay raporu",
+          "gelir-gider raporu",
+          "açık hesap raporu",
+          "iptal/iskonto/iade raporu",
+          "tarih ve saat filtreleme",
+          "şube filtreleme"
+        ],
+        "related_terms": [
+          "Ciro raporu",
+          "açık masalar raporu",
+          "adisyon raporu",
+          "satış karşılaştırma",
+          "personel raporu",
+          "ürün satış detay raporu",
+          "gelir-gider raporu",
+          "açık hesap raporu",
+          "iptal/iskonto/iade raporu",
+          "tarih ve saat filtreleme",
+          "şube filtreleme"
+        ],
+        "user_types": [
+          "master-report"
+        ]
+      },
+      "user_expressions": [
+        "Master raporları görmek istiyorum",
+        "master panele git",
+        "şefim raporları göster",
+        "şefim raporlama",
+        "şefim satış analizlerini göster",
+        "şefim sipariş analizlerini getir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "paketservisi",
+        "url_route": "https://test.vegaforza.com/apps/master-reports/turnover",
+        "title": "Paket Servisi",
+        "category": "master_report",
+        "page_type": "sub_page",
+        "parent_page_id": "master_reports",
+        "sub_page_type": "tab",
+        "full_path": "Master Raporlar > Paket Servis Raporu"
+      },
+      "embedding_content": "Master raporlarda online platformdan gelen siparişlerin analizi",
+      "structured_data": {
+        "functions": [
+          "Online Satış Yapan Şubeler"
+        ],
+        "keywords": [
+          "online",
+          "platform",
+          "paket servis",
+          "yemeksepeti",
+          "getir",
+          "trendyol"
+        ],
+        "related_terms": [
+          "online",
+          "platform",
+          "paket servis",
+          "yemeksepeti",
+          "getir",
+          "trendyol"
+        ],
+        "user_types": [
+          "master_report"
+        ]
+      },
+      "user_expressions": [
+        "Online siparişleri getir",
+        "online satılan ürünlerin raporunu göster",
+        "paket servislerde satışları getir"
+      ],
+      "parent_context": "Şefim Master Raporları - Restoran raporlama sistemi"
+    },
+    {
+      "metadata": {
+        "page_id": "customer_detail",
+        "title": "Cari Detayı",
+        "url_route": "https://test.vegaforza.com/apps/customer/view/{customerId}",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer_list",
+        "sub_page_type": "link",
+        "full_path": "Cari listesi > Cari Detayı",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Cari bilgileri detaylı olarak görünür",
+      "structured_data": {
+        "functions": [
+          "Cari bilgisi",
+          "Müşterilerin detayı",
+          "Müşteri view"
+        ],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    },
+    {
+      "metadata": {
+        "page_id": "customer_detail_hareket",
+        "title": "Cari Hareketleri",
+        "url_route": "https://test.vegaforza.com/apps/customer/view/{customerId}?tab=0",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer_detail",
+        "sub_page_type": "tab",
+        "full_path": "Cari Hareketleri > Cari Detayı",
+        "url_parameters": {
+          "custumerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Cari Hareketleri",
+      "structured_data": {
+        "functions": [],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    },
+    {
+      "metadata": {
+        "page_id": "customer_detail_documents",
+        "title": "Cari Evrakları",
+        "url_route": "https://test.vegaforza.com/apps/customer/view/{customerId}?tab=1",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer_detail",
+        "sub_page_type": "tab",
+        "full_path": "Cari Evrakları > Cari Detayı",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Cari Evrakları",
+      "structured_data": {
+        "functions": [
+          "Evrak tarihi",
+          "Vade",
+          "Belge tipi",
+          "evrak no"
+        ],
+        "keywords": [
+          "Evrak tarihi",
+          "Vade",
+          "Belge tipi",
+          "evrak no"
+        ],
+        "related_terms": [
+          "Evrak tarihi",
+          "Vade",
+          "Belge tipi",
+          "evrak no"
+        ],
+        "user_types": []
+      },
+      "user_expressions": [
+        "Cari evraklarını göster"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "dynamic_reports",
+        "title": "Dinamik Reporlar",
+        "url_route": "https://test.vegaforza.com/apps/dynamic-report/list",
+        "category": "dynamic_reports",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Dinamik raporlar",
+      "structured_data": {
+        "functions": [],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    },
+    {
+      "metadata": {
+        "page_id": "dynamic_reports_tab",
+        "title": "Dinamik Raporlar",
+        "url_route": "https://test.vegaforza.com/apps/dynamic-report/list#{categoryName}",
+        "category": "dynamic_reports",
+        "page_type": "sub_page",
+        "parent_page_id": "dynamic_reports",
+        "sub_page_type": "tab",
+        "full_path": "Dinamik Raporlar Kategori > Dinamik Raporlar",
+        "url_parameters": {
+          "categoryName": {
+            "type": "string",
+            "description": "Dimaik raporlar kategorisi",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Dimaik raporlar kategori bazlı listeleme",
+      "structured_data": {
+        "functions": [],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    },
+    {
+      "metadata": {
+        "page_id": "dynamic_report_detail",
+        "title": "Dinamik Rapor Detayı",
+        "url_route": "https://test.vegaforza.com/apps/dynamic-report/view/{reportId}",
+        "category": "dynamic_reports",
+        "page_type": "main_page",
+        "parent_page_id": "dynamic_report",
+        "sub_page_type": "tab",
+        "full_path": "Dinamik Raporlama Detayı > Dinamik Raporlar",
+        "url_parameters": {
+          "reportId": {
+            "type": "guid",
+            "description": "Dinamik Rapor Id",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Dinamik raporlar detayı",
+      "structured_data": {
+        "functions": [],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    }
+  ]
+}

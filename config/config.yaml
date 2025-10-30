@@ -1,0 +1,17 @@
+llm:
+  model: gpt-4o
+  temperature: 0
+  api_key: ${OPENAI_API_KEY}
+  base_url: https://api.openai.com/v1
+
+chatbot:
+  graph_type: vegaforza_navigation
+  thread_id: "1"
+
+database:
+  uri: "${DATABASE_URL}"
+  schema: "public"
+
+forza:
+  base_url: "http://localhost:8082"
+  web_site_url: "https://test.vegaforza.com"

@@ -1,0 +1,27 @@
+{
+  "business_mappings": {
+    "dogalgaz": ["dogalgaz", "doğalgaz", "dogalgz", "gaz", "natural gas"],
+    "elektrik": ["elektrik", "electric", "enerji", "energy"],
+    "su": ["su", "water"],
+    "bank": ["bank", "banka", "banking"],
+    "market": ["market", "pazar", "mağaza"],
+    "telecom": ["telecom", "telekom", "iletişim", "telecommunication"],
+    "firma": ["şirket", "firma", "limited", "anonim", "company"],
+    "store": ["store", "mağaza", "dükkan", "shop"],
+    "teknoloji": ["teknoloji", "technology", "tech", "bilişim"],
+    "sağlık": ["sağlık", "health", "hastane", "hospital"],
+    "eğitim": ["eğitim", "education", "okul", "school"],
+    "ulaşım": ["ulaşım", "transportation", "transport", "lojistik"],
+    "yemek": ["yemek", "food", "restaurant", "restoran"],
+    "turizm": ["turizm", "tourism", "otel", "hotel"]
+  },
+  "common_terms": [
+    "doğalgaz", "elektrik", "su", "gaz", "enerji", 
+    "telecom", "bank", "market", "store", 
+    "şirket", "firma", "limited", "anonim",
+    "teknoloji", "sağlık", "eğitim", "ulaşım", 
+    "yemek", "turizm"
+  ],
+  "semantic_similarity_threshold": 0.7,
+  "max_distinct_values": 100
+}

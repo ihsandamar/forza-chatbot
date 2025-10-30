@@ -1,0 +1,626 @@
+{
+  "web_pages_catalog": [
+    {
+      "metadata": {
+        "page_id": "dashboard",
+        "title": "Ana Sayfa",
+        "url_route": "{baseUrl}/dashboard/main-dashboard",
+        "category": "dashboard",
+        "page_type": "main_page"
+      },
+      "embedding_content": "ERP Dashboard - Embedding Context Açıklaması\n\nBu, FORZA ERP sisteminin ana pano (dashboard) sayfasıdır. Sayfa, işletme yöneticilerine finansal ve operasyonel verilerin anlık görünümünü sunar.\n\nSayfa İçeriği ve Bileşenler:\n\nFinansal Göstergeler:\n\nSatışlar ve tahsilatlar trend grafiği (haftalık bazda)\nTahsil edilecek faturalar özeti (vadesi geçmiş, vadesi gelecek, bugün vadesi gelen)\nÖdenecek faturalar özeti (vadesi geçmiş, vadesi gelecek, bugün vadesi gelen)\nKasa bakiyeleri (TRY ve EUR cinsinden)\nBanka hesap bakiyeleri\nPOS cihazlarından tahsil edilecek tutarlar\n\nKarşılaştırmalı Analizler:\n\nBorçlar ve alacaklar karşılaştırmalı grafik (aylık bazda)\nEn çok işlem gören stok kalemleri ve yüzdelik dağılımları\nEn aktif cari hesaplar ve işlem hacimleri\n\nOperasyonel Bilgiler:\n\nSon gerçekleştirilen finansal işlemler listesi (fatura satış işlemleri, tutarlar ve müşteri bilgileri)\n\nKullanım Amacı:\n\nBu pano, faaliyet gösteren firmasının mali durumunu, nakit akışını, stok hareketlerini ve cari hesap durumunu tek bir ekranda izlemesine olanak tanır. Yöneticiler bu sayfa üzerinden kritik finansal kararlar alabilir ve işletmenin genel sağlığını değerlendirebilir.",
+      "structured_data": {
+        "functions": [
+          "Satışlar ve Tahsilatlar grafiği",
+          "Tahsil Edilecek Faturalar grafiği",
+          "Ödenecek Faturalar grafiği",
+          "Borçlar ve Alacaklar",
+          "Son işlemler"
+        ],
+        "keywords": [
+          "ana sayfa",
+          "main dashboard",
+          "pano"
+        ]
+      },
+      "user_expressions": [
+        "ana sayfaya yönlendir",
+        "panoya git"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "activity-list",
+        "title": "Faaliyet Listesi",
+        "url_route": "{baseUrl}/apps/activity-list/list",
+        "category": "dashboard",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Forza faaliyet listesi cari haraketlerini(dokümanlarını, belgelerini, evraklarını) liste olarak görüntüler.",
+      "structured_data": {
+        "functions": [
+          "Belge listesi"
+        ],
+        "keywords": [
+          "faaliyetler",
+          "haraketler",
+          "işlemler"
+        ]
+      },
+      "user_expressions": [
+        "Faaliyet listesini getirir misin?",
+        "Aktiviteleri görüntüle"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "general-status",
+        "title": "Genel Durum",
+        "url_route": "{baseUrl}/apps/general-status",
+        "category": "dashboard",
+        "page_type": "main_page"
+      },
+      "embedding_content": "İşletmenin belirli bir tarih aralığındaki gelirlerini, giderlerini ve karını grafikler şeklinde görüntülendiği sayfadır.",
+      "structured_data": {
+        "functions": [
+          "gelirler",
+          "giderler",
+          "kar"
+        ],
+        "keywords": [
+          "gelirler",
+          "giderler",
+          "kar",
+          "genel durum",
+          "general status"
+        ]
+      },
+      "user_expressions": [
+        "Genel durumu görmek istiyorum."
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "risk-analysis",
+        "title": "Risk Analizi",
+        "url_route": "{baseUrl}/apps/risk-analysis",
+        "category": "dashboard",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Firmanın finansal sağlığını değerlendiren interaktif pivot tablo raporu. Likidite durumu, alacak-borç dengesi ve finansal riskleri görselleştirerek yönetim kararlarına veri sağlamak.",
+      "structured_data": {
+        "functions": [
+          "Varlıklarım",
+          "ödemelerim"
+        ],
+        "keywords": [
+          "Risk analizi",
+          "Varlıklarım",
+          "Açık Alacaklar",
+          "Banka Nakit",
+          "Banka Senet",
+          "Banka Çek",
+          "Kasa Nakit",
+          "Kasa Senet",
+          "Kasa Çek",
+          "Pos",
+          "Ödemelerim",
+          "Açık Borçlar",
+          "Banka Nakit",
+          "Banka Senet",
+          "Banka Çek",
+          "Kasa Nakit",
+          "Kasa Senet",
+          "KİRA GİDERİ",
+          "akaryakıt gideri"
+        ]
+      },
+      "user_expressions": [
+        "Risk analizini getir",
+        "Riskli durumlar nelerdir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-list",
+        "title": "Cari Listesi",
+        "url_route": "{baseUrl}/apps/customer/list",
+        "category": "customer",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Firma ile ticari ilişkisi olan tüm müşteri ve tedarikçilerin listelendiği sayfa.",
+      "structured_data": {
+        "functions": [
+          "cari listesi",
+          "müşteriler"
+        ],
+        "keywords": [
+          "cariler",
+          "müşteriler",
+          "müşteri listesi",
+          "cari listesi",
+          "ticari hesaplar"
+        ]
+      },
+      "user_expressions": [
+        "tüm carileri görmek istiyorum",
+        "carileri getir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-stuff",
+        "title": "Personel Carileri",
+        "url_route": "{baseUrl}/apps/customer-stuff/list",
+        "category": "customer",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Firma ile ticari ilişkisi olan tüm bireysel müşteri kayıtlarının listelendiği sayfa.",
+      "structured_data": {
+        "functions": [
+          "Personel carileri"
+        ],
+        "keywords": [
+          "Personel cari listesi"
+        ]
+      },
+      "user_expressions": [
+        "Personel carilerini listeler misin"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "payment-plan",
+        "title": "Ödeme Planı",
+        "url_route": "{baseUrl}/apps/payment-plan/list",
+        "category": "customer",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Carilerin beklenen ödemeleri liste şeklinde görüntülendiği sayfa",
+      "structured_data": {
+        "functions": [
+          "Cari adı",
+          "Tutar",
+          "Tarih",
+          "İşlem"
+        ],
+        "keywords": [
+          "Ödeme planı",
+          "payment"
+        ]
+      },
+      "user_expressions": [
+        "Ödeme planını göster."
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-view",
+        "title": "Cari Bilgileri",
+        "url_route": "{baseUrl}/apps/customer/view/{customerId}",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer-list",
+        "sub_page_type": "link",
+        "full_path": "customer-view > customer-list",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Müşteri bilgilerinin detayının görüntülendiği sayfadır",
+      "structured_data": {
+        "functions": [],
+        "keywords": [
+          "Cari detayı",
+          "cari bilgileri",
+          "Müşteri detayı",
+          "Müşteri bilgileri"
+        ]
+      },
+      "user_expressions": [
+        "Cari detayını görüntümek istiyorum",
+        "Müşterileri detayını göster"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-view-activity",
+        "title": "Cari Hareketleri",
+        "url_route": "{baseUrl}/apps/customer/view/{customerId}?tab=0",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer-list",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": false
+          }
+        }
+      },
+      "embedding_content": "Cari belgelerinin liste şeklinde görüntülendiği sayfa",
+      "structured_data": {
+        "functions": [
+          "Cari haraketleri tablosu"
+        ],
+        "keywords": [
+          "cari belgeleri",
+          "cari hareketleri",
+          "cari dokümanları",
+          "cari evrakları"
+        ]
+      },
+      "user_expressions": [
+        "cari hareketlerini göster"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-view-document",
+        "title": "Cari Evrakları",
+        "url_route": "{baseUrl}/apps/customer/view/{customerId}?tab=1",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer-list",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": false
+          }
+        }
+      },
+      "embedding_content": "Carinin tüm evraklarının liste şeklinde görüntülendiği sayfadır",
+      "structured_data": {
+        "functions": [
+          "Cari evrakları tablosu"
+        ],
+        "keywords": [
+          "Cari evrakları",
+          "Cari dokümanları",
+          "cari belgeleri",
+          "müşteri evrakları"
+        ]
+      },
+      "user_expressions": [
+        "Müşteri evrakları tablosunu getir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer- view-currency",
+        "title": "Cari Döviz Bakiye",
+        "url_route": "{baseUrl}/apps/customer/view/{customerId}?tab=2",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer-list",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": false
+          }
+        }
+      },
+      "embedding_content": "Carinin döviz kurundaki hareketleri listelendiği sayfadır.",
+      "structured_data": {
+        "functions": [
+          "Cari döviz bakiye listesi"
+        ],
+        "keywords": [
+          "Cari döviz hareketleri",
+          "cari döviz bakiyesi",
+          "Cari farklı kurlar"
+        ]
+      },
+      "user_expressions": [
+        "Carinin farklı kurlardaki hareketlerini getirir misin?"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-add",
+        "title": "Cari Ekle",
+        "url_route": "{baseUrl}/apps/customer/add",
+        "category": "customer",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Yeni cari ekleme sayfası",
+      "structured_data": {
+        "functions": [
+          "Cari ekleme"
+        ],
+        "keywords": [
+          "Cari ekleme",
+          "Müşteri ekleme"
+        ]
+      },
+      "user_expressions": [
+        "Yeni bir cari eklemek istiyorum"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-edit",
+        "title": "Cari Düzenleme",
+        "url_route": "{baseUrl}/apps/customer/edit/{customerId}",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer-list",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": false
+          }
+        }
+      },
+      "embedding_content": "Cari bilgilerinin düzenlendiği sayfa",
+      "structured_data": {
+        "functions": [
+          "Cari düzenleme"
+        ],
+        "keywords": [
+          "Cari düzenleme",
+          "Müşteri düzenleme",
+          "Customer edit"
+        ]
+      },
+      "user_expressions": [
+        "Carisini düzenlemek istiyorum"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-summary",
+        "title": "Cari Hesap Ekstresi Özeti",
+        "url_route": "{baseUrl}/apps/dynamic-report/view/f778a170-5939-11ee-9bf2-1bccd1389976/%20/%7B%22CustomerId%22:%7B%22value%22:%22{customerId}%22%7D%7D",
+        "category": "customer",
+        "page_type": "main_page",
+        "parent_page_id": "customer-list",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "CustomerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": false
+          }
+        }
+      },
+      "embedding_content": "Cari Hesap Ekstresi Özeti sayfasıdır.",
+      "structured_data": {
+        "functions": [
+          "Cari hesap özeti listesi"
+        ],
+        "keywords": [
+          "Cari Hesap Ekstresi Özeti",
+          "Cari hesap özeti"
+        ]
+      },
+      "user_expressions": [
+        "Cari Hesap Ekstresi Özeti lsitesini getir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "customer-dynamic-report",
+        "title": "Cari Raporu",
+        "url_route": "{baseUrl}/apps/dynamic-report/view/{reportId}/%20/%7B%22CustomerId%22:%7B%22value%22:%22{customerId}%22%7D%7D",
+        "category": "customer",
+        "page_type": "sub_page",
+        "parent_page_id": "customer",
+        "url_parameters": {
+          "customerId": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true
+          },
+          "reportId": {
+            "type": "guid",
+            "description": "Dynamic Report Id",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "İlgili raporda carinin hareketlerini görüntüleyen özel dinamik rapor sayfasıdır",
+      "structured_data": {
+        "functions": [],
+        "keywords": [
+          "cari filtresi",
+          "dinamik rapor"
+        ]
+      },
+      "user_expressions": [
+        "'Cari Adı' carisi için 'Dinamik rapor Adı' raporunu görüntülemek istiyorum."
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "master-report",
+        "title": "Master Raporlar",
+        "url_route": "{baseUrl}/apps/master-reports/turnover",
+        "category": "master-report",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Restorant/kafe ticari işletmelerinin satış analizlerinin ayrıntılı olarak raporlarının görüntülendiği raporlar sayfasıdır.",
+      "structured_data": {
+        "functions": [],
+        "keywords": [
+          "şefim raporları",
+          "master panel",
+          "master raporlar",
+          "şefim raporları",
+          "şefim analizi"
+        ]
+      },
+      "user_expressions": [
+        "Şefim raporlarını görmek istiyorum."
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "master-report-open-table",
+        "title": "Açık Masalar Raporu",
+        "url_route": "{baseUrl}/apps/master-reports/turnover",
+        "category": "master-report",
+        "page_type": "sub_page",
+        "parent_page_id": "master-report",
+        "sub_page_type": "tab"
+      },
+      "embedding_content": "Şefim uygulmasında hala açık olan masaların raporlandığı sayfadır.",
+      "structured_data": {
+        "functions": [
+          "masa sayısı ve toplam tutar",
+          "tarih filtresi",
+          "şube performans grafiği ve tablosu"
+        ],
+        "keywords": [
+          "açık masalar",
+          "kapalı olmayan masalar",
+          "ödemesi alınmayan masalar"
+        ]
+      },
+      "user_expressions": [
+        "hangi şubede kaç müşteri halen ödemesi alınmamıştır?"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "product-list",
+        "title": "Ürün/Hizmet Listesi",
+        "url_route": "{baseUrl}/apps/stock/list",
+        "category": "product",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Ürünlerin ve Hizmetlerin lsitelendiği sayfadır.",
+      "structured_data": {
+        "functions": [
+          "ürün listesi"
+        ],
+        "keywords": [
+          "ürünler",
+          "ürün listesi",
+          "hizmetler",
+          "hizmet listesi"
+        ]
+      },
+      "user_expressions": [
+        "Ürünleri görmek istiyorum"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "product-view",
+        "title": "Stok Bilgileri",
+        "url_route": "{baseUrl}/apps/stock/view/{productId}",
+        "category": "product",
+        "page_type": "sub_page",
+        "parent_page_id": "product-list",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "productId": {
+            "type": "guid",
+            "description": "Ürün Id",
+            "required": false
+          }
+        }
+      },
+      "embedding_content": "Ürün detayının görüntülendiği sayfadır",
+      "structured_data": {
+        "functions": [
+          "Ürün detayı\tlistesi"
+        ],
+        "keywords": [
+          "Ürün",
+          "Stok",
+          "Stock",
+          "Product",
+          "Hizmet",
+          "Ürün/hizmet"
+        ]
+      },
+      "user_expressions": [
+        "Ürün detayını getir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "dynamic_reports",
+        "title": "Dinamik Reporlar",
+        "url_route": "{baseUrl}/apps/dynamic-report/list",
+        "category": "dynamic_reports",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Dinamik raporlar",
+      "structured_data": {
+        "functions": [],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    },
+    {
+      "metadata": {
+        "page_id": "dynamic_reports_tab",
+        "title": "Dinamik Raporlar",
+        "url_route": "{baseUrl}/apps/dynamic-report/list#{categoryName}",
+        "category": "dynamic_reports",
+        "page_type": "sub_page",
+        "parent_page_id": "dynamic_reports",
+        "sub_page_type": "tab",
+        "full_path": "Dinamik Raporlar Kategori > Dinamik Raporlar",
+        "url_parameters": {
+          "categoryName": {
+            "type": "string",
+            "description": "Dimaik raporlar kategorisi",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Dimaik raporlar kategori bazlı listeleme",
+      "structured_data": {
+        "functions": [],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    },
+    {
+      "metadata": {
+        "page_id": "dynamic_report_detail",
+        "title": "Dinamik Rapor Detayı",
+        "url_route": "{baseUrl}/apps/dynamic-report/view/{reportId}",
+        "category": "dynamic_reports",
+        "page_type": "main_page",
+        "parent_page_id": "dynamic_report",
+        "sub_page_type": "tab",
+        "full_path": "Dinamik Raporlama Detayı > Dinamik Raporlar",
+        "url_parameters": {
+          "reportId": {
+            "type": "guid",
+            "description": "Dinamik Rapor Id",
+            "required": true
+          }
+        }
+      },
+      "embedding_content": "Dinamik raporlar detayı",
+      "structured_data": {
+        "functions": [],
+        "keywords": [],
+        "related_terms": [],
+        "user_types": []
+      },
+      "user_expressions": []
+    }
+  ]
+}

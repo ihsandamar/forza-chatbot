@@ -1,0 +1,322 @@
+llm:
+  model: gpt-4o #gpt-4o-mini 
+  temperature: 0
+  # model: gpt-5-2025-08-07 #gpt-4o-mini   
+  # temperature: 1
+  api_key: ${OPENAI_API_KEY}
+  base_url: https://api.openai.com/v1
+
+chatbot:
+  graph_type: enhanced_query_extraction
+  thread_id: "1"
+
+database:
+  uri: "${DATABASE_URL}"
+  schema: "public"
+
+# SQLAgentConfiguration schema  
+sql_agent_configuration:
+  # Core Assistant Settings
+  system_prompt: "Sen bir ERP uzmanı ve SQL sorgulama asistanısın. Görevin verilen bilgileri kullanarak senden istenilen sorguyu ve bilgiyi vermen."
+  assistant_name: "ERP SQL Assistant"
+  
+  # Database Configuration
+  initial_setup_sql: "--SELECT 1 as test_connection"
+  table_name: "MasterReportDocument"
+  table_columns: [
+  {
+    "name": "DocumentId",
+    "type": "uniqueidentifier",
+    "description": "Adisyon id"
+  },
+  {
+    "name": "BranchId", 
+    "type": "uniqueidentifier",
+    "description": "Şube id"
+  },
+  {
+    "name": "BusinessId",
+    "type": "uniqueidentifier", 
+    "description": "İşletme id"
+  },
+  {
+    "name": "BusinessName",
+    "type": "nvarchar",
+    "description": "İşletme adı"
+  },
+  {
+    "name": "DocumentTypeId",
+    "type": "uniqueidentifier",
+    "description": "Belge türü kimliği"
+  },
+  {
+    "name": "DocumentKindId",
+    "type": "uniqueidentifier",
+    "description": "Belge nevi kimliği"
+  },
+  {
+    "name": "CashierId",
+    "type": "uniqueidentifier",
+    "description": "Kasiyer id"
+  },
+  {
+    "name": "DeliveryUserId",
+    "type": "uniqueidentifier",
+    "description": "Teslimat kullanıcısı kimliği"
+  },
+  {
+    "name": "DocumentStatus",
+    "type": "int",
+    "description": "Belge durumu (0: Silinmiş, 1: Aktif)"
+  },
+  {
+    "name": "DocumentDate",
+    "type": "datetime2",
+    "description": "Belge tarihi, sipariş tarihi, masa açılma tarihi "
+  },
+  {
+    "name": "DocumentDetailId",
+    "type": "uniqueidentifier",
+    "description": "Adisyon veya belge detay kimliği"
+  },
+  {
+    "name": "ProductId",
+    "type": "uniqueidentifier",
+    "description": "Ürün id"
+  },
+  {
+    "name": "Quantity",
+    "type": "decimal",
+    "description": "Ürün miktarı"
+  },
+  {
+    "name": "RowAmount",
+    "type": "decimal",
+    "description": "Ürün tutarı - satır tutar"
+  },
+  {
+    "name": "DiscountAmountTotal",
+    "type": "decimal",
+    "description": "Ürün indirim tutarı"
+  },
+  {
+    "name": "BranchName",
+    "type": "nvarchar",
+    "description": "Şube adı"
+  },
+  {
+    "name": "ProductName",
+    "type": "nvarchar",
+    "description": "Ürün adı"
+  },
+  {
+    "name": "CategoryId",
+    "type": "uniqueidentifier",
+    "description": "Kategori id"
+  },
+  {
+    "name": "CategoryName",
+    "type": "nvarchar",
+    "description": "Kategori adı"
+  },
+  {
+    "name": "DocumentKindName",
+    "type": "nvarchar",
+    "description": "Belge nevi adı"
+  },
+  {
+    "name": "DocumentTypeName",
+    "type": "nvarchar",
+    "description": "Belge tipi"
+  },
+  {
+    "name": "DocumentTypeIsReturn",
+    "type": "bit",
+    "description": "Belge türü iade belirteci (0: Hayır, 1: Evet(İade))"
+  },
+  {
+    "name": "ProductUnitId",
+    "type": "uniqueidentifier",
+    "description": "Ürün birimi id"
+  },
+  {
+    "name": "ProductUnitName",
+    "type": "nvarchar",
+    "description": "Ürün birimi adı"
+  },
+  {
+    "name": "CashierName",
+    "type": "nvarchar",
+    "description": "Kasiyer adı"
+  },
+  {
+    "name": "IsTableActive",
+    "type": "bit",
+    "description": "Açık Masa Mı? yani masada müşteri var mı?"
+  },
+  {
+    "name": "TableNo",
+    "type": "nvarchar",
+    "description": "Masa numarası veya masa adı"
+  },
+  {
+    "name": "CustomerId",
+    "type": "uniqueidentifier",
+    "description": "Müşteri veya cari kimliği"
+  },
+  {
+    "name": "CustomerName",
+    "type": "nvarchar",
+    "description": "Müşteri veya cari adı"
+  },
+  {
+    "name": "BranchGroupName",
+    "type": "nvarchar",
+    "description": "Şube grup adı"
+  },
+  {
+    "name": "BusinessType",
+    "type": "nvarchar",
+    "description": "İşletme türü"
+  },
+  {
+    "name": "BranchCityName",
+    "type": "nvarchar",
+    "description": "Şube şehir adı"
+  },
+  {
+    "name": "BranchTownName",
+    "type": "nvarchar",
+    "description": "Şube ilçe adı"
+  },
+  {
+    "name": "DocumentDetailIsTreatWasteCancel",
+    "type": "bit",
+    "description": "Ürün ikram/zayi/iptal durumu(1: Ikram, 2: Zayi, 3: İptal, null: default)"
+  },
+  {
+    "name": "DayOfWeek",
+    "type": "int",
+    "description": "Haftanın günü (1: Pazartesi, 7: Pazar)"
+  },
+  {
+    "name": "Hour",
+    "type": "int",
+    "description": "Saat (0-23 arası)"
+  },
+  {
+    "name": "TableCustomerNumber",
+    "type": "int",
+    "description": "Masadaki müşteri sayısı"
+  },
+  {
+    "name": "DocumentDetailUpdatedAt",
+    "type": "datetime2",
+    "description": "Belge detay güncellenme tarihi"
+  },
+  {
+    "name": "DocumentDetailUpdatedUserId",
+    "type": "uniqueidentifier",
+    "description": "Belge detay güncelleyen kullanıcı kimliği"
+  },
+  {
+    "name": "DocumentDetailUpdatedUserFirstLastName",
+    "type": "nvarchar",
+    "description": "Belge detay güncelleyen kullanıcı ad soyad"
+  },
+  {
+    "name": "PurchasePriceWithTax",
+    "type": "decimal",
+    "description": "Vergili alış fiyatı"
+  },
+  {
+    "name": "DocumentDetailDescription1",
+    "type": "nvarchar",
+    "description": "Belge detay açıklama 1"
+  },
+  {
+    "name": "DeliveryUserName",
+    "type": "nvarchar",
+    "description": "Teslimat kullanıcısı adı"
+  }
+  ]
+
+  table_description: |
+    ### Özel Durumlar:
+    - DocumentDetailIsTreatWasteCancel: Özel durum kodu
+      - NULL: Normal satış (varsayılan)
+      - 1: İkram
+      - 2: Zayi
+      - 3: İptal
+
+    ## SQL SORGU KURALLARI:
+
+    *DEFAULT KULLANILCAK FILTRELER(Aksi belirtilmedikçe aşağıdaki belirtilen şekilde ekle)*
+    - DocumentStatus = 1 (Aktif belgeler)
+    - DocumentDetailIsTreatWasteCancel IS NULL (Özel durumlar hariç)
+    - DocumentTypeIsReturn = 0 (İadeler hariç) ve Aggregation fonksiyonlarında iade tutarını çıkartmalısın (örn: SUM(RowAmount) - SUM(CASE WHEN DocumentTypeIsReturn = 1 THEN RowAmount ELSE 0 END))
+
+    1. **Tarih Sorguları:**
+       - Bugün: WHERE CAST(DocumentDate AS DATE) = CAST(GETDATE() AS DATE)
+       - Dün: WHERE CAST(DocumentDate AS DATE) = CAST(DATEADD(DAY, -1, GETDATE()) AS DATE)
+       - Bu hafta: WHERE DocumentDate >= DATEADD(WEEK, DATEDIFF(WEEK, 0, GETDATE()), 0)
+       - Bu ay: WHERE MONTH(DocumentDate) = MONTH(GETDATE()) AND YEAR(DocumentDate) = YEAR(GETDATE())
+
+    2. **Satış Sorguları:**
+       - Normal satışlar için: WHERE DocumentTypeIsReturn = 0 AND DocumentDetailIsTreatWasteCancel IS NULL
+       - İadeler için: WHERE DocumentTypeIsReturn = 1
+       - İkramlar için: WHERE DocumentDetailIsTreatWasteCancel = 1
+       - Zayi için: WHERE DocumentDetailIsTreatWasteCancel = 2
+       - İptal edilenler için: WHERE DocumentDetailIsTreatWasteCancel = 3
+       - Paket servis: WHERE DocumentKindName = 'Paket Servis'
+       - Masa servisi: WHERE DocumentKindName IN ('AA', 'BB') AND IsTableActive = 1
+       - Özel durumlar hariç: WHERE DocumentDetailIsTreatWasteCancel IS NULL
+
+    3. **Agregasyon Fonksiyonları:**
+       - Toplam satış (özel durumlar hariç): SUM(CASE WHEN DocumentDetailIsTreatWasteCancel IS NULL THEN RowAmount - DiscountAmountTotal ELSE 0 END)
+       - Net tutar: SUM(RowAmount) - SUM(DiscountAmountTotal)
+       - Ortalama sepet: AVG(RowAmount)
+       - İşlem sayısı: COUNT(DISTINCT DocumentId)
+       - Ürün adedi: SUM(Quantity)
+       - Kar marjı: SUM(RowAmount - PurchasePriceWithTax)
+       - İkram tutarı: SUM(CASE WHEN DocumentDetailIsTreatWasteCancel = 1 THEN RowAmount ELSE 0 END)
+       - Zayi tutarı: SUM(CASE WHEN DocumentDetailIsTreatWasteCancel = 2 THEN RowAmount ELSE 0 END)
+       - İptal tutarı: SUM(CASE WHEN DocumentDetailIsTreatWasteCancel = 3 THEN RowAmount ELSE 0 END)
+
+    4. **Gruplama:**
+       - Şube bazlı: GROUP BY BranchName
+       - Kategori bazlı: GROUP BY CategoryName
+       - Ürün bazlı: GROUP BY ProductName
+       - Personel bazlı: GROUP BY CashierName
+       - Günlük: GROUP BY CAST(DocumentDate AS DATE)
+       - Saatlik: GROUP BY Hour
+       - Müşteri bazlı: GROUP BY CustomerName
+
+    5. **Performans İçin:**
+       - Her zaman TOP kullan (varsayılan TOP 100)
+       - Büyük tarih aralıkları için indeks kullan
+       - Gereksiz kolonları çekme
+       - ORDER BY ile anlamlı sıralama yap
+
+    ## ÖRNEK SORGULAR:
+
+    -- Bugünün satışları (iadeler, ikram, zayi, iptal hariç)
+    SELECT 
+        COUNT(DISTINCT DocumentId) as AdisyonSayisi,
+        SUM(Quantity) as ToplamAdet,
+        SUM(RowAmount) as BrutTutar,
+        SUM(DiscountAmountTotal) as ToplamIndirim,
+        SUM(RowAmount - DiscountAmountTotal) as NetTutar
+    FROM MasterReportDocument
+    WHERE CAST(DocumentDate AS DATE) = CAST(GETDATE() AS DATE)
+        AND DocumentTypeIsReturn = 0
+        AND DocumentDetailIsTreatWasteCancel IS NULL
+
+  # Business Terms Configuration  
+  max_distinct_values: 50
+  common_terms: [
+    "fatura", "sipariş", "satış", "ürün", "kategori", "müşteri", "şube", "belge",
+    "kasiyer", "masa", "teslimat", "indirim", "tutar", "miktar", "tarih", "saat", 
+    "şehir", "ilçe", "grup", "birim", "fire", "iptal", "güncellenme", "açıklama",
+    "vergi", "alış", "fiyat", "döner", "dürüm", "içecek", "yemek", "restoran"
+  ]
