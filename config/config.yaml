@@ -5,7 +5,7 @@ llm:
   base_url: https://api.openai.com/v1
 
 chatbot:
-  graph_type: vegaforza_navigation
+  graph_type: chat
   thread_id: "1"
 
 database:

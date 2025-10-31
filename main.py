@@ -7,7 +7,8 @@ from src.graphs.graph_repository import GraphRepository
 from src.builders.chatbot_builder import ChatbotBuilder
 
 from src.interfaces.cli_interface import run_cli
-from src.interfaces.gradio_interface import run_gradio
+from src.interfaces.gradio_interface_v2 import GradioInterface
+from src.interfaces.fastapi_interface import FastAPIInterface
 from src.interfaces.flask_interface import run_flask
 
 
@@ -59,17 +60,22 @@ if __name__ == "__main__":
     if args.interface == "cli":
         run_cli(chatbot)
     elif args.interface == "gradio":
-        run_gradio(chatbot)
+        # Use new GradioInterface (Phase 2.1)
+        interface = GradioInterface(
+            chatbot=chatbot,
+            title="🤖 Forza Chatbot",
+            port=7860,
+            share=False,
+            theme="default"
+        )
+        interface.run()
     elif args.interface == "api":
         run_flask(chatbot)
     elif args.interface == "fastapi":
-        from src.api.main import app
-        import uvicorn
-        import os
-        from dotenv import load_dotenv
-
-        load_dotenv()
-        host = os.getenv("HOST", "0.0.0.0")
-        port = int(os.getenv("PORT", "8000"))
-
-        uvicorn.run(app, host=host, port=port)
+        # Use new FastAPIInterface (Phase 2.2)
+        interface = FastAPIInterface(
+            chatbot=chatbot,
+            title="Forza Chatbot API",
+            version="2.0"
+        )
+        interface.run(host="0.0.0.0", port=8000, reload=False)
