@@ -8,6 +8,7 @@ Supports multiple interfaces: CLI, Gradio, API, and FastAPI.
 import argparse
 from src.services.config_loader import ConfigLoader
 from src.builders.dependency_factory import DependencyFactory
+from src.builders.adapter_factory import AdapterFactory
 from src.builders.chatbot_builder import ChatbotBuilder
 
 from src.interfaces.cli_interface import run_cli
@@ -30,16 +31,17 @@ def build_chatbot(config_path: str, entrypoint_function: str = None):
     # Load configuration
     config = ConfigLoader.load_config(config_path)
 
-    # Create dependency factory - handles all dependency creation
-    factory = DependencyFactory()
+    # Create dependency factories - handles all dependency creation and injection
+    dependency_factory = DependencyFactory()
+    adapter_factory = AdapterFactory()
 
     # Get LLM and graph configurations
     llm_config = config.llm
     graph_type = entrypoint_function if entrypoint_function else config.chatbot.graph_type
 
-    # Build chatbot using factory pattern
+    # Build chatbot using dependency injection factories
     chatbot = (
-        ChatbotBuilder(factory)
+        ChatbotBuilder(dependency_factory, adapter_factory)
         .with_model(llm_config.model, llm_config.temperature, llm_config.api_key)
         .with_graph(graph_type)
         .with_graph_config({"configurable": {"thread_id": config.chatbot.thread_id}})

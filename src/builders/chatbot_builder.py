@@ -3,15 +3,14 @@
 Chatbot Builder - Dependency Injection Factory pattern kullanarak Chatbot oluşturur.
 
 Single Responsibility: Sadece Chatbot örneği oluşturmak.
-DI işlemi DependencyFactory'ye taşındı.
+DI işlemi DependencyFactory ve AdapterFactory'ye taşındı.
 """
 
 from typing import Optional
 from src.core.chatbot import Chatbot
 from src.adapters.base_state_adapter import BaseStateAdapter
-from src.adapters.default_state_adapter import DefaultStateAdapter
-from src.adapters.vegaforza_state_adapter import VegaforzaStateAdapter
 from src.builders.dependency_factory import DependencyFactory
+from src.builders.adapter_factory import AdapterFactory
 
 
 class ChatbotBuilder:
@@ -19,20 +18,25 @@ class ChatbotBuilder:
     Chatbot örnekleri oluşturmak için builder.
 
     Single Responsibility: Chatbot construction ve orchestration.
-    Dependency creation DependencyFactory'ye taşındı.
+    Dependencies:
+        - DependencyFactory: LLM ve GraphRepository oluşturma
+        - AdapterFactory: State adapter seçimi
 
     Args:
-        factory: DependencyFactory instance (dependencies oluşturur)
+        factory: DependencyFactory instance (LLM, GraphRepository creation)
+        adapter_factory: AdapterFactory instance (adapter selection)
     """
 
-    def __init__(self, factory: DependencyFactory):
+    def __init__(self, factory: DependencyFactory, adapter_factory: AdapterFactory):
         """
-        Initialize builder with dependency factory.
+        Initialize builder with dependency factories.
 
         Args:
             factory: DependencyFactory instance
+            adapter_factory: AdapterFactory instance
         """
         self.factory = factory
+        self.adapter_factory = adapter_factory
         self._llm = None
         self._graph_config = {"configurable": {"thread_id": "1"}}
         self._assistant_configuration = None
@@ -144,7 +148,7 @@ class ChatbotBuilder:
 
         # Auto-select adapter based on graph type if not explicitly set
         if self._adapter is None:
-            self._adapter = self._auto_select_adapter(self._graph_type)
+            self._adapter = self.adapter_factory.create_adapter(self._graph_type)
 
         return Chatbot(
             llm=self._llm,
@@ -153,27 +157,3 @@ class ChatbotBuilder:
             assistant_config=self._assistant_configuration,
             adapter=self._adapter
         )
-
-    def _auto_select_adapter(self, graph_type: str) -> BaseStateAdapter:
-        """
-        Automatically select appropriate adapter based on graph type.
-
-        Args:
-            graph_type: Type of graph being used
-
-        Returns:
-            Appropriate adapter instance
-        """
-        # Map graph types to their adapters
-        adapter_mapping = {
-            "vegaforza_navigation": VegaforzaStateAdapter(),
-            # Add more mappings as needed
-            # "custom_graph": CustomAdapter(),
-        }
-
-        # Return specific adapter if mapped, otherwise default
-        adapter = adapter_mapping.get(graph_type, DefaultStateAdapter())
-
-        print(f"INFO: Auto-selected adapter: {adapter.__class__.__name__} for graph type: {graph_type}")
-
-        return adapter
