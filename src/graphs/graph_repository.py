@@ -26,7 +26,10 @@ class GraphRepository:
         """
         # Explicit imports for PyInstaller compatibility
         try:
-            import src.graphs.chat_graph
+            # New modular graph structure
+            import src.graphs.chat.graph
+
+            # Legacy graphs (to be refactored)
             import src.graphs.text2sql_graph
             import src.graphs.core_text2sql_graph
             import src.graphs.generic_sql_graph
