@@ -1,9 +1,13 @@
 # main.py
+"""
+Main entry point for Forza Chatbot application.
+
+Supports multiple interfaces: CLI, Gradio, API, and FastAPI.
+"""
+
 import argparse
-from src.models.models import LLM
 from src.services.config_loader import ConfigLoader
-from src.services.container import ServiceContainer
-from src.graphs.graph_repository import GraphRepository
+from src.builders.dependency_factory import DependencyFactory
 from src.builders.chatbot_builder import ChatbotBuilder
 
 from src.interfaces.cli_interface import run_cli
@@ -13,26 +17,29 @@ from src.interfaces.flask_interface import run_flask
 
 
 def build_chatbot(config_path: str, entrypoint_function: str = None):
+    """
+    Build chatbot instance with configuration.
 
+    Args:
+        config_path: Path to configuration YAML file
+        entrypoint_function: Override graph type from config
+
+    Returns:
+        Configured Chatbot instance
+    """
+    # Load configuration
     config = ConfigLoader.load_config(config_path)
 
-    container = ServiceContainer()
+    # Create dependency factory - handles all dependency creation
+    factory = DependencyFactory()
 
+    # Get LLM and graph configurations
     llm_config = config.llm
-    container.register("llm", lambda: LLM(
-        model=llm_config.model,
-        temperature=llm_config.temperature,
-        api_key=llm_config.api_key
-    ))
-
-    container.register("graph_repo", lambda: GraphRepository(container.resolve("llm")))
-
-    # Determine graph type: use parameter if provided, otherwise fall back to config
     graph_type = entrypoint_function if entrypoint_function else config.chatbot.graph_type
 
-    # 🔹 Chatbot oluşturuluyor
+    # Build chatbot using factory pattern
     chatbot = (
-        ChatbotBuilder(container)
+        ChatbotBuilder(factory)
         .with_model(llm_config.model, llm_config.temperature, llm_config.api_key)
         .with_graph(graph_type)
         .with_graph_config({"configurable": {"thread_id": config.chatbot.thread_id}})
