@@ -65,66 +65,156 @@ src/graphs/
 │   ├── __init__.py
 │   ├── base_graph.py (Enhanced BaseGraph with config support)
 │   ├── graph_config.py (GraphConfig dataclass)
-│   ├── graph_state.py (State typing & validation)
 │   ├── graph_metadata.py (GraphMetadata - capabilities, requirements)
-│   └── graph_types.py (Type definitions: InputType, OutputType)
-├── core/
+│   └── graph_types.py (Type definitions: GraphState, GraphOutput)
+│
+├── chat/
 │   ├── __init__.py
-│   ├── chat_graph.py (Chat interface graph)
-│   └── intent_graph.py (Intent detection graph)
-├── routing/
+│   ├── graph.py (30 lines - graph builder)
+│   ├── nodes.py (Chat nodes - process_message, format_response)
+│   ├── state.py (ChatState dataclass)
+│   ├── prompts.py (Chat system prompts)
+│   └── config.yaml (Chat graph config)
+│
+├── intent/
 │   ├── __init__.py
-│   ├── forza_routing_graph.py (Main routing/supervisor)
-│   └── supervisor_graph.py (Supervisor/orchestrator)
-├── extraction/
+│   ├── graph.py
+│   ├── nodes.py (Intent detection, confidence scoring)
+│   ├── state.py (IntentState)
+│   ├── prompts.py (Intent detection prompts)
+│   └── config.yaml
+│
+├── forza_routing/
 │   ├── __init__.py
-│   ├── query_extraction_graph.py
-│   ├── enhanced_query_extraction_graph.py
-│   └── enhanced_query_extraction/
-│       ├── __init__.py
-│       ├── models.py
-│       ├── agents.py
-│       ├── tools.py
-│       └── utils.py
-├── sql/
+│   ├── graph.py (30 lines - router structure)
+│   ├── nodes.py (RAG, parameter fill, execution)
+│   ├── tools.py (Forza-specific toolkit)
+│   ├── state.py (NavigationState, adapters)
+│   ├── prompts.py (Navigation prompts)
+│   └── config.yaml
+│
+├── supervisor/
 │   ├── __init__.py
-│   ├── text2sql_graph.py
-│   ├── core_text2sql_graph.py
-│   └── generic_sql_graph.py
-├── rag/
+│   ├── graph.py (Orchestrator/supervisor pattern)
+│   ├── nodes.py (Decision making, routing logic)
+│   ├── state.py (SupervisorState)
+│   ├── prompts.py (Supervisor prompts)
+│   └── config.yaml
+│
+├── query_extraction/
 │   ├── __init__.py
-│   ├── forza_rag_graph.py
-│   ├── sefim_rag_graph.py
-│   ├── gib_mevzuat_graph.py
-│   └── forza_toolkit_graph.py
-├── report/
+│   ├── graph.py
+│   ├── nodes.py (Query parsing, entity extraction)
+│   ├── state.py (ExtractionState)
+│   ├── prompts.py (Extraction prompts)
+│   ├── enhanced/
+│   │   ├── __init__.py
+│   │   ├── models.py (Data models)
+│   │   ├── agents.py (Agent implementations)
+│   │   ├── tools.py (Extraction tools)
+│   │   └── utils.py (Utility functions)
+│   └── config.yaml
+│
+├── text2sql/
 │   ├── __init__.py
-│   └── master_report_graph.py
+│   ├── graph.py
+│   ├── nodes.py (Extract query, generate SQL, validate)
+│   ├── state.py (Text2SqlState)
+│   ├── prompts.py (SQL generation prompts)
+│   └── config.yaml
+│
+├── core_text2sql/
+│   ├── __init__.py
+│   ├── graph.py
+│   ├── nodes.py
+│   ├── state.py
+│   ├── prompts.py
+│   └── config.yaml
+│
+├── generic_sql/
+│   ├── __init__.py
+│   ├── graph.py
+│   ├── nodes.py
+│   ├── state.py
+│   ├── prompts.py
+│   └── config.yaml
+│
+├── forza_rag/
+│   ├── __init__.py
+│   ├── graph.py
+│   ├── nodes.py (Retrieval, ranking, synthesis)
+│   ├── tools.py (RAG-specific tools)
+│   ├── state.py (RAGState)
+│   ├── prompts.py (RAG prompts)
+│   └── config.yaml
+│
+├── sefim_rag/
+│   ├── __init__.py
+│   ├── graph.py
+│   ├── nodes.py
+│   ├── state.py
+│   ├── prompts.py
+│   └── config.yaml
+│
+├── gib_mevzuat/
+│   ├── __init__.py
+│   ├── graph.py
+│   ├── nodes.py
+│   ├── state.py
+│   ├── prompts.py
+│   └── config.yaml
+│
+├── forza_toolkit/
+│   ├── __init__.py
+│   ├── graph.py
+│   ├── nodes.py
+│   ├── tools.py (Toolkit implementations)
+│   ├── state.py
+│   ├── prompts.py
+│   └── config.yaml
+│
+├── master_report/
+│   ├── __init__.py
+│   ├── graph.py
+│   ├── nodes.py (Report generation, formatting)
+│   ├── state.py (ReportState)
+│   ├── prompts.py (Report generation prompts)
+│   └── config.yaml
+│
 ├── repository/
 │   ├── __init__.py
-│   ├── graph_repository.py (Enhanced)
-│   └── graph_loader.py (Config-based graph loading)
+│   ├── graph_repository.py (Enhanced - loads from each graph's config.yaml)
+│   └── graph_loader.py (Dynamic graph loading)
+│
 ├── registry/
 │   ├── __init__.py
-│   ├── registry.py (Enhanced registry)
-│   └── graph_discovery.py (Auto-discovery)
-└── configs/
-    ├── __init__.py
-    ├── chat_graph.yaml
-    ├── intent_graph.yaml
-    ├── forza_routing_graph.yaml
-    ├── query_extraction_graph.yaml
-    ├── text2sql_graph.yaml
-    ├── core_text2sql_graph.yaml
-    ├── generic_sql_graph.yaml
-    ├── forza_rag_graph.yaml
-    ├── sefim_rag_graph.yaml
-    ├── gib_mevzuat_graph.yaml
-    ├── forza_toolkit_graph.yaml
-    ├── master_report_graph.yaml
-    ├── supervisor_graph.yaml
-    └── defaults.yaml (Default configuration)
+│   ├── registry.py (Auto-discovery of graphs)
+│   └── graph_discovery.py (Scan for graph subdirectories)
+│
+└── defaults.yaml (Global defaults)
 ```
+
+### Per-Graph Structure Explanation
+
+Her graph subdirectory şu yapıya sahiptir:
+
+1. **`__init__.py`** - Graph ve nodes export
+2. **`graph.py`** - Main graph builder (~30 lines)
+3. **`nodes.py`** - Node implementations (process logic)
+4. **`state.py`** - GraphState subclass (typed fields)
+5. **`prompts.py`** - Prompt templates (Phase 2 için hazır)
+6. **`tools.py`** (optional) - Graph-specific tools
+7. **`config.yaml`** - Graph configuration
+
+### Benefits of Per-Graph Structure
+
+✅ **Self-contained**: Tüm ilgili dosyalar bir yerde
+✅ **Scalable**: Yeni graph eklenmesi kolay
+✅ **Organized**: Clear separation of concerns
+✅ **Testable**: Her graph'ı bağımsız test edebilir
+✅ **Maintainable**: Graph'ı değiştirmek basit
+✅ **Discoverable**: Otomatik graph discovery
+✅ **Modular**: İlgili dosyalar bir klasörde
 
 ---
 
@@ -403,42 +493,84 @@ class BaseGraph(ABC):
 
 ## 🔄 Implementation Plan (Phase 1)
 
-### Step 1: Create Base Infrastructure
+### Step 1: Create Base Infrastructure (2 days)
 - [ ] Create `src/graphs/base/` directory
-- [ ] Implement `graph_config.py` - GraphConfig dataclass
-- [ ] Implement `graph_metadata.py` - GraphMetadata & GraphCapability
-- [ ] Implement `graph_types.py` - Type definitions
-- [ ] Enhance `base_graph.py` - Add config & metadata support
-- [ ] Update imports in `__init__.py`
+- [ ] Implement `graph_config.py` - GraphConfig dataclass with YAML loading
+- [ ] Implement `graph_metadata.py` - GraphMetadata, GraphCapability, InputSpec, OutputSpec
+- [ ] Implement `graph_types.py` - Type definitions (GraphState, GraphOutput, Message, etc.)
+- [ ] Enhance `base_graph.py` - Add config, metadata, validation support
+- [ ] Update `src/graphs/__init__.py` - Export base classes
 
-### Step 2: Organize Existing Graphs
-- [ ] Create subdirectories: `core/`, `routing/`, `extraction/`, `sql/`, `rag/`, `report/`
-- [ ] Move existing graph files to appropriate directories
-- [ ] Update all relative imports
+### Step 2: Create Per-Graph Subdirectories (2 days)
+For each graph, create the following structure:
 
-### Step 3: Create Configuration Files
-- [ ] Create `src/graphs/configs/` directory
-- [ ] Create `defaults.yaml` with default configuration
-- [ ] Create individual `*.yaml` files for each graph
-- [ ] Implement `graph_config.from_yaml()` method
+```
+src/graphs/{graph_name}/
+├── __init__.py (exports Graph class and nodes)
+├── graph.py (30 lines - StateGraph builder)
+├── nodes.py (node implementations)
+├── state.py ({GraphName}State dataclass extending GraphState)
+├── prompts.py (prompt templates - Phase 2 ready)
+├── tools.py (optional - graph-specific tools)
+└── config.yaml (graph configuration)
+```
 
-### Step 4: Update GraphRepository
-- [ ] Enhance GraphRepository to support config loading
-- [ ] Create `graph_loader.py` for config-based graph creation
-- [ ] Update registry to include metadata
-- [ ] Implement graph discovery
+**Graphs to reorganize**:
+- [ ] `chat` (from chat_graph.py)
+- [ ] `intent` (from intent_graph.py)
+- [ ] `forza_routing` (from forza_routing_graph.py)
+- [ ] `supervisor` (from supervisor_graph.py)
+- [ ] `query_extraction` (from query_extraction_graph.py + enhanced/)
+- [ ] `text2sql` (from text2sql_graph.py)
+- [ ] `core_text2sql` (from core_text2sql_graph.py)
+- [ ] `generic_sql` (from generic_sql_graph.py)
+- [ ] `forza_rag` (from forza_rag_graph.py)
+- [ ] `sefim_rag` (from sefim_rag_graph.py)
+- [ ] `gib_mevzuat` (from gib_mevzuat_graph.py)
+- [ ] `forza_toolkit` (from forza_toolkit_graph.py)
+- [ ] `master_report` (from master_report_graph.py)
 
-### Step 5: Update Existing Graphs
-- [ ] Add metadata to each graph class
-- [ ] Add config loading to constructors
+### Step 3: Create Configuration Files (1 day)
+- [ ] Create `src/graphs/defaults.yaml` - Global default configuration
+- [ ] Create `{graph_name}/config.yaml` for each graph
+- [ ] Implement `GraphConfig.from_yaml()` method
+- [ ] Implement `GraphConfig.from_yaml_relative()` for graph-local configs
+
+### Step 4: Update GraphRepository & Discovery (2 days)
+- [ ] Create `graph_discovery.py` - Auto-discover graph subdirectories
+- [ ] Enhance `registry.py` - Register graphs with metadata
+- [ ] Create `graph_loader.py` - Load graphs from YAML config
+- [ ] Update `GraphRepository.get()` - Load with config
+- [ ] Implement auto-discovery in GraphRepository
+
+### Step 5: Update Existing Graphs (5 days)
+For each graph:
+- [ ] Extract `state_class` → `state.py` as {Name}State dataclass
+- [ ] Extract node functions → `nodes.py`
+- [ ] Extract graph builder → `graph.py` (~30 lines)
+- [ ] Extract prompts → `prompts.py` (if exists)
+- [ ] Extract tools → `tools.py` (if exists)
+- [ ] Add `_get_default_metadata()` method
+- [ ] Add config loading in `__init__`
 - [ ] Add input/output validation
-- [ ] Update imports after reorganization
+- [ ] Update imports
+- [ ] Create `__init__.py` for exports
 
-### Step 6: Documentation & Testing
-- [ ] Create graph development guide
-- [ ] Add examples for creating new graphs
-- [ ] Write unit tests for type validation
-- [ ] Document metadata system
+### Step 6: Testing & Validation (2 days)
+- [ ] Unit tests for GraphConfig.from_yaml()
+- [ ] Unit tests for graph discovery
+- [ ] Integration tests for graph instantiation
+- [ ] Type validation tests
+- [ ] Import tests for all graphs
+
+### Step 7: Documentation (2 days)
+- [ ] Create `GRAPH_DEVELOPMENT_GUIDE.md`
+- [ ] Create template for new graphs
+- [ ] Document per-graph structure
+- [ ] Document config system
+- [ ] Add examples
+
+**Total: 17 days**
 
 ---
 
@@ -504,12 +636,12 @@ max_iterations = graph.get_config().parameters.get("max_iterations", 3)
 
 ---
 
-## 📝 Example: Refactored Graph
+## 📝 Example: Refactored Graph (New Per-Graph Structure)
 
-### Old Implementation (Current)
+### Old Implementation (Current - Single File)
 
 ```python
-# src/graphs/text2sql_graph.py
+# src/graphs/text2sql_graph.py (Everything in one file)
 from langgraph.graph import StateGraph
 
 class Text2SqlGraph:
@@ -518,50 +650,216 @@ class Text2SqlGraph:
 
     def build_graph(self):
         builder = StateGraph(dict)
-        # ... build graph with hardcoded parameters
+        # ... all nodes defined here
+        # ... hardcoded parameters
         return builder.compile()
 ```
 
-### New Implementation (Phase 1)
+### New Implementation (Phase 1 - Per-Graph Structure)
+
+#### File Structure:
+```
+src/graphs/text2sql/
+├── __init__.py
+├── graph.py (builder logic)
+├── nodes.py (node implementations)
+├── state.py (state definition)
+├── prompts.py (prompt templates)
+└── config.yaml (configuration)
+```
+
+#### `src/graphs/text2sql/state.py` (State Definition)
 
 ```python
-# src/graphs/sql/text2sql_graph.py
-from typing import Type, Dict, Any, Optional
-from langgraph.graph import StateGraph
+from typing import Optional
+from src.graphs.base.graph_types import GraphState
 
+class Text2SqlState(GraphState):
+    """Text2SQL specific state extending GraphState."""
+    natural_language_query: str
+    database_schema: str
+    extracted_query: Optional[str] = None
+    generated_sql: Optional[str] = None
+    validation_result: Optional[bool] = None
+    confidence_score: float = 0.0
+```
+
+#### `src/graphs/text2sql/nodes.py` (Node Implementations)
+
+```python
+from typing import Optional
+from src.models.models import LLM
+from .state import Text2SqlState
+
+class Text2SqlNodes:
+    """Node implementations for Text2SQL graph."""
+
+    def __init__(self, llm: LLM):
+        self.llm = llm
+
+    async def extract_query(self, state: Text2SqlState) -> Text2SqlState:
+        """Extract query intent from natural language."""
+        # Call LLM to extract intent
+        response = await self.llm.invoke(...)
+        state["extracted_query"] = response
+        return state
+
+    async def generate_sql(self, state: Text2SqlState) -> Text2SqlState:
+        """Generate SQL from extracted query."""
+        # Call LLM to generate SQL
+        response = await self.llm.invoke(...)
+        state["generated_sql"] = response
+        return state
+
+    async def validate_sql(self, state: Text2SqlState) -> Text2SqlState:
+        """Validate generated SQL."""
+        # Validate SQL syntax
+        state["validation_result"] = True
+        return state
+
+    @staticmethod
+    def should_validate(state: Text2SqlState) -> bool:
+        """Conditional routing: decide if validation needed."""
+        return state.get("generated_sql") is not None
+```
+
+#### `src/graphs/text2sql/graph.py` (Graph Builder - ~30 lines)
+
+```python
+from langgraph.graph import StateGraph
+from typing import Optional
+from src.models.models import LLM
+from .state import Text2SqlState
+from .nodes import Text2SqlNodes
+
+def build_text2sql_graph(
+    llm: LLM,
+    max_iterations: int = 3
+) -> StateGraph:
+    """Build Text2SQL graph with configuration."""
+    builder = StateGraph(Text2SqlState)
+    nodes = Text2SqlNodes(llm=llm)
+
+    # Add nodes
+    builder.add_node("extract_query", nodes.extract_query)
+    builder.add_node("generate_sql", nodes.generate_sql)
+    builder.add_node("validate_sql", nodes.validate_sql)
+
+    # Add edges
+    builder.add_edge("__start__", "extract_query")
+    builder.add_edge("extract_query", "generate_sql")
+    builder.add_conditional_edges(
+        "generate_sql",
+        nodes.should_validate,
+        {True: "validate_sql", False: "__end__"}
+    )
+    builder.add_edge("validate_sql", "__end__")
+
+    return builder
+```
+
+#### `src/graphs/text2sql/prompts.py` (Prompts - Phase 2 Ready)
+
+```python
+# Prompt templates (to be used with prompt invocation system in Phase 2)
+
+EXTRACT_QUERY_PROMPT = """
+Extract the user's query intent from the following message:
+
+Message: {user_message}
+Database schema: {schema}
+
+Provide:
+1. Parsed intent
+2. Required fields
+3. Filter conditions
+"""
+
+GENERATE_SQL_PROMPT = """
+Generate SQL query based on extracted intent:
+
+Intent: {intent}
+Schema: {schema}
+
+Generate valid {dialect} SQL query.
+"""
+
+VALIDATE_SQL_PROMPT = """
+Validate the following SQL query:
+
+SQL: {sql}
+Schema: {schema}
+
+Check for:
+1. Syntax errors
+2. Missing tables/columns
+3. Query logic validity
+"""
+```
+
+#### `src/graphs/text2sql/__init__.py` (Exports)
+
+```python
+from .state import Text2SqlState
+from .nodes import Text2SqlNodes
+from .graph import build_text2sql_graph
+
+__all__ = ["Text2SqlState", "Text2SqlNodes", "build_text2sql_graph"]
+```
+
+#### `src/graphs/text2sql/config.yaml` (Configuration)
+
+```yaml
+name: "text2sql"
+version: "1.0.0"
+description: "Convert natural language to SQL"
+category: "sql"
+
+parameters:
+  max_iterations: 3
+  temperature: 0.0
+  sql_dialect: "postgresql"
+  schema_context_window: 2000
+  timeout: 30
+  max_retries: 3
+
+capabilities:
+  - "query_extraction"
+  - "sql_generation"
+  - "validation"
+
+tags:
+  - "sql"
+  - "database"
+  - "llm-powered"
+
+# Phase 2: Prompt configuration
+# prompts:
+#   extract_query:
+#     path: "prompts.py:EXTRACT_QUERY_PROMPT"
+#     temperature: 0.0
+#   generate_sql:
+#     path: "prompts.py:GENERATE_SQL_PROMPT"
+#     temperature: 0.0
+```
+
+#### `src/graphs/text2sql/graph_class.py` (BaseGraph Implementation - Optional)
+
+```python
+from typing import Optional
 from src.models.models import LLM
 from src.graphs.base.base_graph import BaseGraph
 from src.graphs.base.graph_config import GraphConfig
 from src.graphs.base.graph_metadata import GraphMetadata, GraphCapability, InputSpec, OutputSpec
-from src.graphs.base.graph_types import GraphState
-
-class Text2SqlState(GraphState):
-    """Text2SQL specific state."""
-    natural_language_query: str
-    database_schema: str
-    extracted_query: Optional[str]
-    generated_sql: Optional[str]
-    validation_result: Optional[bool]
+from .state import Text2SqlState
+from .graph import build_text2sql_graph
 
 class Text2SqlGraph(BaseGraph):
-    """
-    Convert natural language queries to SQL.
+    """Text2SQL graph implementation."""
 
-    Capabilities:
-    - Query extraction and understanding
-    - SQL generation
-    - Query validation
-    """
-
-    def __init__(
-        self,
-        llm: LLM,
-        config: Optional[GraphConfig] = None
-    ):
+    def __init__(self, llm: LLM, config: Optional[GraphConfig] = None):
         if config is None:
-            config = GraphConfig.from_yaml(
-                "src/graphs/configs/text2sql_graph.yaml"
-            )
+            config = GraphConfig.from_yaml("src/graphs/text2sql/config.yaml")
 
         super().__init__(
             llm=llm,
@@ -571,71 +869,37 @@ class Text2SqlGraph(BaseGraph):
         )
 
     def _get_default_metadata(self) -> GraphMetadata:
-        """Define graph metadata."""
         return GraphMetadata(
-            name="text2sql_graph",
+            name="text2sql",
             category="sql",
-            capabilities=[
-                GraphCapability.QUERY_EXTRACTION,
-                GraphCapability.SQL_GENERATION,
-            ],
+            capabilities=[GraphCapability.SQL_GENERATION, GraphCapability.QUERY_EXTRACTION],
             input_spec=InputSpec(
                 name="messages",
                 type="list[dict]",
-                description="User query in natural language"
+                description="User query"
             ),
             output_spec=OutputSpec(
                 name="result",
                 type="dict",
-                description="Generated SQL and metadata"
+                description="Generated SQL"
             ),
-            required_tools=["database_schema_loader"],
             version="1.0.0",
-            author="Forza Team",
-            tags=["sql", "database", "llm-powered"]
+            tags=["sql", "database"]
         )
 
-    def build_graph(self) -> StateGraph:
-        """Build the StateGraph."""
-        builder = self.get_graph_builder()
-
-        # Use config parameters
+    def build_graph(self):
         max_iterations = self.config.parameters.get("max_iterations", 3)
-        temperature = self.config.parameters.get("temperature", 0.0)
-
-        # Add nodes and edges using LangGraph API
-        builder.add_node("extract_query", self.extract_query_node)
-        builder.add_node("generate_sql", self.generate_sql_node)
-        builder.add_node("validate_sql", self.validate_sql_node)
-
-        builder.add_edge("__start__", "extract_query")
-        builder.add_conditional_edges(
-            "generate_sql",
-            self.should_validate,
-            {True: "validate_sql", False: "__end__"}
-        )
-
-        return builder.compile(checkpointer=self.memory)
-
-    async def extract_query_node(self, state: Text2SqlState) -> Text2SqlState:
-        """Extract query intent from natural language."""
-        # Implementation using LLM
-        pass
-
-    async def generate_sql_node(self, state: Text2SqlState) -> Text2SqlState:
-        """Generate SQL from extracted query."""
-        # Implementation using LLM
-        pass
-
-    async def validate_sql_node(self, state: Text2SqlState) -> Text2SqlState:
-        """Validate generated SQL."""
-        # Implementation
-        pass
-
-    def should_validate(self, state: Text2SqlState) -> bool:
-        """Decide if validation is needed."""
-        return True
+        return build_text2sql_graph(self.llm, max_iterations=max_iterations)
 ```
+
+### Benefits of New Structure
+
+✅ **Separation of Concerns**: Logic, state, and config in different files
+✅ **Reusability**: Nodes can be reused by other graphs
+✅ **Testability**: Each module (state, nodes, graph) can be tested independently
+✅ **Readability**: Easy to understand graph structure and dataflow
+✅ **Scalability**: Easy to add new graphs with same pattern
+✅ **Maintainability**: Changes to state or nodes don't affect graph builder
 
 ---
 
