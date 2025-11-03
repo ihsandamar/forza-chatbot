@@ -14,6 +14,16 @@ from src.graphs.base_graph import BaseGraph
 from src.models.models import LLM
 from src.adapters.base_state_adapter import BaseStateAdapter
 from src.adapters.default_state_adapter import DefaultStateAdapter
+from src.core.exceptions import (
+    ConfigurationException,
+    MessageProcessingException,
+    MessageExtractionException,
+    GraphExecutionException,
+    GraphInvocationException,
+    InvalidGraphStateException,
+    AdapterException,
+    StateAdaptationException,
+)
 
 
 class Chatbot:
@@ -55,19 +65,37 @@ class Chatbot:
 
         DRY: Extracted common config preparation logic.
 
+        Raises:
+            ConfigurationException: If config preparation fails
+
         Returns:
             Full config dict with configurable section
         """
-        assistant_config_dict = (
-            self.assistant_config.to_dict()
-            if hasattr(self.assistant_config, 'to_dict')
-            else self.assistant_config
-        )
-        full_config = self.config.copy()
-        if "configurable" not in full_config:
-            full_config["configurable"] = {}
-        full_config["configurable"]["assistant_config"] = assistant_config_dict
-        return full_config
+        try:
+            assistant_config_dict = (
+                self.assistant_config.to_dict()
+                if hasattr(self.assistant_config, 'to_dict')
+                else self.assistant_config
+            )
+
+            if not isinstance(self.config, dict):
+                raise ConfigurationException(
+                    "Config must be a dictionary",
+                    context={"config_type": type(self.config).__name__}
+                )
+
+            full_config = self.config.copy()
+            if "configurable" not in full_config:
+                full_config["configurable"] = {}
+            full_config["configurable"]["assistant_config"] = assistant_config_dict
+            return full_config
+        except ConfigurationException:
+            raise
+        except Exception as e:
+            raise ConfigurationException(
+                f"Failed to prepare configuration: {str(e)}",
+                context={"original_error": str(e)}
+            ) from e
 
     def _invoke_graph(self, graph_state: dict) -> dict:
         """
@@ -78,11 +106,30 @@ class Chatbot:
         Args:
             graph_state: State prepared by adapter
 
+        Raises:
+            InvalidGraphStateException: If graph state is invalid
+            GraphInvocationException: If graph invocation fails
+
         Returns:
             Graph output
         """
-        full_config = self._prepare_config()
-        return self.graph.invoke(graph_state, config=full_config)
+        try:
+            if not isinstance(graph_state, dict):
+                raise InvalidGraphStateException(
+                    "Graph state must be a dictionary",
+                    state_type=type(graph_state).__name__
+                )
+
+            full_config = self._prepare_config()
+            graph_output = self.graph.invoke(graph_state, config=full_config)
+            return graph_output
+        except (InvalidGraphStateException, ConfigurationException):
+            raise
+        except Exception as e:
+            raise GraphInvocationException(
+                f"Failed to invoke graph: {str(e)}",
+                context={"original_error": str(e)}
+            ) from e
 
     def _process_message(self, state: dict, **adapter_kwargs) -> dict:
         """
@@ -94,12 +141,42 @@ class Chatbot:
             state: {"messages": [{"role": "user", "content": "..."}]}
             **adapter_kwargs: Additional adapter parameters
 
+        Raises:
+            MessageProcessingException: If messages extraction fails
+            StateAdaptationException: If state adaptation fails
+
         Returns:
             Graph output
         """
-        messages = state.get("messages", [])
-        graph_state = self.adapter.to_graph_state(messages, **adapter_kwargs)
-        return self._invoke_graph(graph_state)
+        try:
+            if not isinstance(state, dict):
+                raise MessageProcessingException(
+                    "State must be a dictionary",
+                    context={"state_type": type(state).__name__}
+                )
+
+            messages = state.get("messages", [])
+            if not isinstance(messages, list):
+                raise MessageProcessingException(
+                    "Messages must be a list",
+                    context={"messages_type": type(messages).__name__}
+                )
+
+            if not messages:
+                raise MessageProcessingException(
+                    "Messages list is empty",
+                    context={"message_count": 0}
+                )
+
+            graph_state = self.adapter.to_graph_state(messages, **adapter_kwargs)
+            return self._invoke_graph(graph_state)
+        except (MessageProcessingException, StateAdaptationException, ConfigurationException, GraphExecutionException):
+            raise
+        except Exception as e:
+            raise MessageProcessingException(
+                f"Failed to process message: {str(e)}",
+                context={"original_error": str(e)}
+            ) from e
 
     def send(self, state: dict, **adapter_kwargs) -> str:
         """
@@ -112,17 +189,30 @@ class Chatbot:
             state: {"messages": [{"role": "user", "content": "..."}]}
             **adapter_kwargs: Additional adapter parameters (token, etc)
 
+        Raises:
+            MessageProcessingException: If message processing fails
+            StateAdaptationException: If state adaptation fails
+            AdapterException: If adapter operation fails
+
         Returns:
             String response
         """
-        # SRP: Let adapter handle interface-specific formatting if it can
-        if hasattr(self.adapter, 'send'):
-            return self.adapter.send(state, **adapter_kwargs)
+        try:
+            # SRP: Let adapter handle interface-specific formatting if it can
+            if hasattr(self.adapter, 'send'):
+                return self.adapter.send(state, **adapter_kwargs)
 
-        # Fallback: Use standard processing pipeline
-        graph_output = self._process_message(state, **adapter_kwargs)
-        response_text = self.adapter.from_graph_state(graph_output)
-        return response_text
+            # Fallback: Use standard processing pipeline
+            graph_output = self._process_message(state, **adapter_kwargs)
+            response_text = self.adapter.from_graph_state(graph_output)
+            return response_text
+        except (MessageProcessingException, StateAdaptationException, GraphExecutionException, ConfigurationException):
+            raise
+        except Exception as e:
+            raise AdapterException(
+                f"Failed to send message: {str(e)}",
+                context={"original_error": str(e)}
+            ) from e
 
     def send_structured(self, state: dict, **adapter_kwargs) -> dict:
         """
@@ -136,25 +226,38 @@ class Chatbot:
             state: {"messages": [{"role": "user", "content": "..."}]}
             **adapter_kwargs: Additional adapter parameters
 
+        Raises:
+            MessageProcessingException: If message processing fails
+            StateAdaptationException: If state adaptation fails
+            AdapterException: If adapter operation fails
+
         Returns:
             Dict with text, type, confidence, action, metadata
         """
-        # SRP: Let adapter handle interface-specific formatting if it can
-        if hasattr(self.adapter, 'send_structured'):
-            return self.adapter.send_structured(state, **adapter_kwargs)
+        try:
+            # SRP: Let adapter handle interface-specific formatting if it can
+            if hasattr(self.adapter, 'send_structured'):
+                return self.adapter.send_structured(state, **adapter_kwargs)
 
-        # Process message through adapter and graph
-        graph_output = self._process_message(state, **adapter_kwargs)
+            # Process message through adapter and graph
+            graph_output = self._process_message(state, **adapter_kwargs)
 
-        # Use adapter's to_api_response if available
-        if hasattr(self.adapter, 'to_api_response'):
-            return self.adapter.to_api_response(graph_output)
-        else:
-            # Fallback: Create standard structured response
-            response_text = self.adapter.from_graph_state(graph_output)
-            return {
-                "text": response_text,
-                "type": "text",
-                "confidence": 0.95,
-                "action": {"type": "none", "target": "", "params": {}}
-            }
+            # Use adapter's to_api_response if available
+            if hasattr(self.adapter, 'to_api_response'):
+                return self.adapter.to_api_response(graph_output)
+            else:
+                # Fallback: Create standard structured response
+                response_text = self.adapter.from_graph_state(graph_output)
+                return {
+                    "text": response_text,
+                    "type": "text",
+                    "confidence": 0.95,
+                    "action": {"type": "none", "target": "", "params": {}}
+                }
+        except (MessageProcessingException, StateAdaptationException, GraphExecutionException, ConfigurationException):
+            raise
+        except Exception as e:
+            raise AdapterException(
+                f"Failed to send structured message: {str(e)}",
+                context={"original_error": str(e)}
+            ) from e
