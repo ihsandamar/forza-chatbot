@@ -105,8 +105,8 @@ class Chatbot:
         """
         Generic message sending for all interfaces.
 
-        Adapter pattern handles different graph state formats.
-        Single Responsibility: Generic message processing only.
+        SRP: Delegates interface-specific formatting to adapter.
+        If adapter implements send(), uses that. Otherwise uses from_graph_state().
 
         Args:
             state: {"messages": [{"role": "user", "content": "..."}]}
@@ -115,17 +115,22 @@ class Chatbot:
         Returns:
             String response
         """
-        # Process message through adapter and graph
+        # SRP: Let adapter handle interface-specific formatting if it can
+        if hasattr(self.adapter, 'send'):
+            return self.adapter.send(state, **adapter_kwargs)
+
+        # Fallback: Use standard processing pipeline
         graph_output = self._process_message(state, **adapter_kwargs)
-
-        # Convert graph output back to standard format
         response_text = self.adapter.from_graph_state(graph_output)
-
         return response_text
 
     def send_structured(self, state: dict, **adapter_kwargs) -> dict:
         """
         Structured response for API/programmatic use.
+
+        SRP: Delegates interface-specific formatting to adapter.
+        If adapter implements send_structured(), uses that.
+        Otherwise tries to_api_response(), with fallback formatting.
 
         Args:
             state: {"messages": [{"role": "user", "content": "..."}]}
@@ -134,6 +139,10 @@ class Chatbot:
         Returns:
             Dict with text, type, confidence, action, metadata
         """
+        # SRP: Let adapter handle interface-specific formatting if it can
+        if hasattr(self.adapter, 'send_structured'):
+            return self.adapter.send_structured(state, **adapter_kwargs)
+
         # Process message through adapter and graph
         graph_output = self._process_message(state, **adapter_kwargs)
 
@@ -141,7 +150,7 @@ class Chatbot:
         if hasattr(self.adapter, 'to_api_response'):
             return self.adapter.to_api_response(graph_output)
         else:
-            # Fallback to text-only response
+            # Fallback: Create standard structured response
             response_text = self.adapter.from_graph_state(graph_output)
             return {
                 "text": response_text,
