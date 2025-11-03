@@ -83,65 +83,25 @@ Bu döküman, forza-chatbot projesindeki `Chatbot` ve `ChatbotBuilder` sınıfla
 
 ---
 
-### 3. **ERPChatbot Sınıfı (src/core/erp_chatbot.py)**
+### 3. **Mimari Sorunlar (Crosscutting)**
 
-#### 3.1 Code Duplication
-- **Problem**: Gradio response handler, Chatbot sınıfındaki kodun kopyası (Lines 49-84)
-- **Seviyesi**: 🔴 Yüksek
-
-#### 3.2 Missing Dependencies
-- **Problem**: `self.message_extractor` tanımlanmamış, kullanılıyor (Line 112)
-- **Seviyesi**: 🔴 Yüksek - Runtime Error
-
-#### 3.3 Wrong Abstraction Layer
-- **Problem**: ERPChatbot, Chatbot ve Controller'ı birleştiriyor, responsibilities karışık
-- **Seviyesi**: 🟠 Orta
-
-#### 3.4 No Configuration Type Safety
-- **Problem**: Config string path olarak alınıyor
-- **Seviyesi**: 🟡 Düşük
-
----
-
-### 4. **ERPChatbotController Sınıfı (src/core/chatbot_controller.py)**
-
-#### 4.1 Mixed Concerns
-- **Problem**: State management, message validation, module routing aynı sınıfta
-- **Seviyesi**: 🔴 Yüksek
-
-#### 4.2 Hard-coded Intent Mappings
-- **Problem**: Intent-module mapping sınıfta hard-coded (Lines 116-123)
-- **Seviyesi**: 🟠 Orta
-
-#### 4.3 No Factory Pattern
-- **Problem**: Modülleri initialize etmek çok karmaşık, factory pattern yok
-- **Seviyesi**: 🟠 Orta
-
-#### 4.4 Inconsistent Logging
-- **Problem**: Log.info() kullanılıyor ama dict ile, structured logging değil
-- **Seviyesi**: 🟡 Düşük
-
----
-
-### 5. **Mimari Sorunlar (Crosscutting)**
-
-#### 5.1 No Response Standard
+#### 3.1 No Response Standard
 - **Problem**: Response formatı inconsistent (tuple, string, dict)
 - **Seviyesi**: 🔴 Yüksek
 
-#### 5.2 No Exception Hierarchy
+#### 3.2 No Exception Hierarchy
 - **Problem**: Tüm exceptions generic Exception olarak handle ediliyor
 - **Seviyesi**: 🟠 Orta
 
-#### 5.3 Adapter Pattern Inconsistency
+#### 3.3 Adapter Pattern Inconsistency
 - **Problem**: Adapter pattern var ama inconsistently kullanılıyor
 - **Seviyesi**: 🟠 Orta
 
-#### 5.4 Configuration Management Pattern Yok
+#### 3.4 Configuration Management Pattern Yok
 - **Problem**: Config dict, string, object olarak passed ediliyor
 - **Seviyesi**: 🟠 Orta
 
-#### 5.5 No Interface Segregation
+#### 3.5 No Interface Segregation
 - **Problem**: Büyük interfaces, small interfaces yoktur
 - **Seviyesi**: 🟡 Düşük
 
@@ -315,7 +275,7 @@ class ChatbotBuilder:
 
 ---
 
-### **Phase 4: Controller & State Management (Week 3)**
+### **Phase 4: State Management & Module Routing (Week 3)**
 
 #### Step 4.1: Extract Module Management Strategy
 ```python
@@ -337,24 +297,7 @@ class StateManager:
 
 **Benefit**: Centralized state handling
 
-#### Step 4.3: Refactor Controller
-```python
-# Refactored src/core/chatbot_controller.py
-class ERPChatbotController:
-    def __init__(
-        self,
-        config: ChatbotConfig,
-        module_manager: ModuleManager,
-        state_manager: StateManager,
-        message_validator: MessageValidator,
-        logger: ChatbotLogger
-    ):
-        pass
-```
-
-**Benefit**: Separated concerns, testable
-
-#### Step 4.4: Create Module Registry (Configuration)
+#### Step 4.3: Create Module Registry (Configuration)
 ```python
 # src/config/module_config.py
 MODULE_MAPPING = {
@@ -368,42 +311,9 @@ MODULE_MAPPING = {
 
 ---
 
-### **Phase 5: ERPChatbot Refactoring (Week 3)**
+### **Phase 5: Interface Segregation & Adapters (Week 4)**
 
-#### Step 5.1: Remove Duplication
-- ERPChatbot'u thin wrapper yapabiliriz
-- Gradio response handler'ı ayrı bir adapter class'ına taşı
-
-```python
-# src/interfaces/adapters/gradio_adapter.py
-class GradioAdapter:
-    def __init__(self, chatbot: Chatbot):
-        pass
-
-    def handle_response(self, history: List[Tuple], message: str) -> List[Tuple]:
-        pass
-```
-
-**Benefit**: Separation of concerns, testable
-
-#### Step 5.2: Refactor ERPChatbot
-```python
-# Refactored src/core/erp_chatbot.py
-class ERPChatbot:
-    def __init__(self, config: ChatbotConfig, controller: ERPChatbotController):
-        pass
-
-    def send_message(self, message: str) -> MessageResponse:
-        pass
-```
-
-**Benefit**: Clean, focused responsibility
-
----
-
-### **Phase 6: Interface Segregation & Adapters (Week 4)**
-
-#### Step 6.1: Create Interface Adapters
+#### Step 5.1: Create Interface Adapters
 ```python
 # src/interfaces/adapters/
 ├── base_interface_adapter.py
@@ -414,7 +324,7 @@ class ERPChatbot:
 
 **Benefit**: Clean interface segregation
 
-#### Step 6.2: Response Factory Implementation
+#### Step 5.2: Response Factory Implementation
 ```python
 # src/core/models/response_factory.py
 class ResponseFactory:
@@ -458,13 +368,12 @@ Week 2 (Core Refactoring)
 ├── Step 3.1-3.3: Builder refactoring
 └── (Tests after each step)
 
-Week 3 (Controllers)
-├── Step 4.1-4.4: Controller refactoring
-├── Step 5.1-5.2: ERPChatbot refactoring
+Week 3 (State & Module Management)
+├── Step 4.1-4.3: State & Module management
 └── (Integration tests)
 
 Week 4 (Interfaces)
-├── Step 6.1-6.2: Interface adapters
+├── Step 5.1-5.2: Interface adapters
 └── (End-to-end tests)
 ```
 
@@ -488,10 +397,9 @@ Week 4 (Interfaces)
 - [ ] Factory pattern for dependencies
 - [ ] Unit tests pass
 
-### Controllers
-- [ ] Single responsibility each
-- [ ] Module management separated
-- [ ] State management centralized
+### State Management & Module Management
+- [ ] State management separated from routing
+- [ ] Module management separated from state
 - [ ] Configuration externalized
 - [ ] Integration tests pass
 
