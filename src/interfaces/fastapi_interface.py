@@ -20,6 +20,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import logging
 
+from src.core.chatbot import Chatbot
 from src.interfaces.base_interface import BaseInterface
 from src.models.standard_types import StandardState, StandardResponse, ResponseType
 from src.api.main import app as api_app
