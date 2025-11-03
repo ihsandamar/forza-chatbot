@@ -84,6 +84,23 @@ class Chatbot:
         full_config = self._prepare_config()
         return self.graph.invoke(graph_state, config=full_config)
 
+    def _process_message(self, state: dict, **adapter_kwargs) -> dict:
+        """
+        Common message processing logic.
+
+        DRY: Extracted repeated message processing from send() and send_structured().
+
+        Args:
+            state: {"messages": [{"role": "user", "content": "..."}]}
+            **adapter_kwargs: Additional adapter parameters
+
+        Returns:
+            Graph output
+        """
+        messages = state.get("messages", [])
+        graph_state = self.adapter.to_graph_state(messages, **adapter_kwargs)
+        return self._invoke_graph(graph_state)
+
     def send(self, state: dict, **adapter_kwargs) -> str:
         """
         Generic message sending for all interfaces.
@@ -98,14 +115,8 @@ class Chatbot:
         Returns:
             String response
         """
-        # Extract messages from state
-        messages = state.get("messages", [])
-
-        # Convert to graph-specific state using adapter
-        graph_state = self.adapter.to_graph_state(messages, **adapter_kwargs)
-
-        # Invoke graph with prepared config
-        graph_output = self._invoke_graph(graph_state)
+        # Process message through adapter and graph
+        graph_output = self._process_message(state, **adapter_kwargs)
 
         # Convert graph output back to standard format
         response_text = self.adapter.from_graph_state(graph_output)
@@ -123,14 +134,8 @@ class Chatbot:
         Returns:
             Dict with text, type, confidence, action, metadata
         """
-        # Extract messages from state
-        messages = state.get("messages", [])
-
-        # Convert to graph-specific state using adapter
-        graph_state = self.adapter.to_graph_state(messages, **adapter_kwargs)
-
-        # Invoke graph with prepared config
-        graph_output = self._invoke_graph(graph_state)
+        # Process message through adapter and graph
+        graph_output = self._process_message(state, **adapter_kwargs)
 
         # Use adapter's to_api_response if available
         if hasattr(self.adapter, 'to_api_response'):
