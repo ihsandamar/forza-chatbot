@@ -36,6 +36,7 @@ class GraphRepository:
         try:
             # New modular graph structure
             import src.graphs.chat.graph
+            import src.graphs.routing.graph
 
             # Legacy graphs (to be refactored)
             import src.graphs.text2sql_graph

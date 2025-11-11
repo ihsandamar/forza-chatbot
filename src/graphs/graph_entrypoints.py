@@ -120,3 +120,7 @@ def chat_graph():
     llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
     graph = ChatGraph(llm=llm, config=config).build_graph()
     return graph
+
+
+def routing_graph():
+    return graph("routing").build_graph()
