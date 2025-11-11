@@ -1,12 +1,11 @@
 """
 Chat Graph Implementation.
 
-Defines ChatGraph class extending BaseGraph for chat interactions.
+Simple chat graph with tool-equipped agent.
 """
 
 from typing import Optional
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from src.models.models import LLM
 from src.graphs.base.base_graph import BaseGraph
@@ -19,7 +18,7 @@ from src.graphs.base.graph_metadata import (
 )
 from src.graphs.registry import register_graph
 from .state import ChatState
-from .nodes import ChatNodes
+from .nodes import chat_node
 
 
 @register_graph("chat")
@@ -27,24 +26,26 @@ class ChatGraph(BaseGraph):
     """
     Chat graph for conversational interactions.
 
-    Extends BaseGraph with:
-    - Configuration management (chat/config.yaml)
-    - Metadata tracking
-    - Type-safe state (ChatState)
-    - Input/output validation
-    - DI compatibility
+    Simple single-node architecture with tool-equipped agent.
     """
 
-    def __init__(self, llm: LLM, config: Optional[GraphConfig] = None):
+    def __init__(
+        self,
+        llm: LLM,
+        config: Optional[GraphConfig] = None
+    ):
         """
         Initialize ChatGraph.
 
         Args:
             llm: Language model instance
-            config: GraphConfig instance (optional, loads from config.yaml if None)
+            config: GraphConfig instance (optional)
         """
         if config is None:
-            config = GraphConfig.from_yaml("src/graphs/chat/config.yaml")
+            try:
+                config = GraphConfig.from_yaml("src/graphs/chat/config.yaml")
+            except FileNotFoundError:
+                config = GraphConfig(name="chat")
 
         super().__init__(
             llm=llm,
@@ -54,12 +55,7 @@ class ChatGraph(BaseGraph):
         )
 
     def _get_default_metadata(self) -> GraphMetadata:
-        """
-        Return default metadata for chat graph.
-
-        Returns:
-            GraphMetadata instance describing the chat graph
-        """
+        """Return default metadata for chat graph."""
         return GraphMetadata(
             name="chat",
             category="chat",
@@ -78,31 +74,38 @@ class ChatGraph(BaseGraph):
                 description="Updated conversation with assistant response",
             ),
             version="1.0.0",
-            tags=["chat", "conversational", "llm-powered"],
+            tags=[
+                "chat",
+                "conversational",
+                "llm-powered",
+                "turkish",
+                "customer-service",
+            ],
         )
 
     def build_graph(self) -> StateGraph:
         """
-        Build and return the compiled StateGraph for chat.
+        Build and return the compiled StateGraph.
+
+        Simple architecture:
+        START → chat → END
 
         Returns:
             Compiled StateGraph instance
         """
-        # Create nodes handler
-        nodes = ChatNodes(llm=self.llm)
-
-        # Create graph builder
         builder = self.get_graph_builder()
 
-        # Add nodes
-        builder.add_node("process_message", nodes.process_message)
+        # Add single chat node
+        builder.add_node("chat", chat_node)
 
         # Add edges
-        builder.add_edge(START, "process_message")
-        builder.add_edge("process_message", END)
+        builder.add_edge(START, "chat")
+        builder.add_edge("chat", END)
 
-        # Compile and return with memory checkpointer
-        return builder.compile(
+        # Compile
+        compiled = builder.compile(
             name="chat_graph",
-            checkpointer=self.get_memory()
+            checkpointer=self.get_memory(),
         )
+
+        return compiled

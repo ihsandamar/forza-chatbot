@@ -20,6 +20,7 @@ import yaml
 import os
 from datetime import datetime
 
+from src.core.chatbot import Chatbot
 from src.interfaces.base_interface import BaseInterface
 from src.models.standard_types import StandardState, StandardResponse, ResponseType
 

@@ -1,21 +1,17 @@
 """
-Chat Graph State Definition.
+Chat Graph State - LangGraph Compatible.
 
-Extends GraphState with chat-specific fields.
+Simple messages-only state for chat agent.
 """
 
-from typing import Optional
-from src.graphs.base.graph_types import GraphState
+from langgraph.graph import MessagesState
 
 
-class ChatState(GraphState):
+class ChatState(MessagesState):
     """
-    Chat-specific state extending GraphState.
+    Chat Graph State - LangGraph compatible.
 
-    Fields:
-        messages: Conversation history (inherited from GraphState)
-        session_id: Session identifier (inherited from GraphState)
-        user_id: User identifier (inherited from GraphState)
-        metadata: Graph metadata (inherited from GraphState)
+    Includes:
+    - messages: Conversation history (with add_messages reducer)
     """
     pass

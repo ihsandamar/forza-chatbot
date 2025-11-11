@@ -1,3 +1,5 @@
+from src.graphs.base_graph import BaseGraph
+from src.graphs.chat.graph import ChatGraph
 from src.graphs.graph import EnhancedQueryExtractionGraph
 from src.graphs.generic_sql_graph import GenericSQLGraph
 from src.graphs.graph_repository import GraphRepository
@@ -5,13 +7,12 @@ from src.graphs.graph_repository import GraphRepository
 from src.graphs.query_extraction_graph import QueryExtractionGraph
 from src.graphs.text2sql_graph import Text2SQLGraph
 from src.models.models import LLM
-from src.graphs.chat_graph import ChatGraph
 from src.services.config_loader import ConfigLoader
 from langchain_community.utilities import SQLDatabase
 
 # TODO: Add Dynamic Module Discovery and Loading  
 
-def graph(name: str) -> ChatGraph:
+def graph(name: str) -> BaseGraph:
     """
     Returns a graph object based on the specified name.
     
@@ -38,8 +39,8 @@ def text2sql_graph():
 
 
 
-def supervisor_graph():
-    return graph("supervisor").build_graph()
+# def supervisor_graph():
+#     return graph("supervisor").build_graph()
 
 
 
@@ -113,3 +114,9 @@ def enhanced_query_extraction():
 
 def vegaforza_navigation():
     return graph("vegaforza_navigation").build_graph()
+
+def chat_graph():
+    config = ConfigLoader.load_config("config/master_report_document_config.yaml")
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+    graph = ChatGraph(llm=llm, config=config).build_graph()
+    return graph

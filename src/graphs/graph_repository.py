@@ -7,11 +7,19 @@ class GraphRepository:
         self.register_all()  # Register all graphs on initialization
 
     def get(self, graph_type: str):
+        # Handle case where graph_type might be a dict (extract type if it is)
+        if isinstance(graph_type, dict):
+            graph_type = graph_type.get("type") or graph_type.get("name", str(graph_type))
+
         if graph_type not in GRAPH_REGISTRY:
             raise ValueError(f"Graph tipi bulunamadı: {graph_type}")
         return GRAPH_REGISTRY[graph_type](self.llm).build_graph()
 
     def get_raw(self, graph_type: str):
+        # Handle case where graph_type might be a dict (extract type if it is)
+        if isinstance(graph_type, dict):
+            graph_type = graph_type.get("type") or graph_type.get("name", str(graph_type))
+
         if graph_type not in GRAPH_REGISTRY:
             raise ValueError(f"Graph tipi bulunamadı: {graph_type}")
         return GRAPH_REGISTRY[graph_type](self.llm)
