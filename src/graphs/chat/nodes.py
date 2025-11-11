@@ -1,56 +1,42 @@
 """
 Chat Graph Node Implementations.
 
-Simple node using ReAct agent with automatic tool execution.
+Simple node using chat assistant.
 """
 
 import logging
-from typing import Any
 
 from .state import ChatState
 from .runnables import ChatAgentRunnables
+from .assistant import ChatAssistant
 
 logger = logging.getLogger(__name__)
 
 
 def chat_node(state: ChatState) -> ChatState:
     """
-    Chat node using ReAct agent.
-
-    The ReAct agent automatically handles:
-    - Tool invocation decision
-    - Tool execution
-    - Response generation
-    - Agentic loop
+    Chat node using assistant with tool-bound runnable.
 
     Args:
         state: Current chat state (with messages)
 
     Returns:
-        Updated state with final response
+        Updated state with response
     """
     try:
-        agent = ChatAgentRunnables().runnable
-        messages = state.get("messages", [])
+        logger.debug("Processing message...")
 
-        logger.debug("Processing message with ReAct agent...")
+        # Create assistant with runnable
+        runnable = ChatAgentRunnables().runnable
+        assistant = ChatAssistant(runnable)
 
-        # Invoke agent - it handles everything (tools, loop, etc)
-        # Agent expects {"messages": [...]}
-        result = agent.invoke(
-            {"messages": messages},
-            config={"recursion_limit": 20}
-        )
+        # Invoke assistant - handles validation
+        result = assistant(state, config={"recursion_limit": 20})
 
-        # Update state with final messages from agent
-        if isinstance(result, dict) and "messages" in result:
-            state["messages"] = result["messages"]
-        elif isinstance(result, list):
-            state["messages"] = result
-        else:
-            state["messages"] = messages
+        # Update state
+        state["messages"] = result.get("messages", state.get("messages", []))
 
-        logger.info(f"Chat complete with ReAct agent")
+        logger.info("Chat complete")
         return state
 
     except Exception as e:
