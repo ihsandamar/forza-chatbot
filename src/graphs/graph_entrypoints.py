@@ -5,6 +5,7 @@ from src.graphs.generic_sql_graph import GenericSQLGraph
 from src.graphs.graph_repository import GraphRepository
 
 from src.graphs.query_extraction_graph import QueryExtractionGraph
+from src.graphs.supervisor.graph import create_supervisor_graph
 from src.graphs.text2sql_graph import Text2SQLGraph
 from src.models.models import LLM
 from src.services.config_loader import ConfigLoader
@@ -124,3 +125,12 @@ def chat_graph():
 
 def routing_graph():
     return graph("routing").build_graph()
+
+
+
+def supervisor_graph():
+
+    config = ConfigLoader.load_config()
+    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+
+    return create_supervisor_graph(llm=llm)

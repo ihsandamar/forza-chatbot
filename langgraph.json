@@ -14,7 +14,8 @@
       "enhanced_query_extraction":"src/graphs/graph_entrypoints.py:enhanced_query_extraction",
       "vegaforza_navigation":"src/graphs/graph_entrypoints.py:vegaforza_navigation",
       "chat":"src/graphs/graph_entrypoints.py:chat_graph",
-      "routing":"src/graphs/graph_entrypoints.py:routing_graph"
+      "routing":"src/graphs/graph_entrypoints.py:routing_graph",
+      "supervisor":"src/graphs/graph_entrypoints.py:supervisor_graph"
 
 
   },
