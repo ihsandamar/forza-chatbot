@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 from textwrap import dedent
 
@@ -5,6 +6,8 @@ from langchain_core.tools import tool, BaseTool, InjectedToolCallId
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from langgraph.prebuilt import InjectedState
+
+logger = logging.getLogger(__name__)
 
 def _normalize_agent_name(agent_name: str) -> str:
     """Convert an agent name to a valid tool name format (snake_case)."""
@@ -22,6 +25,15 @@ def create_handoff_tool(*, agent_name: str, name: str | None = None, description
         state: Annotated[dict, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ):
+        # Log handoff request
+        messages = state.get("messages", [])
+        last_msg = messages[-1] if messages else None
+        last_msg_content = getattr(last_msg, "content", str(last_msg))[:100] if last_msg else "No message"
+
+        logger.info(f"[SUPERVISOR] HANDOFF TRIGGERED ➜ {agent_name.upper()}")
+        logger.debug(f"[SUPERVISOR] User message: '{last_msg_content}...'")
+        logger.debug(f"[SUPERVISOR] Total messages in state: {len(messages)}")
+
         tool_message = ToolMessage(
             content=dedent(f"""
             Successfully transferred to {agent_name}.
@@ -29,6 +41,8 @@ def create_handoff_tool(*, agent_name: str, name: str | None = None, description
             name=name,
             tool_call_id=tool_call_id
         )
+
+        logger.debug(f"[SUPERVISOR] Creating Command with goto='{agent_name}'")
 
         return Command(
             goto=agent_name,

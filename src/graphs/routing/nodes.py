@@ -7,7 +7,7 @@ Simple document retrieval node based on forza_routing_graph.py
 import logging
 from typing import Optional
 from langchain_chroma import Chroma
-from langchain_core.messages import HumanMessage, AnyMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
 from .states import RoutingState
 
@@ -60,11 +60,17 @@ def normalize_messages_to_message(state: RoutingState) -> RoutingState:
             state["message"] = HumanMessage(content=last_msg)
             logger.debug(f"[ROUTING] Converted string message to HumanMessage (content: '{last_msg[:50]}...')")
 
-        elif isinstance(last_msg, AnyMessage):
-            # Other LangChain message types
+        elif isinstance(last_msg, BaseMessage):
+            # Other LangChain message types (AIMessage, ToolMessage, SystemMessage, etc.)
             content = getattr(last_msg, "content", str(last_msg))
             state["message"] = HumanMessage(content=str(content))
             logger.debug(f"[ROUTING] Converted {type(last_msg).__name__} to HumanMessage")
+
+        elif hasattr(last_msg, "content"):
+            # Has content attribute (duck typing for message-like objects)
+            content = getattr(last_msg, "content", "")
+            state["message"] = HumanMessage(content=str(content))
+            logger.debug(f"[ROUTING] Converted message-like object to HumanMessage")
 
         else:
             # Unknown type - convert to string
@@ -136,6 +142,8 @@ def document_retrieval_node(state: RoutingState, vectorstore: Optional[Chroma]) 
         if not retrieved_docs:
             logger.warning("[ROUTING] No documents found")
             state["related_pages"] = []
+            no_result_message = "Aramanızla ilgili sayfa bulunamadı. Lütfen başka bir soruyla deneyin."
+            state["messages"] = state.get("messages", []) + [AIMessage(content=no_result_message)]
             return state
 
         # Assign scores (1.0, 0.9, 0.8, 0.7, 0.6)
@@ -146,6 +154,10 @@ def document_retrieval_node(state: RoutingState, vectorstore: Optional[Chroma]) 
 
         state["related_pages"] = docs_with_scores
 
+        # Create response message summarizing retrieved documents
+        response_content = _create_routing_response_message(docs_with_scores)
+        state["messages"] = state.get("messages", []) + [AIMessage(content=response_content)]
+
         # Log results
         logger.info(f"[ROUTING] Found {len(retrieved_docs)} documents")
         for i, (doc, score) in enumerate(docs_with_scores):
@@ -155,5 +167,40 @@ def document_retrieval_node(state: RoutingState, vectorstore: Optional[Chroma]) 
     except Exception as e:
         logger.error(f"[ROUTING] Document retrieval failed: {e}", exc_info=True)
         state["related_pages"] = []
+        # Add error message
+        error_message = "Sayfa araması yapılırken bir hata oluştu. Lütfen daha sonra tekrar deneyin."
+        state["messages"] = state.get("messages", []) + [AIMessage(content=error_message)]
 
     return state
+
+
+def _create_routing_response_message(docs_with_scores: list) -> str:
+    """
+    Create a user-friendly response message from retrieved documents.
+
+    Args:
+        docs_with_scores: List of (Document, score) tuples
+
+    Returns:
+        Formatted response string
+    """
+    if not docs_with_scores:
+        return "Arama sonuçlarıyla ilgili hiçbir sayfa bulunamadı. Lütfen sorguyu değiştirmeyi deneyin."
+
+    response_lines = [
+        f"✓ {len(docs_with_scores)} ilgili sayfa bulundu:\n"
+    ]
+
+    for i, (doc, score) in enumerate(docs_with_scores, 1):
+        title = doc.metadata.get("title", "Unknown") if doc.metadata else "Unknown"
+        url = doc.metadata.get("source", "") if doc.metadata else ""
+
+        confidence = int(score * 100)
+        response_lines.append(f"{i}. {title} (eşleşme: {confidence}%)")
+
+        if url:
+            response_lines.append(f"   URL: {url}")
+
+    response_lines.append("\nBu sayfalardan daha fazla bilgi almak için sorular sorabilirsiniz.")
+
+    return "\n".join(response_lines)
