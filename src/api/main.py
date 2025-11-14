@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from src.api.routes import chat, health
 from src.api.utils.error_handlers import validation_exception_handler, general_exception_handler
+from src.services.config_loader import ConfigLoader
 
 # Create FastAPI app
 app = FastAPI(
@@ -10,6 +11,22 @@ app = FastAPI(
     description="FastAPI-based chatbot service with LangGraph integration",
     version="1.0.0"
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Pre-load configuration on startup to avoid blocking I/O in async contexts.
+
+    This ensures that when LangGraph calls graph functions, the config is already
+    cached and won't trigger blocking I/O detection.
+    """
+    try:
+        # Pre-load config synchronously in startup event
+        ConfigLoader.load_config()
+    except Exception as e:
+        print(f"Warning: Failed to pre-load config on startup: {e}")
+        # Continue anyway - config will be loaded lazily on first use
 
 # Add CORS middleware
 app.add_middleware(

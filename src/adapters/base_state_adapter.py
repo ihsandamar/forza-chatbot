@@ -7,6 +7,7 @@ and graph-specific state formats.
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
+import asyncio
 
 
 class BaseStateAdapter(ABC):
@@ -66,3 +67,44 @@ class BaseStateAdapter(ABC):
         Override this if your adapter needs specific parameters.
         """
         return []
+
+    # Async versions for non-blocking execution
+    async def to_graph_state_async(self, messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
+        """
+        Async version of to_graph_state.
+
+        By default, runs the sync version in an executor.
+        Subclasses can override this for true async implementation.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            **kwargs: Additional parameters needed for state creation
+
+        Returns:
+            Graph-specific state dictionary
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.to_graph_state(messages, **kwargs)
+        )
+
+    async def from_graph_state_async(self, graph_output: Any) -> str:
+        """
+        Async version of from_graph_state.
+
+        By default, runs the sync version in an executor.
+        Subclasses can override this for true async implementation.
+
+        Args:
+            graph_output: Graph-specific output
+
+        Returns:
+            String response to be sent back to user
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.from_graph_state,
+            graph_output
+        )

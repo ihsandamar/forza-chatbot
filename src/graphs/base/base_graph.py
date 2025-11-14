@@ -37,6 +37,7 @@ Usage:
 """
 
 from abc import ABC, abstractmethod
+import asyncio
 from typing import Type, Optional, Dict, Any
 from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
@@ -267,3 +268,69 @@ class BaseGraph(ABC):
             f"state_class={self.state_class.__name__}"
             f")"
         )
+
+    # Async methods for non-blocking execution
+    async def ainvoke(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Async invoke method for the graph.
+
+        Runs the compiled graph's invoke method in an executor to avoid blocking.
+        The compiled graph must have an 'invoke' method.
+
+        Args:
+            input: Input state dictionary
+            config: Configuration for graph execution (optional)
+
+        Returns:
+            Output from the graph
+        """
+        compiled_graph = self.build_graph()
+        loop = asyncio.get_event_loop()
+
+        # Run blocking invoke in executor
+        return await loop.run_in_executor(
+            None,
+            compiled_graph.invoke,
+            input,
+            config
+        )
+
+    async def astream(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None):
+        """
+        Async stream method for the graph.
+
+        Runs the compiled graph's stream method in an executor.
+        Yields results asynchronously.
+
+        Args:
+            input: Input state dictionary
+            config: Configuration for graph execution (optional)
+
+        Yields:
+            Stream results from the graph
+        """
+        compiled_graph = self.build_graph()
+        loop = asyncio.get_event_loop()
+
+        # Run blocking stream in executor
+        for result in await loop.run_in_executor(
+            None,
+            compiled_graph.stream,
+            input,
+            config
+        ):
+            yield result
+
+    def invoke(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Synchronous invoke method for the graph.
+
+        Args:
+            input: Input state dictionary
+            config: Configuration for graph execution (optional)
+
+        Returns:
+            Output from the graph
+        """
+        compiled_graph = self.build_graph()
+        return compiled_graph.invoke(input, config)

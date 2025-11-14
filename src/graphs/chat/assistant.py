@@ -4,6 +4,8 @@ Chat Assistant - Runnable Wrapper with Tool Execution.
 Manages interactions with chat runnable, executes tools, and ensures valid responses.
 """
 
+import asyncio
+import inspect
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 
@@ -73,10 +75,28 @@ class ChatAssistant:
                     tool_name = tool_call.get("name")
                     tool_input = tool_call.get("args", {})
 
-                    # Execute tool
+                    # Execute tool (async or sync)
                     if tool_name in self.tools:
                         try:
-                            tool_result = self.tools[tool_name].invoke(tool_input)
+                            tool = self.tools[tool_name]
+                            # Check if tool has async invoke method
+                            if hasattr(tool, 'ainvoke') and callable(getattr(tool, 'ainvoke')):
+                                tool_result = await tool.ainvoke(tool_input)
+                            elif hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
+                                # Check if invoke is async
+                                invoke_method = getattr(tool, 'invoke')
+                                if inspect.iscoroutinefunction(invoke_method):
+                                    tool_result = await invoke_method(tool_input)
+                                else:
+                                    # Run sync invoke in executor
+                                    loop = asyncio.get_event_loop()
+                                    tool_result = await loop.run_in_executor(
+                                        None,
+                                        invoke_method,
+                                        tool_input
+                                    )
+                            else:
+                                tool_result = "Tool has no invoke method"
                             tool_result_str = str(tool_result)
                         except Exception as e:
                             tool_result_str = f"Error executing tool: {str(e)}"
