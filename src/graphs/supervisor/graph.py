@@ -6,7 +6,7 @@ import logging
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph import MessagesState
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from src.graphs.chat.graph import ChatGraph
 from src.graphs.forza_routing_graph import VegaforzaNavigationGraph
@@ -65,7 +65,7 @@ def create_supervisor_graph(llm):
     logger.info("[SUPERVISOR]   - get_current_time")
     logger.info("[SUPERVISOR]   - get_supervisor_status")
 
-    supervisor_agent = create_react_agent(
+    supervisor_agent = create_agent(
         model=llm.get_chat(),
         tools=[
             get_current_time,
@@ -73,7 +73,8 @@ def create_supervisor_graph(llm):
             assign_to_chat_agent,
             assign_to_routing_agent
         ],
-        prompt=SUPERVISOR_SYSTEM_PROMPT,
+        
+        system_prompt=SUPERVISOR_SYSTEM_PROMPT,
         name="supervisor"
     )
 

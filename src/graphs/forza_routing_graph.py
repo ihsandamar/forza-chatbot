@@ -4,7 +4,6 @@ import os
 import json
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph
-from langchain.schema.runnable import RunnableLambda
 from abc import ABC, abstractmethod
 
 from src.tools.forza_routing_toolkit import ForzaRoutingToolkit

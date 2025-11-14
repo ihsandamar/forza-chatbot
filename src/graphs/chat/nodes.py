@@ -13,7 +13,7 @@ from .assistant import ChatAssistant
 logger = logging.getLogger(__name__)
 
 
-def chat_node(state: ChatState) -> ChatState:
+async def chat_node(state: ChatState) -> ChatState:
     """
     Chat node using assistant with tool-bound runnable.
 
@@ -31,7 +31,7 @@ def chat_node(state: ChatState) -> ChatState:
         assistant = ChatAssistant(runnable)
 
         # Invoke assistant - handles validation
-        result = assistant(state, config={"recursion_limit": 20})
+        result = await assistant(state, config={"recursion_limit": 20})
 
         # Update state
         state["messages"] = result.get("messages", state.get("messages", []))

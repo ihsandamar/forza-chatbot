@@ -105,12 +105,12 @@ class ChatbotBuilder:
         Returns:
             Self for method chaining
         """
-        from src.graphs.generic_sql_graph import SQLAgentConfiguration
-
-        # SQLAgentConfiguration oluştur
-        self._assistant_configuration = SQLAgentConfiguration.create_from_config(config_params)
-
-        print(f"INFO: Assistant configuration ayarlandı: {self._assistant_configuration.assistant_name}")
+        # TODO: SQLAgentConfiguration sınıfı generic_sql_graph.py dosyasından silindiği için
+        # bu method yeniden tasarlanması gerekiyor.
+        # Şimdilik configuration yoksa devam et
+        if config_params is not None:
+            self._assistant_configuration = config_params
+            print(f"INFO: Assistant configuration ayarlandı")
 
         return self
 

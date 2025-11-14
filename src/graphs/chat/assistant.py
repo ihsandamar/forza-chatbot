@@ -38,7 +38,7 @@ class ChatAssistant:
         # Create tool mapping for execution
         self.tools = {tool.name: tool for tool in CHAT_TOOLS}
 
-    def __call__(self, state: ChatState, config: RunnableConfig = None):
+    async def __call__(self, state: ChatState, config: RunnableConfig = None):
         """
         Execute the runnable with tool execution and validation.
 
@@ -59,7 +59,7 @@ class ChatAssistant:
 
         while True:
             # Invoke runnable with current messages
-            result = self.runnable.invoke(
+            result = await self.runnable.ainvoke(
                 {"messages": messages},
                 config=config
             )
