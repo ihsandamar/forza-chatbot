@@ -15,7 +15,7 @@ from langchain_openai import OpenAIEmbeddings
 import chromadb
 from chromadb.config import Settings
 
-from src.models.models import LLM
+from src.models.llm import LLM
 from src.graphs.base.base_graph import BaseGraph
 from src.graphs.base.graph_config import GraphConfig
 from src.graphs.base.graph_metadata import (

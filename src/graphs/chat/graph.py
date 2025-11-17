@@ -7,7 +7,7 @@ Simple chat graph with tool-equipped agent.
 from typing import Optional
 from langgraph.graph import StateGraph, START, END
 
-from src.models.models import LLM
+from src.models.llm import LLM
 from src.graphs.base.base_graph import BaseGraph
 from src.graphs.base.graph_config import GraphConfig
 from src.graphs.base.graph_metadata import (

@@ -42,7 +42,7 @@ from typing import Type, Optional, Dict, Any
 from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.models.models import LLM
+from src.models.llm import LLM
 from src.graphs.base.graph_config import GraphConfig
 from src.graphs.base.graph_metadata import GraphMetadata
 from src.graphs.base.graph_types import GraphState

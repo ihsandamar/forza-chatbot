@@ -1,5 +1,5 @@
 from src.graphs.registry import GRAPH_REGISTRY
-from src.models.models import LLM
+from src.models.llm import LLM
 
 class GraphRepository:
     def __init__(self, llm: LLM):

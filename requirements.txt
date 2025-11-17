@@ -6,7 +6,8 @@ langchain_community==0.3.24
 langgraph==1.0.1
 langchain-chroma==0.2.6
 langgraph-cli==0.3.3
-
+langchain-anthropic==1.0.3
+langchain-ollama==1.0.0
 # Vector Database & RAG
 chromadb==1.1.1
 chroma-hnswlib==0.7.6

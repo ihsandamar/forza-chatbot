@@ -3,7 +3,7 @@ from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from typing import Type
 
-from src.models.models import LLM
+from src.models.llm import LLM
 
 class BaseGraph(ABC):
     """

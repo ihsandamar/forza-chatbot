@@ -16,7 +16,7 @@ from chromadb.config import Settings
 from typing import Tuple, TypedDict, Optional, Dict, Any, List
 from src.graphs.base_graph import BaseGraph
 from src.graphs.registry import register_graph
-from src.models.models import LLM
+from src.models.llm import LLM
 from src.services.config_loader import ConfigLoader
 from langgraph.graph.message import add_messages, AnyMessage
 from langchain_core.documents import Document

@@ -7,7 +7,7 @@ Her dependency türü için bir factory method var.
 """
 
 from typing import Optional
-from src.models.models import LLM
+from src.models.llm import LLM
 from src.graphs.graph_repository import GraphRepository
 
 

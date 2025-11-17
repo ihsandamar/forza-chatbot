@@ -3,8 +3,7 @@ Chat Graph Runnables.
 
 Simple runnables with tool binding.
 """
-
-from src.models.models import LLM
+from src.models.llm import LLM
 from .tools import CHAT_TOOLS
 from .prompts import AgentPrompts
 

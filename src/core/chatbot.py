@@ -12,7 +12,7 @@ Interface-specific handling moved to interface adapters (GradioAdapter, etc).
 from typing import Optional
 import asyncio
 from src.graphs.base_graph import BaseGraph
-from src.models.models import LLM
+from src.models.llm import LLM
 from src.adapters.base_state_adapter import BaseStateAdapter
 from src.adapters.default_state_adapter import DefaultStateAdapter
 from src.core.exceptions import (
