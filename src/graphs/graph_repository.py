@@ -39,6 +39,8 @@ class GraphRepository:
         # New modular graph structure (active)
         try:
             import src.graphs.chat.graph
+            import src.graphs.supervisor.graph
+
             logger.info("ChatGraph registered")
         except ImportError as e:
             logger.warning(f"Could not import ChatGraph: {e}")

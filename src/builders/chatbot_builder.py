@@ -48,7 +48,9 @@ class ChatbotBuilder:
         self,
         model_name: str,
         temperature: float = 0.0,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
+        base_url: Optional[str] = None
     ):
         """
         Set LLM model configuration.
@@ -57,12 +59,14 @@ class ChatbotBuilder:
             model_name: Model name
             temperature: Temperature parameter
             api_key: API key
+            provider: LLM provider (openai, anthropic, ollama)
+            base_url: Base URL for LLM API
 
         Returns:
             Self for method chaining
         """
         # Factory'yi kullanarak LLM oluştur
-        self._llm = self.factory.create_llm(model_name, temperature, api_key)
+        self._llm = self.factory.create_llm(model_name, temperature, api_key, provider, base_url)
         return self
 
     def with_graph(self, graph_type: str):

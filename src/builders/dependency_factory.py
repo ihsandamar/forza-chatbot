@@ -9,6 +9,7 @@ Her dependency türü için bir factory method var.
 from typing import Optional
 from src.models.llm import LLM
 from src.graphs.graph_repository import GraphRepository
+from src.factories.llm_factory import LLMFactory
 
 
 class DependencyFactory:
@@ -19,11 +20,17 @@ class DependencyFactory:
     Builder'dan ayrı olması DI işlemini Builder'dan çıkarır.
     """
 
+    def __init__(self, config=None):
+        """Initialize with optional config."""
+        self.config = config
+
     def create_llm(
         self,
         model_name: str,
         temperature: float = 0.0,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
+        base_url: Optional[str] = None
     ) -> LLM:
         """
         LLM instance oluştur.
@@ -32,14 +39,22 @@ class DependencyFactory:
             model_name: Model adı (e.g., "claude-3-5-sonnet")
             temperature: Temperature parametresi
             api_key: API key
+            provider: LLM provider (openai, anthropic, ollama)
+            base_url: Base URL for LLM API
 
         Returns:
             LLM instance
         """
+        # Provider None ise config'den oku
+        if provider is None and self.config is not None:
+            provider = getattr(self.config.llm, 'provider', 'openai')
+
         return LLM(
+            provider=provider or "openai",
             model=model_name,
             temperature=temperature,
-            api_key=api_key
+            api_key=api_key,
+            base_url=base_url
         )
 
     def create_graph_repository(self, llm: LLM) -> GraphRepository:

@@ -1,9 +1,9 @@
 llm:
-  provider: ollama
-  model: gpt-oss:latest
+  provider: openai
+  model: gpt-4o
   temperature: 0
   api_key: ${OPENAI_API_KEY}
-  base_url: http://localhost:11434
+  base_url: https://api.openai.com/v1
 
 chatbot:
   graph_type: supervisor
