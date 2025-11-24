@@ -140,12 +140,12 @@ class BaseInterface(ABC):
             "metadata": {}
         }
 
-    def _safe_chat(self, state: StandardState) -> StandardResponse:
+    async def _safe_chat(self, state: StandardState) -> StandardResponse:
         """
-        Call chatbot.send() safely (the correct method for unified interface).
+        Call chatbot.send_async() safely (the correct method for unified interface).
 
         Tries multiple approaches:
-        1. Calls chatbot.send(state_dict) if available
+        1. Calls chatbot.send_async(state_dict) if available
         2. Falls back to chatbot.chat(state) if available
         3. Returns error response if both fail
 
@@ -157,10 +157,25 @@ class BaseInterface(ABC):
         """
         from src.models.standard_types import ResponseType
 
-        # Try send() method first (correct unified method)
+        # Try send_async() method first (correct unified async method)
+        if hasattr(self.chatbot, 'send_async') and callable(getattr(self.chatbot, 'send_async')):
+            try:
+                # send_async() expects dict format: {"messages": [...]}
+                state_dict = {"messages": state.messages}
+                response_text = await self.chatbot.send_async(state_dict)
+
+                return StandardResponse(
+                    text=response_text,
+                    response_type=ResponseType.TEXT,
+                    confidence=0.95,
+                    session_id=self._get_session_id()
+                )
+            except Exception as e:
+                self.logger.warning(f"Error calling chatbot.send_async(): {str(e)}")
+
+        # Try send() method as fallback (synchronous)
         if hasattr(self.chatbot, 'send') and callable(getattr(self.chatbot, 'send')):
             try:
-                # send() expects dict format: {"messages": [...]}
                 state_dict = {"messages": state.messages}
                 response_text = self.chatbot.send(state_dict)
 
@@ -190,7 +205,7 @@ class BaseInterface(ABC):
                 self.logger.warning(f"Error calling chatbot.chat(): {str(e)}")
 
         # No valid method found - return error
-        self.logger.error("Chatbot has no valid chat method (send() or chat())")
+        self.logger.error("Chatbot has no valid chat method (send_async(), send() or chat())")
         return StandardResponse(
             text="Chatbot is not properly configured",
             response_type=ResponseType.ERROR,

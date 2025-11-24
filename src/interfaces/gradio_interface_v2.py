@@ -92,7 +92,7 @@ class GradioInterface(BaseInterface):
 
     # ========== ABSTRACT METHODS (implements BaseInterface) ==========
 
-    def chat(self, state: StandardState) -> StandardResponse:
+    async def chat(self, state: StandardState) -> StandardResponse:
         """
         Process chat message via chatbot.
 
@@ -106,7 +106,7 @@ class GradioInterface(BaseInterface):
         """
         try:
             self._validate_state(state)
-            return self._safe_chat(state)
+            return await self._safe_chat(state)
         except Exception as e:
             self.logger.error(f"Chat error: {str(e)}")
             return self._handle_error(e, context="chat")
@@ -337,7 +337,7 @@ class GradioInterface(BaseInterface):
 
     # ========== EVENT HANDLERS ==========
 
-    def _handle_send(
+    async def _handle_send(
         self, gradio_history: List[Tuple[str, str]], user_message: str
     ) -> List[Tuple[str, str]]:
         """
@@ -367,7 +367,7 @@ class GradioInterface(BaseInterface):
             )
 
             # Get response from chatbot
-            response = self.chat(state)
+            response = await self.chat(state)
 
             # Update local history
             self.gradio_history.append((user_message, response.text))
@@ -392,11 +392,11 @@ class GradioInterface(BaseInterface):
         self.clear_history()
         return []
 
-    def _handle_quick_prompt(
+    async def _handle_quick_prompt(
         self, gradio_history: List[Tuple[str, str]], prompt_text: str
     ) -> List[Tuple[str, str]]:
         """Handle quick prompt button click."""
-        return self._handle_send(gradio_history, prompt_text)
+        return await self._handle_send(gradio_history, prompt_text)
 
     def _handle_config_update(
         self, system_prompt: str, temperature: float, assistant_name: str
