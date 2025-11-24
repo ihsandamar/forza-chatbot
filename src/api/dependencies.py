@@ -1,11 +1,14 @@
 from functools import lru_cache
 from src.api.services.chat_service import ChatService
 from src.core.chatbot import Chatbot
-from src.models.models import LLM
+from src.models.llm import LLM
 from src.services.config_loader import ConfigLoader
 from src.services.container import ServiceContainer
 from src.graphs.graph_repository import GraphRepository
 from src.builders.chatbot_builder import ChatbotBuilder
+from src.builders.dependency_factory import DependencyFactory
+from src.builders.adapter_factory import AdapterFactory
+from src.factories.llm_factory import LLMFactory
 
 
 # Singleton instances
@@ -25,24 +28,20 @@ def get_chatbot() -> Chatbot:
         # Load config
         config = ConfigLoader.load_config("config/config.yaml")
 
-        # Create container
-        container = ServiceContainer()
-
-        # Register LLM
-        llm_config = config.llm
-        container.register("llm", lambda: LLM(
-            model=llm_config.model,
-            temperature=llm_config.temperature,
-            api_key=llm_config.api_key
-        ))
-
-        # Register graph repository
-        container.register("graph_repo", lambda: GraphRepository(container.resolve("llm")))
+        # Create builders with config
+        dependency_factory = DependencyFactory(config=config)
+        adapter_factory = AdapterFactory()
 
         # Build chatbot
         _chatbot_instance = (
-            ChatbotBuilder(container)
-            .with_model(llm_config.model, llm_config.temperature, llm_config.api_key)
+            ChatbotBuilder(dependency_factory, adapter_factory)
+            .with_model(
+                config.llm.model,
+                config.llm.temperature,
+                config.llm.api_key,
+                config.llm.provider,
+                config.llm.base_url
+            )
             .with_graph(config.chatbot.graph_type)
             .with_graph_config({"configurable": {"thread_id": config.chatbot.thread_id}})
             .with_assistant_configuration(getattr(config, 'sql_agent_configuration', None))

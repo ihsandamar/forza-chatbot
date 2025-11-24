@@ -1,11 +1,12 @@
 llm:
+  provider: openai
   model: gpt-4o
   temperature: 0
   api_key: ${OPENAI_API_KEY}
   base_url: https://api.openai.com/v1
 
 chatbot:
-  graph_type: vegaforza_navigation
+  graph_type: supervisor
   thread_id: "1"
 
 database:

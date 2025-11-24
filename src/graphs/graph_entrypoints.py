@@ -1,115 +1,66 @@
-from src.graphs.graph import EnhancedQueryExtractionGraph
-from src.graphs.generic_sql_graph import GenericSQLGraph
+import asyncio
+from src.graphs.base_graph import BaseGraph
 from src.graphs.graph_repository import GraphRepository
-
-from src.graphs.query_extraction_graph import QueryExtractionGraph
-from src.graphs.text2sql_graph import Text2SQLGraph
-from src.models.models import LLM
-from src.graphs.chat_graph import ChatGraph
+from src.graphs.supervisor.graph import create_supervisor_graph
+from src.models.llm import LLM
 from src.services.config_loader import ConfigLoader
-from langchain_community.utilities import SQLDatabase
 
-# TODO: Add Dynamic Module Discovery and Loading  
 
-def graph(name: str) -> ChatGraph:
+# TODO: Add Dynamic Module Discovery and Loading
+
+# Global config cache to avoid repeated blocking I/O
+_config_cache = None
+
+
+def _get_config():
+    """
+    Get cached config or load it synchronously.
+
+    Uses global cache to avoid repeated blocking I/O. If config is already cached,
+    returns immediately without any I/O.
+    """
+    global _config_cache
+    if _config_cache is None:
+        _config_cache = ConfigLoader.load_config()
+    return _config_cache
+
+
+def _get_config_no_block():
+    """
+    Get cached config without blocking. Returns None if not yet loaded.
+
+    Used by sync functions called from async contexts to avoid blocking detection.
+    """
+    global _config_cache
+    return _config_cache
+
+
+def graph(name: str) -> BaseGraph:
     """
     Returns a graph object based on the specified name.
-    
+
     :param name: Name of the graph
     :return: Graph object
     :rtype: MainGraph
     """
 
-    config = ConfigLoader.load_config()
+    # Get config - will be pre-cached by API startup event or lazy-loaded on first sync call
+    config = _get_config()
     OPENAI_API_KEY = config.llm.api_key
 
-    llm = LLM(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
+    llm = LLM(provider=config.llm.provider, model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
     repo = GraphRepository(llm=llm)
     return repo.get_raw(name)
 
 
-def text2sql_graph():
-    config = ConfigLoader.load_config("config/text2sql_config.yaml")
-    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-    db = SQLDatabase.from_uri(config.database.uri)
-    graph = Text2SQLGraph(llm=llm, db=db).build_graph()
-    return graph
-
-
-
-
 def supervisor_graph():
-    return graph("supervisor").build_graph()
+    """
+    Create and return the supervisor graph.
 
+    Note: Configuration is pre-loaded by API startup event to avoid
+    blocking I/O in async contexts (LangGraph detection).
+    """
+    config = _get_config()
+    llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
 
-
-def master_report_document_graph():
-    config = ConfigLoader.load_config("config/text2sql_config.yaml")
-    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-    db = SQLDatabase.from_uri(config.database.uri)
-    graph = GenericSQLGraph(llm=llm, db=db).build_graph()
-    return graph
-
-
-def generic_sql_document_graph():
-    config = ConfigLoader.load_config("config/generic_sql_document_config.yaml")
-    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-    db = SQLDatabase.from_uri(config.database.uri)
-    graph = GenericSQLGraph(llm=llm, db=db).build_graph()
-    return graph
-
-
-def generic_sql_payment_graph():
-    config = ConfigLoader.load_config("config/generic_sql_payment_config.yaml") 
-    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-    db = SQLDatabase.from_uri(config.database.uri)
-    graph = GenericSQLGraph(llm=llm, db=db).build_graph()
-    return graph
-
-
-
-def forza_rag():
-    return graph("forza_rag").build_graph()
-
-
-def sefim_rag():
-    return graph("sefim_rag").build_graph()
-
-
-def gib_mevzuat():
-    return graph("gib_mevzuat").build_graph()
-
-
-def forza_toolkit():
-    return graph("forza_toolkit").build_graph()
-
-
-def query_extraction():
-    from src.graphs.generic_sql_graph import SQLAgentConfiguration
-    
-    config = ConfigLoader.load_config("config/master_report_document_config.yaml") 
-    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-    db = SQLDatabase.from_uri(config.database.uri)
-    
-    # Convert raw config to SQLAgentConfiguration object
-    raw_assistant_config = getattr(config, 'sql_agent_configuration', None)
-    assistant_config = SQLAgentConfiguration.create_from_config(raw_assistant_config)
-    
-    print(f"DEBUG query_extraction - raw_assistant_config type: {type(raw_assistant_config)}")
-    print(f"DEBUG query_extraction - assistant_config type: {type(assistant_config)}")
-    print(f"DEBUG query_extraction - assistant_config.table_name: {assistant_config.table_name}")
-    
-    graph = EnhancedQueryExtractionGraph(llm=llm, db=db, assistant_configuration=assistant_config).build_graph()
-    return graph
-
-
-def enhanced_query_extraction():
-    config = ConfigLoader.load_config("config/master_report_document_config.yaml")
-    llm = LLM(model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-    db = SQLDatabase.from_uri(config.database.uri)
-    graph = EnhancedQueryExtractionGraph(llm=llm, db=db).build_graph()
-    return graph
-
-
-def vegaforza_navigation():
-    return graph("vegaforza_navigation").build_graph()
+    return create_supervisor_graph(llm=llm)

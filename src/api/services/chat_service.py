@@ -93,8 +93,8 @@ class ChatService:
         if session.get("token"):
             adapter_kwargs["token"] = session["token"]
 
-        # Get structured response from chatbot
-        structured_response = self.chatbot.send_structured(state, **adapter_kwargs)
+        # Get structured response from chatbot (using async version)
+        structured_response = await self.chatbot.send_structured_async(state, **adapter_kwargs)
 
         # Extract text for session history
         bot_response_text = structured_response.get("text", "")
