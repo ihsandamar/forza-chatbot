@@ -84,10 +84,11 @@ class ChatbotBaseException(BaseException):
     ):
         super().__init__(
             message=message,
-            error_code="CHATBOT_ERROR",
             context=context,
             **kwargs
         )
+        # Set error code after parent init to avoid parameter conflicts
+        self.error_code = "CHATBOT_ERROR"
 
 
 # ============================================================================
@@ -115,10 +116,10 @@ class ConfigurationException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="CONFIG_ERROR",
             context=context,
             **kwargs
         )
+        self.error_code = "CONFIG_ERROR"
 
 
 class InvalidConfigurationException(ConfigurationException):
@@ -208,10 +209,10 @@ class MessageProcessingException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="MESSAGE_ERROR",
             context=context,
             **kwargs
         )
+        self.error_code = "MESSAGE_ERROR"
 
 
 class InvalidMessageException(MessageProcessingException):
@@ -324,7 +325,6 @@ class AdapterException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="ADAPTER_ERROR",
             context=context,
             **kwargs
         )
@@ -412,7 +412,6 @@ class GraphExecutionException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="GRAPH_ERROR",
             context=context,
             **kwargs
         )
@@ -528,7 +527,6 @@ class BuilderException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="BUILDER_ERROR",
             context=context,
             **kwargs
         )
@@ -615,7 +613,6 @@ class ModuleException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="MODULE_ERROR",
             context=context,
             **kwargs
         )
@@ -728,7 +725,6 @@ class LLMException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="LLM_ERROR",
             context=context,
             **kwargs
         )
@@ -815,7 +811,6 @@ class DatabaseException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="DB_ERROR",
             context=context,
             **kwargs
         )
@@ -908,7 +903,6 @@ class ResponseException(ChatbotBaseException):
     ):
         super().__init__(
             message=message,
-            error_code="RESPONSE_ERROR",
             context=context,
             **kwargs
         )

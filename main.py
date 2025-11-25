@@ -5,14 +5,16 @@ Main entry point for Forza Chatbot application.
 Supports multiple interfaces: CLI, Gradio, API, and FastAPI.
 """
 
+import asyncio
 import argparse
+from src.api.services.chat_service import ChatService
+from src.interfaces.gradio_interface import GradioInterface
 from src.services.config_loader import ConfigLoader
 from src.builders.dependency_factory import DependencyFactory
 from src.builders.adapter_factory import AdapterFactory
 from src.builders.chatbot_builder import ChatbotBuilder
 
-from src.interfaces.cli_interface import run_cli
-from src.interfaces.gradio_interface_v2 import GradioInterface
+from src.interfaces.cli_interface import CLIInterface
 from src.interfaces.fastapi_interface import FastAPIInterface
 from src.interfaces.flask_interface import run_flask
 
@@ -53,7 +55,7 @@ def build_chatbot(config_path: str, entrypoint_function: str = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--interface", choices=["cli", "gradio", "api","fastapi"], default="gradio",
+    parser.add_argument("--interface", choices=["cli", "gradio", "api","fastapi","gradio_refactored"], default="gradio",
                         help="Choose the interface to run the chatbot: cli, gradio, or api")
 
     parser.add_argument("--config", type=str, default="config/config.yaml",
@@ -67,16 +69,12 @@ if __name__ == "__main__":
     chatbot = build_chatbot(args.config, args.entrypoint)
 
     if args.interface == "cli":
-        run_cli(chatbot)
+        chat_service = ChatService(chatbot=chatbot)
+        interface = CLIInterface(chat_service=chat_service)
+        asyncio.run(interface.run())
     elif args.interface == "gradio":
-        # Use new GradioInterface (Phase 2.1)
-        interface = GradioInterface(
-            chatbot=chatbot,
-            title="🤖 Forza Chatbot",
-            port=7860,
-            share=False,
-            theme="default"
-        )
+        chat_service = ChatService(chatbot=chatbot)
+        interface = GradioInterface(chat_service=chat_service)
         interface.run()
     elif args.interface == "api":
         run_flask(chatbot)

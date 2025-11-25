@@ -33,6 +33,11 @@ class ChatMessageResponse(BaseModel):
     session_id: str = Field(..., description="Session identifier")
     response: ResponseData = Field(..., description="Bot response data")
 
+    @property
+    def text(self) -> str:
+        """Convenience property to access response text"""
+        return self.response.text
+
 
 class MessageHistoryItem(BaseModel):
     """Individual message in history"""

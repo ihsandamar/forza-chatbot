@@ -158,6 +158,5 @@ class ChatbotBuilder:
             llm=self._llm,
             config=self._graph_config,
             graph=graph,
-            assistant_config=self._assistant_configuration,
-            adapter=self._adapter
+            assistant_config=self._assistant_configuration
         )

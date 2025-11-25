@@ -1,191 +1,294 @@
-# interfaces/cli_interface.py
-import os
-from rich.console import Console
-from rich.prompt import Prompt
-from rich.panel import Panel
-from rich.markdown import Markdown
-from rich.text import Text
-from rich.columns import Columns
-from rich.align import Align
-from rich.live import Live
-from rich.spinner import Spinner
-from rich import print as rprint
-import time
-from datetime import datetime
+"""
+CLI Interface - Refactored Architecture
 
-class ModernCLI:
-    def __init__(self, chatbot):
-        # Force UTF-8 encoding for Windows
-        os.environ['PYTHONIOENCODING'] = 'utf-8'
-        
-        # Initialize console with safe settings for Windows
-        self.console = Console(
-            force_terminal=True,
-            legacy_windows=False,
-            safe_box=True,
-            width=120
-        )
-        self.chatbot = chatbot
-        
-    def show_welcome(self):
-        """Display welcome screen"""
-        welcome_text = Text()
-        welcome_text.append("AI Chatbot", style="bold blue")
-        welcome_text.append(" - Gelişmiş Sohbet Asistanı", style="dim")
-        
-        info_panel = Panel.fit(
-            welcome_text,
-            style="bright_blue",
-            padding=(1, 2)
-        )
-        
-        help_text = Text()
-        help_text.append("Komutlar: ", style="bold")
-        help_text.append("'exit', 'quit' - Çıkış | ", style="green")
-        help_text.append("'clear' - Ekranı temizle | ", style="yellow")
-        help_text.append("'help' - Yardım", style="cyan")
-        
-        commands_panel = Panel.fit(
-            help_text,
-            title="Kullanım",
-            style="bright_green"
-        )
-        
-        self.console.print(info_panel)
-        self.console.print(commands_panel)
-        self.console.print()
-        
-    def show_thinking(self, message="Düşünüyor..."):
-        """Show thinking animation"""
-        return Spinner("dots", text=message, style="cyan")
-    
-    def format_user_message(self, message):
-        """Format user message"""
-        timestamp = datetime.now().strftime("%H:%M")
-        user_panel = Panel(
-            message,
-            title=f"[bold green]Siz[/bold green] [dim]({timestamp})[/dim]",
-            style="green",
-            width=80
-        )
-        return Align.left(user_panel)
-    
-    def format_bot_response(self, response):
-        """Format bot response"""
-        timestamp = datetime.now().strftime("%H:%M")
-        
-        # Try to render as markdown if it contains formatting
-        if any(marker in response for marker in ['**', '*', '#', '```', '- ']):
-            content = Markdown(response)
-        else:
-            content = Text(response, style="white")
-        
-        bot_panel = Panel(
-            content,
-            title=f"[bold blue]AI Asistan[/bold blue] [dim]({timestamp})[/dim]",
-            style="blue",
-            width=80
-        )
-        return Align.right(bot_panel)
-    
-    def show_help(self):
-        """Show help information"""
-        help_content = """
-# Yardım
+Simple command-line interface for the refactored chatbot.
 
-## Kullanılabilir Komutlar:
-- **exit** veya **quit**: Uygulamadan çık
-- **clear**: Ekranı temizle  
-- **help**: Bu yardım mesajını göster
+Features:
+- Uses ChatService (orchestration layer)
+- Sync operation (blocking input/output)
+- Easy to test
+- Minimal dependencies
+"""
 
-## Kullanım İpuçları:
-- Doğal dille sorularınızı sorun
-- Uzun metinler için markdown formatını destekler
-- Ctrl+C ile acil çıkış yapabilirsiniz
+import asyncio
+from typing import Optional
 
-## Örnekler:
-- "Bugün hava nasıl?"
-- "Python'da liste nasıl oluşturulur?"
-- "SQL sorgusu yazmama yardım et"
+from src.api.chat_service import ChatService
+from src.api.models import (
+    SessionStartRequest,
+    ChatMessageRequest,
+    HistoryRequest,
+    ClearHistoryRequest,
+    ReconfigureAssistantRequest
+)
+
+
+class CLIInterface:
+    """
+    Command-line interface for the refactored chatbot.
+
+    Features:
+    - Interactive chat loop
+    - Commands: /history, /clear, /config, /stats, /exit
+    - Clean error handling
+    - Session management
+
+    Usage:
+        interface = CLIInterfaceRefactored(chat_service)
+        interface.run()
+    """
+
+    def __init__(self, chat_service: ChatService, prompt: str = "You"):
         """
-        
-        help_panel = Panel(
-            Markdown(help_content.strip()),
-            title="Yardım",
-            style="bright_yellow"
-        )
-        self.console.print(help_panel)
-    
-    def run(self):
-        """Main CLI loop with rich interface"""
-        try:
-            self.show_welcome()
-            
-            while True:
-                try:
-                    # Get user input with rich prompt
-                    user_input = Prompt.ask(
-                        "[bold green]>>[/bold green]",
-                        console=self.console
-                    )
-                    
-                    # Handle commands
-                    if user_input.lower() in {"exit", "quit"}:
-                        goodbye_panel = Panel.fit(
-                            Text("Görüşmek üzere!", style="bold green"),
-                            style="bright_green"
-                        )
-                        self.console.print(goodbye_panel)
-                        break
-                        
-                    elif user_input.lower() == "clear":
-                        self.console.clear()
-                        self.show_welcome()
-                        continue
-                        
-                    elif user_input.lower() == "help":
-                        self.show_help()
-                        continue
-                        
-                    elif not user_input.strip():
-                        continue
-                    
-                    # Display user message
-                    self.console.print(self.format_user_message(user_input))
-                    
-                    # Show thinking animation while processing
-                    with Live(
-                        self.show_thinking("AI yanıt hazırlıyor..."),
-                        console=self.console,
-                        refresh_per_second=10
-                    ):
-                        try:
-                            response = self.chatbot.send({
-                                "messages": [{"role": "user", "content": user_input}]
-                            })
-                        except Exception as e:
-                            response = f"Hata oluştu: {str(e)}"
-                    
-                    # Display bot response
-                    self.console.print(self.format_bot_response(response))
-                    self.console.print()  # Add spacing
-                    
-                except KeyboardInterrupt:
-                    self.console.print("\n[yellow]Çıkmak için 'exit' yazın[/yellow]")
-                    continue
-                    
-                except Exception as e:
-                    error_panel = Panel.fit(
-                        f"Hata: {str(e)}",
-                        style="bright_red",
-                        title="Error"
-                    )
-                    self.console.print(error_panel)
-                    
-        except KeyboardInterrupt:
-            self.console.print("\n[bright_red]Program sonlandırıldı[/bright_red]")
+        Initialize CLI interface.
 
-def run_cli(chatbot):
-    """Legacy function for backwards compatibility"""
-    cli = ModernCLI(chatbot)
-    cli.run()
+        Args:
+            chat_service: ChatService instance
+            prompt: Display name for user input
+        """
+        self.chat_service = chat_service
+        self.session_id: Optional[str] = None
+        self.prompt = prompt
+        self.running = True
+
+    async def _initialize_session(self) -> bool:
+        """
+        Initialize session.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            response = await self.chat_service.start_session_async(
+                SessionStartRequest(user_id=None, token=None)
+            )
+            self.session_id = response.session_id
+            print(f"[OK] Session started: {self.session_id}\n")
+            return True
+        except Exception as e:
+            print(f"[FAIL] Failed to start session: {str(e)}\n")
+            return False
+
+    def _print_header(self):
+        """Print interface header."""
+        print("\n" + "="*60)
+        print("Forza Chatbot - CLI Interface (Refactored)")
+        print("="*60)
+        print("Commands: /history, /clear, /config, /stats, /help, /exit")
+        print("="*60 + "\n")
+
+    def _print_help(self):
+        """Print help message."""
+        help_text = """
+Commands:
+  /history    - Show conversation history
+  /clear      - Clear conversation
+  /config     - Show assistant config
+  /stats      - Show statistics
+  /help       - Show this help message
+  /exit       - Exit the chat
+
+Type your message and press Enter to send.
+        """
+        print(help_text)
+
+    async def _show_history(self):
+        """Show conversation history."""
+        if not self.session_id:
+            print("[FAIL] No active session\n")
+            return
+
+        try:
+            response = await self.chat_service.get_history_async(
+                HistoryRequest(session_id=self.session_id)
+            )
+
+            if not response.messages:
+                print("(No messages yet)\n")
+                return
+
+            print("\n" + "="*60)
+            print("Conversation History")
+            print("="*60)
+
+            for msg in response.messages:
+                role = msg.role.upper()
+                content = msg.content
+                print(f"\n[{role}]")
+                print(f"{content}")
+
+            print("\n" + "="*60 + "\n")
+
+        except Exception as e:
+            print(f"[FAIL] Error retrieving history: {str(e)}\n")
+
+    async def _clear_history(self):
+        """Clear conversation."""
+        if not self.session_id:
+            print("[FAIL] No active session\n")
+            return
+
+        try:
+            response = await self.chat_service.clear_history_async(
+                ClearHistoryRequest(session_id=self.session_id)
+            )
+            print(f"[OK] Cleared {response.cleared_count} messages\n")
+        except Exception as e:
+            print(f"[FAIL] Error clearing history: {str(e)}\n")
+
+    def _show_config(self):
+        """Show assistant configuration."""
+        try:
+            config = self.chat_service.get_assistant_config()
+
+            print("\n" + "="*60)
+            print("Assistant Configuration")
+            print("="*60)
+
+            for key, value in config.items():
+                if key == "system_prompt":
+                    print(f"\n{key}:")
+                    print(f"  {value[:100]}...")
+                else:
+                    print(f"{key}: {value}")
+
+            print("\n" + "="*60 + "\n")
+
+        except Exception as e:
+            print(f"[FAIL] Error getting config: {str(e)}\n")
+
+    def _show_stats(self):
+        """Show statistics."""
+        try:
+            session_stats = self.chat_service.get_session_stats()
+            conv_stats = self.chat_service.get_conversation_stats()
+
+            print("\n" + "="*60)
+            print("Statistics")
+            print("="*60)
+            print(f"Current Session: {self.session_id}")
+            print(f"Total Sessions: {session_stats.get('total_sessions', 0)}")
+            print(f"Total Conversations: {conv_stats.get('total_conversations', 0)}")
+            print(f"Total Messages: {conv_stats.get('total_messages', 0)}")
+            print(f"Avg Messages/Conv: {conv_stats.get('avg_messages_per_conversation', 0):.1f}")
+            print("="*60 + "\n")
+
+        except Exception as e:
+            print(f"[FAIL] Error getting stats: {str(e)}\n")
+
+    async def _handle_message(self, user_input: str) -> bool:
+        """
+        Handle user message.
+
+        Args:
+            user_input: User's input
+
+        Returns:
+            True if should continue, False if should exit
+        """
+        # Handle commands
+        if user_input.startswith("/"):
+            command = user_input.lower()
+
+            if command == "/exit":
+                print("\n[OK] Goodbye!\n")
+                return False
+
+            elif command == "/history":
+                await self._show_history()
+                return True
+
+            elif command == "/clear":
+                await self._clear_history()
+                return True
+
+            elif command == "/config":
+                self._show_config()
+                return True
+
+            elif command == "/stats":
+                self._show_stats()
+                return True
+
+            elif command == "/help":
+                self._print_help()
+                return True
+
+            else:
+                print(f"[FAIL] Unknown command: {command}")
+                print("Type /help for available commands\n")
+                return True
+
+        # Handle regular message
+        if not self.session_id:
+            print("[FAIL] No active session\n")
+            return True
+
+        if not user_input.strip():
+            return True
+
+        try:
+            response = await self.chat_service.send_message_async(
+                ChatMessageRequest(
+                    session_id=self.session_id,
+                    message=user_input.strip()
+                )
+            )
+
+            print(f"\nBot: {response.text}\n")
+
+        except Exception as e:
+            print(f"[FAIL] Error: {str(e)}\n")
+
+        return True
+
+    async def run(self):
+        """Run the CLI interface."""
+        self._print_header()
+
+        # Initialize session
+        if not await self._initialize_session():
+            return
+
+        print("Type your message or /help for commands\n")
+
+        # Chat loop
+        while self.running:
+            try:
+                user_input = input(f"{self.prompt}: ").strip()
+
+                if user_input:
+                    if not await self._handle_message(user_input):
+                        break
+
+            except KeyboardInterrupt:
+                print("\n\n[OK] Chat closed\n")
+                break
+
+            except Exception as e:
+                print(f"[FAIL] Error: {str(e)}\n")
+
+        # Cleanup
+        if self.session_id:
+            try:
+                from src.api.models import SessionEndRequest
+                await self.chat_service.end_session_async(
+                    SessionEndRequest(session_id=self.session_id)
+                )
+            except:
+                pass
+
+
+def run_cli_interface(chat_service: ChatService, prompt: str = "You"):
+    """
+    Quick start function for CLI interface.
+
+    Args:
+        chat_service: ChatService instance
+        prompt: Display name for user input
+    """
+    interface = CLIInterface(chat_service, prompt=prompt)
+    asyncio.run(interface.run())
+
+
+__all__ = ["CLIInterface", "run_cli_interface"]
