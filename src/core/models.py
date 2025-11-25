@@ -139,6 +139,19 @@ class Conversation:
 
 
 @dataclass
+class BaseAssistantConfig:
+    """Base class for assistant configuration."""
+    pass
+
+@dataclass
+class DefaultAssistantConfig(BaseAssistantConfig):
+    """Default assistant configuration."""
+    assistant_name: str
+    recursive_limit: int = 25
+    
+
+
+@dataclass
 class AssistantConfig:
     """Assistant behavior configuration."""
     system_prompt: str

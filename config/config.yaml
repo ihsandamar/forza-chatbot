@@ -7,7 +7,6 @@ llm:
 
 chatbot:
   graph_type: supervisor
-  thread_id: "1"
 
 database:
   uri: "${DATABASE_URL}"

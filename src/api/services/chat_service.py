@@ -105,6 +105,9 @@ class ChatService:
         if session.get("token"):
             adapter_kwargs["token"] = session["token"]
 
+        # Pass session_id as thread_id for LangGraph conversation persistence
+        adapter_kwargs["thread_id"] = request.session_id
+
         # Get structured response from chatbot (using async version)
         structured_response = await self.chatbot.send_structured_async(state, **adapter_kwargs)
 

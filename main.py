@@ -7,6 +7,7 @@ Supports multiple interfaces: CLI, Gradio, API, and FastAPI.
 
 import asyncio
 import argparse
+import uuid
 from src.api.services.chat_service import ChatService
 from src.interfaces.gradio_interface import GradioInterface
 from src.services.config_loader import ConfigLoader
@@ -19,13 +20,14 @@ from src.interfaces.fastapi_interface import FastAPIInterface
 from src.interfaces.flask_interface import run_flask
 
 
-def build_chatbot(config_path: str, entrypoint_function: str = None):
+def build_chatbot(config_path: str, entrypoint_function: str = None, session_id: str = None):
     """
     Build chatbot instance with configuration.
 
     Args:
         config_path: Path to configuration YAML file
         entrypoint_function: Override graph type from config
+        session_id: Optional session ID to use as thread_id. If not provided, generates new UUID
 
     Returns:
         Configured Chatbot instance
@@ -41,12 +43,15 @@ def build_chatbot(config_path: str, entrypoint_function: str = None):
     llm_config = config.llm
     graph_type = entrypoint_function if entrypoint_function else config.chatbot.graph_type
 
+    # Generate session_id (thread_id) - use provided session_id or generate new UUID
+    thread_id = session_id if session_id else str(uuid.uuid4())
+
     # Build chatbot using dependency injection factories
     chatbot = (
         ChatbotBuilder(dependency_factory, adapter_factory)
         .with_model(llm_config.model, llm_config.temperature, llm_config.api_key)
         .with_graph(graph_type)
-        .with_graph_config({"configurable": {"thread_id": config.chatbot.thread_id}})
+        .with_graph_config({"configurable": {"thread_id": thread_id}})
         .with_assistant_configuration(getattr(config, 'sql_agent_configuration', None))
         .build()
     )
