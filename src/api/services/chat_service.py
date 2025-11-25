@@ -261,3 +261,36 @@ class ChatService:
             "assistant_name": "Forza Chatbot",
             "version": "2.0"
         }
+
+    def list_sessions(self) -> list:
+        """
+        Get list of all sessions with their metadata.
+
+        Returns:
+            List of session dictionaries containing session_id, created_at, and message_count
+        """
+        sessions_list = []
+        for session_id, session_data in self.sessions.items():
+            sessions_list.append({
+                "session_id": session_id,
+                "created_at": session_data.get("created_at"),
+                "user_id": session_data.get("user_id"),
+                "message_count": len(session_data.get("messages", []))
+            })
+
+        # Sort by creation time (newest first)
+        sessions_list.sort(key=lambda x: x.get("created_at") or datetime.min, reverse=True)
+        return sessions_list
+
+    async def create_new_session(self, user_id: Optional[str] = None) -> SessionStartResponse:
+        """
+        Create a new chat session.
+
+        Args:
+            user_id: Optional user identifier
+
+        Returns:
+            SessionStartResponse with session_id and metadata
+        """
+        request = SessionStartRequest(user_id=user_id, token=None)
+        return await self.start_session(request)
