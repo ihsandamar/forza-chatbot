@@ -768,7 +768,8 @@ class GradioInterface:
             share=share,
             server_name=server_name,
             server_port=server_port,
-            show_error=True
+            show_error=True,
+            favicon_path="assets/boticon.png"
         )
 
 
