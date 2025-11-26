@@ -51,6 +51,18 @@ class ChatService:
             created_at=created_at
         )
 
+    async def start_session_async(self, request: SessionStartRequest) -> SessionStartResponse:
+        """
+        Async wrapper for start_session (alias for compatibility)
+
+        Args:
+            request: SessionStartRequest with optional user_id and token
+
+        Returns:
+            SessionStartResponse with session_id and metadata
+        """
+        return await self.start_session(request)
+
     def get_session(self, session_id: str) -> Optional[dict]:
         """Get session data by session_id"""
         return self.sessions.get(session_id)
@@ -93,6 +105,9 @@ class ChatService:
         if session.get("token"):
             adapter_kwargs["token"] = session["token"]
 
+        # Pass session_id as thread_id for LangGraph conversation persistence
+        adapter_kwargs["thread_id"] = request.session_id
+
         # Get structured response from chatbot (using async version)
         structured_response = await self.chatbot.send_structured_async(state, **adapter_kwargs)
 
@@ -121,6 +136,18 @@ class ChatService:
             timestamp=datetime.now(),
             response=response_data
         )
+
+    async def send_message_async(self, request: ChatMessageRequest) -> ChatMessageResponse:
+        """
+        Async wrapper for send_message (alias for compatibility)
+
+        Args:
+            request: ChatMessageRequest with session_id and message
+
+        Returns:
+            ChatMessageResponse with bot response
+        """
+        return await self.send_message(request)
 
     async def get_session_history(self, session_id: str) -> SessionHistoryResponse:
         """
@@ -155,3 +182,118 @@ class ChatService:
             message_count=len(messages),
             messages=messages
         )
+
+    async def get_history_async(self, session_id: str) -> SessionHistoryResponse:
+        """
+        Async wrapper for get_session_history (alias for compatibility)
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            SessionHistoryResponse with message history
+        """
+        return await self.get_session_history(session_id)
+
+    def clear_conversation(self, session_id: str) -> int:
+        """
+        Clear conversation history for a session
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Number of messages cleared
+
+        Raises:
+            ValueError: If session not found
+        """
+        if not self.session_exists(session_id):
+            raise ValueError(f"Session not found: {session_id}")
+
+        session = self.get_session(session_id)
+        cleared_count = len(session.get("messages", []))
+        session["messages"] = []
+        return cleared_count
+
+    async def clear_history_async(self, session_id: str) -> int:
+        """
+        Async wrapper for clear_conversation (alias for compatibility)
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Number of messages cleared
+        """
+        return self.clear_conversation(session_id)
+
+    def get_session_stats(self) -> dict:
+        """
+        Get session statistics.
+
+        Returns:
+            Dictionary with session stats
+        """
+        return {
+            "total_sessions": len(self.sessions),
+            "active_sessions": len([s for s in self.sessions.values() if s.get("messages")])
+        }
+
+    def get_conversation_stats(self) -> dict:
+        """
+        Get conversation statistics.
+
+        Returns:
+            Dictionary with conversation stats
+        """
+        total_messages = sum(len(s.get("messages", [])) for s in self.sessions.values())
+        return {
+            "total_conversations": len(self.sessions),
+            "total_messages": total_messages
+        }
+
+    def get_assistant_config(self) -> dict:
+        """
+        Get assistant configuration.
+
+        Returns:
+            Dictionary with assistant config
+        """
+        return {
+            "assistant_name": "Forza Chatbot",
+            "version": "2.0"
+        }
+
+    def list_sessions(self) -> list:
+        """
+        Get list of all sessions with their metadata.
+
+        Returns:
+            List of session dictionaries containing session_id, created_at, and message_count
+        """
+        sessions_list = []
+        for session_id, session_data in self.sessions.items():
+            sessions_list.append({
+                "session_id": session_id,
+                "created_at": session_data.get("created_at"),
+                "user_id": session_data.get("user_id"),
+                "message_count": len(session_data.get("messages", []))
+            })
+
+        # Sort by creation time (newest first)
+        sessions_list.sort(key=lambda x: x.get("created_at") or datetime.min, reverse=True)
+        return sessions_list
+
+    async def create_new_session(self, user_id: Optional[str] = None) -> SessionStartResponse:
+        """
+        Create a new chat session.
+
+        Args:
+            user_id: Optional user identifier
+
+        Returns:
+            SessionStartResponse with session_id and metadata
+        """
+        request = SessionStartRequest(user_id=user_id, token=None)
+        return await self.start_session(request)

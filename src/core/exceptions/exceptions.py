@@ -54,7 +54,8 @@ class BaseException(Exception):
         self.context = context or {}
         self.timestamp = datetime.utcnow()
 
-        super().__init__(self.message, self.error_code, self.context)
+        # Call parent with just the message
+        super().__init__(self.message)
 
     def __str__(self) -> str:
         """Return formatted error message with error code and context."""
