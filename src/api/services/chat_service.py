@@ -11,6 +11,7 @@ from src.api.models.responses.chat import (
     MessageHistoryItem
 )
 from src.core.chatbot import Chatbot
+from src.core.models import SessionSettings, ResponseFormat
 
 
 class ChatService:
@@ -35,14 +36,19 @@ class ChatService:
         session_id = str(uuid.uuid4())
         created_at = datetime.now()
 
-        # Store session data
+        # Store session data with default settings
+        settings = SessionSettings()
         self.sessions[session_id] = {
             "session_id": session_id,
             "user_id": request.user_id,
             "token": request.token,  # Store token for graph operations
             "created_at": created_at,
             "messages": [],
-            "metadata": {}
+            "metadata": {},
+            "settings": {
+                "max_messages": settings.max_messages,
+                "response_format": settings.response_format
+            }
         }
 
         return SessionStartResponse(
@@ -155,6 +161,48 @@ class ChatService:
         """
         return await self.send_message(request)
 
+    def _filter_messages_by_format(self, messages: list) -> list:
+        """
+        Filter messages based on LAST_MESSAGE_ONLY format.
+
+        For consecutive assistant messages, keeps only the last one in the group.
+        Keeps all other messages (tool, user, system) as-is.
+        Maintains original order in conversation.
+
+        Example: [user, asst, asst, asst, tool, asst] → [user, asst, tool, asst]
+
+        Args:
+            messages: List of MessageHistoryItem objects
+
+        Returns:
+            Filtered list of messages
+        """
+        if not messages:
+            return messages
+
+        filtered = []
+        i = 0
+
+        while i < len(messages):
+            msg = messages[i]
+
+            # If current message is assistant, check for consecutive assistant messages
+            if msg.role == "assistant":
+                # Find the end of consecutive assistant messages
+                j = i + 1
+                while j < len(messages) and messages[j].role == "assistant":
+                    j += 1
+
+                # Keep only the last assistant message in this group (at index j-1)
+                filtered.append(messages[j - 1])
+                i = j
+            else:
+                # Keep all non-assistant messages
+                filtered.append(msg)
+                i += 1
+
+        return filtered
+
     def _parse_message(self, msg) -> tuple:
         """
         Parse message from dict or LangChain message object.
@@ -189,6 +237,10 @@ class ChatService:
         """
         Get chat history for a session
 
+        Respects session settings for response format:
+        - ALL_MESSAGES: Returns all messages
+        - LAST_MESSAGE_ONLY: Returns all tool messages + only the last assistant message
+
         Args:
             session_id: Session identifier
 
@@ -211,6 +263,12 @@ class ChatService:
         for msg in session.get("messages", []):
             role, content = self._parse_message(msg)
             messages.append(MessageHistoryItem(role=role, content=content))
+
+        # Apply response format filtering if needed
+        response_format = session.get("settings", {}).get("response_format", ResponseFormat.ALL_MESSAGES)
+
+        if response_format == ResponseFormat.LAST_MESSAGE_ONLY:
+            messages = self._filter_messages_by_format(messages)
 
         return SessionHistoryResponse(
             session_id=session_id,

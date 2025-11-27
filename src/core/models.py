@@ -48,7 +48,7 @@ class ResponseFormat:
 class SessionSettings:
     """Settings for a chat session."""
     max_messages: int = 100
-    response_format : ResponseFormat = ResponseFormat.ALL_MESSAGES
+    response_format : ResponseFormat = ResponseFormat.LAST_MESSAGE_ONLY
 
 
 @dataclass

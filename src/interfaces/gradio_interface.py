@@ -25,6 +25,7 @@ from src.api.models.requests.chat import (
     SessionStartRequest,
     ChatMessageRequest
 )
+from src.core.models import ResponseFormat
 
 
 class GradioInterface:
@@ -204,6 +205,24 @@ class GradioInterface:
         date_str = now.strftime("%d.%m.%Y")
         time_str = now.strftime("%H:%M")
         return f"{day_name}\n{date_str}\n{time_str}"
+
+    def _update_response_format(self, format_value: str) -> None:
+        """
+        Update session response format setting.
+
+        Args:
+            format_value: The selected response format value
+        """
+        if not self.session_id:
+            return
+
+        try:
+            # Get session and update settings
+            session = self.chat_service.get_session(self.session_id)
+            if session:
+                session["settings"]["response_format"] = format_value
+        except Exception as e:
+            print(f"Error updating response format: {str(e)}")
 
     def _get_chat_history_list(self) -> List[str]:
         """Get list of active sessions from ChatService."""
@@ -646,6 +665,15 @@ class GradioInterface:
                                 value="Türkçe",
                                 label="Dil"
                             )
+                            response_format_dropdown = gr.Dropdown(
+                                choices=[
+                                    ("Tüm Mesajlar", ResponseFormat.ALL_MESSAGES),
+                                    ("Sadece Son Cevap", ResponseFormat.LAST_MESSAGE_ONLY)
+                                ],
+                                value=ResponseFormat.ALL_MESSAGES,
+                                label="Response Formatı",
+                                info="Sohbetlerde gösterilecek mesaj sayısını ayarla"
+                            )
 
                         with gr.Tab("🎯 İşlemler"):
                             history_btn = gr.Button("📜 Geçmişi Yükle")
@@ -739,6 +767,12 @@ class GradioInterface:
             clear_btn.click(
                 fn=self._clear_history_handler,
                 outputs=[clear_output]
+            )
+
+            # Response format setting change handler
+            response_format_dropdown.change(
+                fn=self._update_response_format,
+                inputs=[response_format_dropdown]
             )
 
             demo.load(
