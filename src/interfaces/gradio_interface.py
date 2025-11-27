@@ -113,10 +113,10 @@ class GradioInterface:
                 )
             )
 
-            # Add to history in dict format for type="messages"
-            history.append({"role": "user", "content": message})
-            history.append({"role": "assistant", "content": response.text})
-            return history
+            # Load full history from session (includes all messages: user, assistant, tool, etc.)
+            # This ensures all agent-generated messages and tool calls are included
+            updated_history = await self._load_session_history(self.session_id)
+            return updated_history
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
