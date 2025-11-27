@@ -443,3 +443,33 @@ class Chatbot:
                 f"Failed to send structured message asynchronously: {str(e)}",
                 context={"original_error": str(e)}
             ) from e
+
+    async def get_graph_output_async(self, state: dict, **adapter_kwargs) -> dict:
+        """
+        Get full graph output with all messages for session persistence.
+
+        Returns the complete graph output including all messages that were
+        processed or generated, allowing the caller to persist the full
+        conversation state.
+
+        Args:
+            state: {"messages": [{"role": "user", "content": "..."}]}
+            **adapter_kwargs: Additional adapter parameters (token, thread_id, etc)
+
+        Raises:
+            MessageProcessingException: If message processing fails
+            GraphExecutionException: If graph execution fails
+            ConfigurationException: If configuration is invalid
+
+        Returns:
+            Dict with "messages" key containing full conversation
+        """
+        try:
+            return await self._process_message_async(state, **adapter_kwargs)
+        except (MessageProcessingException, GraphExecutionException, ConfigurationException):
+            raise
+        except Exception as e:
+            raise MessageProcessingException(
+                f"Failed to get graph output asynchronously: {str(e)}",
+                context={"original_error": str(e)}
+            ) from e

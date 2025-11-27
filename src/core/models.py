@@ -38,6 +38,19 @@ class Message:
         return None
 
 
+class ResponseFormat:
+    """Response format options."""
+    ALL_MESSAGES = "all_messages"
+    LAST_MESSAGE_ONLY = "last_message_only"
+
+
+@dataclass
+class SessionSettings:
+    """Settings for a chat session."""
+    max_messages: int = 100
+    response_format : ResponseFormat = ResponseFormat.ALL_MESSAGES
+
+
 @dataclass
 class Session:
     """Represents a chat session."""
@@ -48,6 +61,7 @@ class Session:
     token: Optional[str] = None
     config_snapshot: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    settings: SessionSettings = field(default_factory=SessionSettings)
 
     @property
     def duration_seconds(self) -> float:
@@ -75,6 +89,7 @@ class Session:
             "config_snapshot": self.config_snapshot,
             "metadata": self.metadata
         }
+
 
 
 @dataclass

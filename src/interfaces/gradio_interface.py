@@ -91,8 +91,6 @@ class GradioInterface:
         Raises:
             Exception: If message processing fails
         """
-        print(f"DEBUG: _handle_message called. session_id type: {type(self.session_id)}, value: {self.session_id}")
-
         # Initialize session if needed
         await self._initialize_session()
 
@@ -102,12 +100,11 @@ class GradioInterface:
         # Validate session_id
         if not self.session_id or not isinstance(self.session_id, str):
             error_msg = f"Error: Session not properly initialized. session_id={self.session_id}"
-            print(f"DEBUG: {error_msg}")
-            history.append([message, error_msg])
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": error_msg})
             return history
 
         try:
-            print(f"DEBUG: Sending message with session_id: {self.session_id}")
             # Send message through ChatService
             response = await self.chat_service.send_message_async(
                 ChatMessageRequest(
@@ -116,14 +113,15 @@ class GradioInterface:
                 )
             )
 
-            # Add to history (Gradio will handle avatars automatically)
-            history.append([message, response.text])
+            # Add to history in dict format for type="messages"
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": response.text})
             return history
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
-            print(f"DEBUG: Message handling error: {error_msg}")
-            history.append([message, error_msg])
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": error_msg})
             return history
 
     async def _get_history(self) -> str:
@@ -281,7 +279,7 @@ class GradioInterface:
         except Exception as e:
             print(f"✗ Error creating session: {e}")
 
-    async def _load_session_history(self, session_id: str) -> List[List[str]]:
+    async def _load_session_history(self, session_id: str) -> List[dict]:
         """
         Load history for a specific session.
 
@@ -289,7 +287,7 @@ class GradioInterface:
             session_id: Session identifier to load
 
         Returns:
-            Chat history in Gradio format
+            Chat history in Gradio messages format (list of dicts)
         """
         if not session_id:
             return []
@@ -305,20 +303,12 @@ class GradioInterface:
             # Get session history
             history_response = await self.chat_service.get_history_async(session_id)
 
-            # Convert to Gradio chat format
-            chat_history = []
-            for msg in history_response.messages:
-                if chat_history and chat_history[-1][1] is None:
-                    # Add to last assistant message
-                    chat_history[-1][1] = msg.content
-                else:
-                    if msg.role == "user":
-                        chat_history.append([msg.content, None])
-                    else:
-                        if chat_history:
-                            chat_history[-1][1] = msg.content
-                        else:
-                            chat_history.append([None, msg.content])
+            # Convert to Gradio messages format (type="messages")
+            # Each message must be {"role": "...", "content": "..."}
+            chat_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in history_response.messages
+            ]
 
             return chat_history
         except Exception as e:
@@ -598,11 +588,13 @@ class GradioInterface:
                     ai_avatar = self._get_asset_path("ai_white.png")
 
                     self.chatbot_component = gr.Chatbot(
+                        value=[],
                         label="",
                         show_label=False,
                         height=500,
                         show_copy_button=True,
-                        avatar_images=(user_avatar, ai_avatar)
+                        avatar_images=(user_avatar, ai_avatar),
+                        type="messages"
                     )
 
                     # Input section

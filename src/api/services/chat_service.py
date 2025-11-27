@@ -108,26 +108,32 @@ class ChatService:
         # Pass session_id as thread_id for LangGraph conversation persistence
         adapter_kwargs["thread_id"] = request.session_id
 
-        # Get structured response from chatbot (using async version)
-        structured_response = await self.chatbot.send_structured_async(state, **adapter_kwargs)
+        # Get full graph output with all messages (including agent responses)
+        # Only invoke graph ONCE - this is the source of truth
+        graph_output = await self.chatbot.get_graph_output_async(state, **adapter_kwargs)
 
-        # Extract text for session history
-        bot_response_text = structured_response.get("text", "")
+        # Extract all messages from graph output and persist to session
+        # This ensures all agent-generated messages are saved
+        graph_messages = graph_output.get("messages", [])
+        if graph_messages:
+            session["messages"] = graph_messages
+        else:
+            # Fallback: just keep the messages we have
+            session["messages"] = messages
 
-        # Add assistant response to session messages
-        messages.append({"role": "assistant", "content": bot_response_text})
-        session["messages"] = messages
+        # Extract text response from graph output (last message)
+        # Don't invoke graph again - use the output we already have
+        bot_response_text = self.chatbot._from_graph_state(graph_output)
 
-        # Build response from structured data
-        action_data = structured_response.get("action", {})
+        # Build response from graph output
         response_data = ResponseData(
             text=bot_response_text,
-            type=structured_response.get("type", "text"),
-            confidence=structured_response.get("confidence", 0.95),
+            type="text",
+            confidence=0.95,
             action=ActionResponse(
-                type=action_data.get("type", "none"),
-                target=action_data.get("target", ""),
-                params=action_data.get("params", {})
+                type="none",
+                target="",
+                params={}
             )
         )
 
@@ -148,6 +154,36 @@ class ChatService:
             ChatMessageResponse with bot response
         """
         return await self.send_message(request)
+
+    def _parse_message(self, msg) -> tuple:
+        """
+        Parse message from dict or LangChain message object.
+
+        Handles both:
+        - Dict format: {"role": "...", "content": "..."}
+        - LangChain objects: HumanMessage, AIMessage, etc.
+
+        Returns:
+            Tuple of (role, content)
+        """
+        if isinstance(msg, dict):
+            return msg.get("role", "unknown"), msg.get("content", "")
+
+        # Handle LangChain message objects
+        msg_type = getattr(msg, "type", None)
+
+        # Map LangChain message types to role names
+        type_to_role = {
+            "human": "user",
+            "ai": "assistant",
+            "tool": "tool",
+            "system": "system"
+        }
+
+        role = type_to_role.get(msg_type, msg_type or "unknown")
+        content = getattr(msg, "content", "")
+
+        return role, content
 
     async def get_session_history(self, session_id: str) -> SessionHistoryResponse:
         """
@@ -170,10 +206,11 @@ class ChatService:
         session = self.get_session(session_id)
 
         # Convert messages to MessageHistoryItem format
-        messages = [
-            MessageHistoryItem(role=msg["role"], content=msg["content"])
-            for msg in session.get("messages", [])
-        ]
+        # Handles both dict and LangChain message objects
+        messages = []
+        for msg in session.get("messages", []):
+            role, content = self._parse_message(msg)
+            messages.append(MessageHistoryItem(role=role, content=content))
 
         return SessionHistoryResponse(
             session_id=session_id,

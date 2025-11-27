@@ -80,7 +80,7 @@ if __name__ == "__main__":
     elif args.interface == "gradio":
         chat_service = ChatService(chatbot=chatbot)
         interface = GradioInterface(chat_service=chat_service)
-        interface.run()
+        interface.run(server_name="0.0.0.0", server_port=7860)
     elif args.interface == "api":
         run_flask(chatbot)
     elif args.interface == "fastapi":
