@@ -304,11 +304,24 @@ class GradioInterface:
             history_response = await self.chat_service.get_history_async(session_id)
 
             # Convert to Gradio messages format (type="messages")
-            # Each message must be {"role": "...", "content": "..."}
-            chat_history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in history_response.messages
-            ]
+            # Handle tool messages with special metadata format
+            chat_history = []
+            for msg in history_response.messages:
+                if msg.role == "tool":
+                    # Format tool messages with thinking metadata
+                    chat_history.append({
+                        "role": "assistant",
+                        "content": "",
+                        "metadata": {
+                            "title": f"⏳Thinking: {msg.content}"
+                        }
+                    })
+                else:
+                    # Regular messages
+                    chat_history.append({
+                        "role": msg.role,
+                        "content": msg.content
+                    })
 
             return chat_history
         except Exception as e:
