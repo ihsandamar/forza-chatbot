@@ -24,7 +24,9 @@ from typing_extensions import List, TypedDict
 import json
 import traceback
 from typing import Any, Dict, Optional
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, BaseMessage
+from langchain_core.runnables import RunnableLambda
+from langgraph.graph import MessagesState
 
 config = ConfigLoader.load_config("config/config.yaml")
 load_dotenv()
@@ -48,7 +50,8 @@ def build_forza_url(url_template: str) -> str:
     return url_template.replace("{baseUrl}", web_site_url)
 
 
-class NavigationState(TypedDict):
+class NavigationState(MessagesState):
+
     user_input: str
     related_pages: List[tuple]  # List of (Document, score) tuples
     most_related_document: Optional[Document]
@@ -60,6 +63,7 @@ class NavigationState(TypedDict):
     retry_count: Optional[int]
     no_more_alternatives: Optional[bool]
     token: str
+    navigation_output: Optional[Dict[str, Any]] = None
 
 
 class NavigationParameter(TypedDict):
@@ -638,13 +642,46 @@ class URLUpdateNode(BaseNode):
 
 class StateToOutputTransformerNode(BaseNode):
     """Transforms navigation state to final output format"""
-    
-    def invoke(self, state: NavigationState) -> NavigationOutput:
-        """Convert navigation state to structured output"""
+
+    def invoke(self, state: NavigationState) -> NavigationState:
+        """Convert navigation state to structured output and add URL as tool message"""
         if not state.get("most_related_document"):
-            return self._create_empty_output()
-            
-        return self._document_to_navigation_output(state["most_related_document"])
+            output = self._create_empty_output()
+        else:
+            output = self._document_to_navigation_output(state["most_related_document"])
+
+        # Store output in state for supervisor to access
+        state["navigation_output"] = output
+
+        # Add URL as proper tool message pair (AIMessage + ToolMessage)
+        if output.get("url"):
+            url = output["url"]
+
+            # Create AIMessage with tool_calls that will be followed by ToolMessage
+            ai_message = AIMessage(
+                content="",
+                tool_calls=[{
+                    "id": "routing_navigation_url",
+                    "name": "navigation",
+                    "args": {"url": url}
+                }]
+            )
+
+            # Create ToolMessage as response to the tool call
+            tool_message = ToolMessage(
+                content=url,
+                tool_call_id="routing_navigation_url"
+            )
+
+            # Add both messages to state
+            messages = state.get("messages", [])
+            if not isinstance(messages, list):
+                messages = list(messages) if hasattr(messages, '__iter__') else []
+
+            state["messages"] = messages + [ai_message, tool_message]
+            print(f"[DEBUG] Navigation URL added as tool message: {url}")
+
+        return state
     
     def _create_empty_output(self) -> NavigationOutput:
         """Create empty output when no document found"""
@@ -784,6 +821,31 @@ class CheckToolResultsNode(BaseNode):
             except json.JSONDecodeError:
                 return None
         return url_parameters or {}
+
+
+class ExtractUserInputFromMessagesNode(BaseNode):
+    """Extracts the last user message from messages state and sets it as user_input"""
+
+    def invoke(self, state: NavigationState) -> NavigationState:
+        """Extract last user message from messages"""
+        messages = state.get("messages", [])
+
+        if messages:
+            # Get the last message
+            last_message = messages[-1]
+
+            # Extract content based on message type
+            if hasattr(last_message, 'content'):
+                user_input = last_message.content
+            else:
+                user_input = str(last_message)
+
+            state["user_input"] = user_input
+            print(f"[DEBUG] Extracted user input from messages: {user_input[:100]}...")
+        else:
+            print("[WARNING] No messages found in state")
+
+        return state
 
 
 class FindAlternativePagesNode(BaseNode):
@@ -936,6 +998,7 @@ class VegaforzaNavigationGraph(BaseGraph):
     
     def _initialize_nodes(self):
         """Initialize all node instances"""
+        self.extract_user_input_node = ExtractUserInputFromMessagesNode(self.llm)
         self.document_retrieval_node = DocumentRetrievalNode(self.llm, self.vectorstore)
         self.most_related_page_node = MostRelatedPageNode(self.llm)
         self.parameter_check_node = ParameterCheckNode(self.llm)
@@ -949,9 +1012,10 @@ class VegaforzaNavigationGraph(BaseGraph):
         """Build the navigation graph with all nodes"""
         print("[INIT] VegaForza Navigation Graph starting...")
 
-        graph = StateGraph(state_schema=NavigationState, output=NavigationOutput)
+        graph = StateGraph(state_schema=NavigationState)
 
         # Add nodes
+        graph.add_node("extract_user_input", RunnableLambda(self.extract_user_input_node.invoke))
         graph.add_node("find_documents", RunnableLambda(self.document_retrieval_node.invoke))
         graph.add_node("most_related_page", RunnableLambda(self.most_related_page_node.invoke))
         graph.add_node("check_parameters", RunnableLambda(self.parameter_check_node.invoke))
@@ -962,7 +1026,8 @@ class VegaforzaNavigationGraph(BaseGraph):
         graph.add_node("transform_state_to_output", RunnableLambda(self.state_transformer_node.invoke))
 
         # Define flow
-        graph.set_entry_point("find_documents")
+        graph.set_entry_point("extract_user_input")
+        graph.add_edge("extract_user_input", "find_documents")
         graph.add_edge("find_documents", "most_related_page")
         graph.add_edge("most_related_page", "check_parameters")
         graph.add_edge("check_parameters", "fill_parameters_with_toolkit")
