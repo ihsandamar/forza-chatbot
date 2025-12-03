@@ -28,7 +28,7 @@ from src.graphs.registry import register_graph
 from src.services.config_loader import ConfigLoader
 
 from .states import RoutingState
-from .nodes import normalize_messages_to_message, document_retrieval_node
+from .nodes import find_similar_documents_node, get_most_relevant_document, routing_page_has_parameter, get_routing_page_parameters
 
 logger = logging.getLogger(__name__)
 config = ConfigLoader.load_config("config/config.yaml")
@@ -186,45 +186,46 @@ class RoutingGraph(BaseGraph):
             return None
 
     def build_graph(self) -> StateGraph:
-        """
-        Build and return the compiled StateGraph.
-
-        Two-node architecture:
-        START → normalize_messages → document_retrieval → END
-
-        Returns:
-            Compiled StateGraph instance
-        """
         builder = self.get_graph_builder()
 
-        logger.info(f"[ROUTING] Building graph - Vectorstore: {self.vectorstore is not None}")
+        # -------------------------
+        # Nodes
+        # -------------------------
+        builder.add_node(
+            "find_similar_documents",
+            find_similar_documents_node,
+            vectorstore=self.vectorstore
+        )
+        builder.add_node("get_most_relevant_document", get_most_relevant_document)
+        builder.add_node("routing_page_has_parameter", routing_page_has_parameter)
+        builder.add_node("get_routing_page_parameters", get_routing_page_parameters)
 
-        # Node 1: Normalize messages to single message
-        builder.add_node("normalize_messages", normalize_messages_to_message)
+        # -------------------------
+        # Normal edges
+        # -------------------------
+        builder.add_edge(START, "find_similar_documents")
+        builder.add_edge("find_similar_documents", "get_most_relevant_document")
+        builder.add_edge("get_most_relevant_document", "routing_page_has_parameter")
 
-        # Node 2: Retrieve documents with vectorstore wrapper
-        def document_retrieval_with_vectorstore(state: RoutingState) -> RoutingState:
-            """Wrapper to inject vectorstore into document retrieval node."""
-            # Ensure related_pages exists
-            if "related_pages" not in state:
-                state["related_pages"] = []
+        # -------------------------
+        # CONDITIONAL EDGE (DÜZGÜN SÜRÜM FORMAT)
+        # -------------------------
 
-            result = document_retrieval_node(state, self.vectorstore)
-            logger.debug(f"[ROUTING] Retrieved {len(result.get('related_pages', []))} documents")
-            return result
+        def has_param_condition(state):
+            """
+            Bu fonksiyon yalnızca True/False döndürmeli.
+            """
+            return state.get("page_has_parameter", False)
 
-        builder.add_node("document_retrieval", document_retrieval_with_vectorstore)
-
-        # Add edges: START → normalize → retrieval → END
-        builder.add_edge(START, "normalize_messages")
-        builder.add_edge("normalize_messages", "document_retrieval")
-        builder.add_edge("document_retrieval", END)
-
-        # Compile
-        compiled = builder.compile(
-            name="routing_graph",
-            checkpointer=self.get_memory(),
+        builder.add_conditional_edges(
+            "routing_page_has_parameter",                      # node
+            {                                                  # path_map
+                True: builder.add_node("get_routing_page_parameters"),
+                False: END
+            },
+            has_param_condition                                # condition_fn
         )
 
-        logger.info("[ROUTING] Graph built successfully")
-        return compiled
+        builder.add_edge("get_routing_page_parameters", END)
+
+        return builder.compile()

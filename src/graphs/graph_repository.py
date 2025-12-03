@@ -40,6 +40,7 @@ class GraphRepository:
         try:
             import src.graphs.chat.graph
             import src.graphs.supervisor.graph
+            import src.graphs.routing.graph
 
             logger.info("ChatGraph registered")
         except ImportError as e:

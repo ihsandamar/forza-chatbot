@@ -208,8 +208,8 @@ class SupervisorGraph(BaseGraph):
         )
 
         logger.info("[SUPERVISOR] Building routing agent...")
-        # routing_agent = RoutingGraph(llm=self.llm).build_graph()
-        routing_agent = VegaforzaNavigationGraph(llm=self.llm).build_graph()
+        routing_agent = RoutingGraph(llm=self.llm).build_graph()
+        # routing_agent = VegaforzaNavigationGraph(llm=self.llm).build_graph()
         logger.info("[SUPERVISOR] Routing agent built successfully")
 
         logger.info("[SUPERVISOR] Building chat agent...")

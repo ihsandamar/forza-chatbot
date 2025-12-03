@@ -19,3 +19,4 @@ class RoutingState(MessagesState, total=False):
     # messages: Annotated[list[AnyMessage], add_messages] # Message history (for compatibility with system)
     message: AnyMessage  # Current message to process (extracted from messages)
     related_pages: List[Tuple[Document, float]]  # List of (Document, score) tuples
+    most_relevant_page: Document  # Most relevant document
