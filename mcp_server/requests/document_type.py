@@ -3,10 +3,10 @@ import requests
 from mcp_server.constraints import API_BASE_URL
 
 CONTROLLER_NAME = "DocumentTypes"
-ENDPOINT_URL = f"{API_BASE_URL}/{CONTROLLER_NAME}/getall"
+ENDPOINT_URL = f"{API_BASE_URL}/{CONTROLLER_NAME}/getAll"
 
 
-def send_request(token: str = None) -> dict:
+def document_types_get_all(token: str = None) -> dict:
     headers = {
         "Content-Type": "application/json",
     }
@@ -20,6 +20,9 @@ def send_request(token: str = None) -> dict:
         return response.json()
     except requests.exceptions.RequestException as e:
         return {"error": str(e)}
+    
+
+
 
 
 

@@ -1,5 +1,7 @@
 from mcp.server.fastmcp import FastMCP
-from mcp_server.requets import send_request
+from mcp_server.models import GetListModel
+from mcp_server.requests.document_type import document_types_get_all
+from mcp_server.requests.product import ProductGetListModel
 
 
 mcp = FastMCP("Demo", json_response=True)
@@ -9,4 +11,25 @@ token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm
 @mcp.tool()
 def get_document_types() -> dict:
     """Belge türlerini alır."""
-    return send_request(token=token)
+    return document_types_get_all(token=token)
+
+
+@mcp.tool()
+def customer_get_list(params: GetListModel) -> dict:
+    """Müşteri/cari listesini alır."""
+    from mcp_server.requests.customer import customer_get_list
+    return customer_get_list(token=token, params=params)
+
+
+@mcp.tool()
+def branch_get_all() -> dict:
+    """Şube listesini alır."""
+    from mcp_server.requests.branch import branch_get_all
+    return branch_get_all(token=token)
+
+@mcp.tool()
+def product_get_list(params: ProductGetListModel) -> dict:
+    """Ürün listesini alır."""
+    from mcp_server.requests.product import product_get_list
+    return product_get_list(token=token, params=params)
+
