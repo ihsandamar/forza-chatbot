@@ -9,8 +9,8 @@ import sys
 import json
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 import chromadb
 from chromadb.config import Settings

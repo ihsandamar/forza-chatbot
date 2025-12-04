@@ -22,7 +22,7 @@ from src.graphs.base.graph_metadata import (
 from src.graphs.registry import register_graph
 from src.graphs.chat.graph import ChatGraph
 from src.graphs.routing.graph import RoutingGraph
-from src.graphs.forza_routing_graph import VegaforzaNavigationGraph
+
 from src.graphs.supervisor.prompts import SUPERVISOR_SYSTEM_PROMPT
 from src.graphs.supervisor.tools import (
     get_current_time,
@@ -36,32 +36,75 @@ logger = logging.getLogger(__name__)
 
 def handle_routing_node(routing_agent):
     """
-    Wrapper for routing agent to ensure output is properly converted to MessagesState format.
+    Wrapper for routing agent that handles state conversion between supervisor and routing graph.
 
-    Routing agent returns NavigationState but supervisor expects MessagesState.
-    This wrapper ensures navigation_output is preserved in the state.
+    State Conversion:
+    - Input: MessagesState (supervisor format with 'messages' list)
+    - Output: RoutingState (routing format with 'message' singular)
+
+    The routing agent expects a 'message' field (single HumanMessage),
+    while supervisor provides 'messages' field (list of messages).
+    This wrapper converts between the two formats.
     """
     async def wrapped_routing(state: MessagesState) -> MessagesState:
         logger.info("[SUPERVISOR] Invoking routing agent...")
 
         try:
-            # Invoke routing agent
-            routing_output = await routing_agent.ainvoke(state)
+            # ============================================
+            # Step 1: Convert MessagesState to RoutingState
+            # ============================================
+            messages = state.get("messages", [])
+            logger.debug(f"[SUPERVISOR] Total messages in state: {len(messages)}")
+
+            # Get the last user message
+            user_message = None
+            for msg in reversed(messages):
+                # Find last HumanMessage (user input)
+                if hasattr(msg, '__class__') and msg.__class__.__name__ == 'HumanMessage':
+                    user_message = msg
+                    logger.debug(f"[SUPERVISOR] Found user message: {str(msg.content)[:100]}...")
+                    break
+
+            # Create routing state with message field
+            routing_state = {
+                "message": user_message,
+                "messages": messages,  # Also keep messages for context
+            }
+
+            logger.info("[SUPERVISOR] Converted state for routing agent")
+            logger.debug(f"[SUPERVISOR] Routing state keys: {list(routing_state.keys())}")
+
+            # ============================================
+            # Step 2: Invoke routing agent
+            # ============================================
+            routing_output = await routing_agent.ainvoke(routing_state)
             logger.debug(f"[SUPERVISOR] Routing output type: {type(routing_output)}")
             logger.debug(f"[SUPERVISOR] Routing output keys: {list(routing_output.keys()) if hasattr(routing_output, 'keys') else 'N/A'}")
 
-            # Ensure navigation_output is preserved in state
+            # ============================================
+            # Step 3: Convert RoutingState back to MessagesState
+            # ============================================
+            # Copy relevant fields from routing output back to supervisor state
             if isinstance(routing_output, dict):
-                # Copy navigation_output to state for next node to process
-                if "navigation_output" in routing_output:
-                    state["navigation_output"] = routing_output.get("navigation_output")
-                    logger.info("[SUPERVISOR] Preserved navigation_output in state")
+                # Preserve routing-specific results
+                if "most_relevant_page" in routing_output:
+                    state["most_relevant_page"] = routing_output.get("most_relevant_page")
+                    logger.debug("[SUPERVISOR] Preserved most_relevant_page from routing")
 
-                # Merge messages if present
+                if "page_parameters" in routing_output:
+                    state["page_parameters"] = routing_output.get("page_parameters")
+                    logger.debug("[SUPERVISOR] Preserved page_parameters from routing")
+
+                if "retrieved_documents" in routing_output:
+                    state["retrieved_documents"] = routing_output.get("retrieved_documents")
+                    logger.debug("[SUPERVISOR] Preserved retrieved_documents from routing")
+
+                # Update messages if routing agent added any
                 if "messages" in routing_output:
                     state["messages"] = routing_output.get("messages")
                     logger.debug("[SUPERVISOR] Updated messages from routing output")
 
+            logger.info("[SUPERVISOR] Routing agent completed successfully")
             return state
 
         except Exception as e:
