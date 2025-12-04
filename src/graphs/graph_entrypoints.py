@@ -1,6 +1,7 @@
 import asyncio
 from src.graphs.base_graph import BaseGraph
 from src.graphs.graph_repository import GraphRepository
+from src.graphs.routing.graph import RoutingGraph
 from src.graphs.supervisor.graph import create_supervisor_graph
 from src.models.llm import LLM
 from src.services.config_loader import ConfigLoader
@@ -64,3 +65,18 @@ def supervisor_graph():
     llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
 
     return create_supervisor_graph(llm=llm)
+
+
+
+def routing_graph() :
+    """
+    Create and return the routing graph.
+
+    Note: Configuration is pre-loaded by API startup event to avoid
+    blocking I/O in async contexts (LangGraph detection).
+    """
+    config = _get_config()
+    llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+
+    graph = RoutingGraph(llm=llm)
+    return graph.build_graph()

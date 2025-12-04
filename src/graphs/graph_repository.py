@@ -40,6 +40,7 @@ class GraphRepository:
         try:
             import src.graphs.chat.graph
             import src.graphs.supervisor.graph
+            import src.graphs.routing.graph
 
             logger.info("ChatGraph registered")
         except ImportError as e:
@@ -52,7 +53,7 @@ class GraphRepository:
             logger.warning(f"Could not import RoutingGraph: {e}")
 
         try:
-            import src.graphs.forza_routing_graph
+            import src.graphs.routing.graph
             logger.info("ForzaRoutingGraph registered")
         except ImportError as e:
             logger.warning(f"Could not import ForzaRoutingGraph: {e}")
