@@ -54,22 +54,25 @@ class GradioInterface:
         self.session_id: Optional[str] = None
         self.current_session_id: Optional[str] = None  # Track currently selected session
         self.chatbot_component = None  # Will be set during build
+        self.token: Optional[str] = None  # Authentication token for API calls
 
     async def _initialize_session(self) -> None:
         """
         Initialize session on first interaction.
 
         Creates a new session if one doesn't exist.
+        Uses the token from the UI if available.
         """
         if self.session_id:
             return  # Already initialized
 
         try:
             response = await self.chat_service.start_session_async(
-                SessionStartRequest(user_id=None, token=None)
+                SessionStartRequest(user_id=None, token=self.token)
             )
             self.session_id = response.session_id
-            print(f"✓ Session started: {self.session_id}")
+            token_info = f" (token: {self.token[:10]}...)" if self.token else " (no token)"
+            print(f"✓ Session started: {self.session_id}{token_info}")
         except Exception as e:
             print(f"✗ Failed to start session: {str(e)}")
             raise
@@ -106,11 +109,12 @@ class GradioInterface:
             return history
 
         try:
-            # Send message through ChatService
+            # Send message through ChatService with token
             response = await self.chat_service.send_message_async(
                 ChatMessageRequest(
                     session_id=self.session_id,
-                    message=message.strip()
+                    message=message.strip(),
+                    token=self.token
                 )
             )
 
@@ -223,6 +227,36 @@ class GradioInterface:
                 session["settings"]["response_format"] = format_value
         except Exception as e:
             print(f"Error updating response format: {str(e)}")
+
+    def _update_token(self, token_value: str) -> str:
+        """
+        Update authentication token for API calls.
+
+        Args:
+            token_value: The token string entered by user
+
+        Returns:
+            Confirmation message
+        """
+        try:
+            # Update token in memory
+            self.token = token_value if token_value and token_value.strip() else None
+
+            if self.token:
+                # Store in session if one exists
+                if self.session_id:
+                    session = self.chat_service.get_session(self.session_id)
+                    if session and "settings" in session:
+                        session["settings"]["token"] = self.token
+                        print(f"✓ Token updated in session")
+                return f"✓ Token kaydedildi ({self.token[:10]}...)"
+            else:
+                return "✓ Token temizlendi"
+
+        except Exception as e:
+            error_msg = f"✗ Token güncellemesi başarısız: {str(e)}"
+            print(error_msg)
+            return error_msg
 
     def _get_chat_history_list(self) -> List[str]:
         """Get list of active sessions from ChatService."""
@@ -675,6 +709,23 @@ class GradioInterface:
                                 info="Sohbetlerde gösterilecek mesaj sayısını ayarla"
                             )
 
+                            # Token input section
+                            gr.Markdown("### 🔑 Kimlik Doğrulama")
+                            token_input = gr.Textbox(
+                                label="Token",
+                                placeholder="API token giriniz...",
+                                type="password",
+                                lines=3,
+                                info="İhtiyaç durumunda API çağrıları için kullanılacak token"
+                            )
+                            token_status = gr.Textbox(
+                                label="Durum",
+                                interactive=False,
+                                lines=2,
+                                value="Token girilmemiş",
+                                show_label=False
+                            )
+
                         with gr.Tab("🎯 İşlemler"):
                             history_btn = gr.Button("📜 Geçmişi Yükle")
                             gr.Button("💾 Dışa Aktar")
@@ -773,6 +824,16 @@ class GradioInterface:
             response_format_dropdown.change(
                 fn=self._update_response_format,
                 inputs=[response_format_dropdown]
+            )
+
+            # Token input handler
+            token_input.change(
+                fn=self._update_token,
+                inputs=[token_input],
+                outputs=[token_status]
+            ).then(
+                lambda: "",
+                outputs=[message_input]
             )
 
             demo.load(

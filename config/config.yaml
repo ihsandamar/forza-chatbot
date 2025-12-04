@@ -13,5 +13,6 @@ database:
   schema: "public"
 
 forza:
-  base_url: "http://localhost:8082"
+  base_url: "https://forza.vegayazilim.com.tr:8805"
   web_site_url: "https://test.vegaforza.com"
+  token: "${FORZA_API_TOKEN}"

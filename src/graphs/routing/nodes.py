@@ -40,7 +40,7 @@ MAX_RETRIES = 3
 
 
 def extract_user_input_node(state: NavigationState) -> NavigationState:
-    """Extract user input from last HumanMessage in messages."""
+    """Extract user input from last HumanMessage in messages and load token from config."""
     try:
         messages = state.get("messages", [])
         if not messages:
@@ -76,6 +76,19 @@ def extract_user_input_node(state: NavigationState) -> NavigationState:
 
         state["user_input"] = user_input
         logger.debug(f"[FORZA] Extracted user input: {user_input[:100]}...")
+
+        # Load token from config
+        from src.services.config_loader import ConfigLoader
+        config = ConfigLoader.load_config("config/config.yaml")
+        token = config.forza.token
+
+        if not token:
+            logger.error("[FORZA] Token not found in config")
+            raise UserInputExtractionError("Token not found in config.forza.token")
+
+        state["token"] = token
+        logger.debug("[FORZA] Token loaded from config successfully")
+
         return state
 
     except UserInputExtractionError:
