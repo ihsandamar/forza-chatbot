@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 # Constants
 SIMILARITY_SEARCH_K = 5
 MAX_RETRIES = 3
+SIMILARITY_SCORE_THRESHOLD = 0.3  # Minimum similarity score to consider
 
 
 def extract_user_input_node(state: NavigationState) -> NavigationState:
@@ -101,7 +102,12 @@ def extract_user_input_node(state: NavigationState) -> NavigationState:
 def find_documents_node(
     state: NavigationState, vectorstore: Optional[Chroma] = None
 ) -> NavigationState:
-    """Retrieve similar documents using vectorstore."""
+    """
+    Retrieve similar documents using vectorstore with optional metadata filtering.
+
+    Uses similarity_search_with_score for better relevance scoring and supports
+    filtering by category, parameters, and other metadata fields.
+    """
     try:
         if not vectorstore:
             logger.error("[FORZA] Vectorstore not available")
@@ -112,19 +118,61 @@ def find_documents_node(
             logger.error("[FORZA] Empty user input for document retrieval")
             raise DocumentRetrievalError("User input is empty or missing")
 
-        retrieved_docs = vectorstore.similarity_search(user_input, k=SIMILARITY_SEARCH_K)
+        # Build metadata filter if needed
+        metadata_filter = _build_metadata_filter(state)
 
-        if not retrieved_docs:
+        # Use similarity_search_with_score for better scoring
+        try:
+            if metadata_filter:
+                logger.debug(f"[FORZA] Applying metadata filter: {metadata_filter}")
+                retrieved_docs_with_scores = vectorstore.similarity_search_with_score(
+                    user_input,
+                    k=SIMILARITY_SEARCH_K,
+                    filter=metadata_filter
+                )
+            else:
+                retrieved_docs_with_scores = vectorstore.similarity_search_with_score(
+                    user_input,
+                    k=SIMILARITY_SEARCH_K
+                )
+        except Exception as e:
+            # Fallback to basic search if filtering fails
+            logger.warning(f"[FORZA] Metadata filtering failed, using basic search: {e}")
+            retrieved_docs = vectorstore.similarity_search(user_input, k=SIMILARITY_SEARCH_K)
+            retrieved_docs_with_scores = [(doc, 1.0 - (i * 0.1)) for i, doc in enumerate(retrieved_docs)]
+
+        if not retrieved_docs_with_scores:
             logger.error("[FORZA] No documents found for user input")
             raise DocumentRetrievalError(f"No similar documents found for query: {user_input[:100]}")
 
-        # Assign scores (default scoring since vectorstore doesn't return scores)
-        docs_with_scores = [
-            (doc, 1.0 - (i * 0.1)) for i, doc in enumerate(retrieved_docs)
-        ]
+        # Filter by score threshold and convert scores (lower distance = higher similarity)
+        # ChromaDB returns L2 distance, convert to similarity score
+        docs_with_scores = []
+        for doc, distance in retrieved_docs_with_scores:
+            # Convert distance to similarity (0-1 range, higher is better)
+            similarity_score = 1.0 / (1.0 + distance)
+
+            if similarity_score >= SIMILARITY_SCORE_THRESHOLD:
+                docs_with_scores.append((doc, similarity_score))
+                logger.debug(
+                    f"[FORZA] Retrieved: {doc.metadata.get('title', 'Unknown')} "
+                    f"(score: {similarity_score:.3f}, distance: {distance:.3f})"
+                )
+
+        if not docs_with_scores:
+            logger.warning(f"[FORZA] No documents above threshold {SIMILARITY_SCORE_THRESHOLD}")
+            raise DocumentRetrievalError(
+                f"No sufficiently similar documents found (threshold: {SIMILARITY_SCORE_THRESHOLD})"
+            )
+
+        # Sort by score (descending)
+        docs_with_scores.sort(key=lambda x: x[1], reverse=True)
 
         state["related_pages"] = docs_with_scores
-        logger.info(f"[FORZA] Retrieved {len(retrieved_docs)} documents")
+        logger.info(
+            f"[FORZA] Retrieved {len(docs_with_scores)} documents "
+            f"(best score: {docs_with_scores[0][1]:.3f})"
+        )
         return state
 
     except (VectorStoreNotFoundError, DocumentRetrievalError):
@@ -159,7 +207,14 @@ def select_most_relevant_document(state: NavigationState) -> NavigationState:
 
 
 def detect_page_parameters_node(state: NavigationState) -> NavigationState:
-    """Check if page has URL parameters."""
+    """
+    Check if page has URL parameters.
+
+    Uses the new metadata structure:
+    - has_parameters: boolean indicating if page has parameters
+    - parameter_count: number of parameters (optional)
+    - URL contains {parameter} placeholders
+    """
     try:
         doc = state.get("most_related_document")
         if not doc:
@@ -167,12 +222,28 @@ def detect_page_parameters_node(state: NavigationState) -> NavigationState:
             raise ParameterDetectionError("most_related_document is missing from state")
 
         metadata = doc.metadata or {}
-        url_params = _parse_url_parameters(metadata.get("url_parameters", {}))
 
-        has_params = bool(url_params and len(url_params) > 0)
+        # Check using new metadata structure first
+        has_params = metadata.get("has_parameters", False)
+
+        # Fallback: Check URL for parameter placeholders
+        if not has_params:
+            url = metadata.get("url", "")
+            has_params = bool(url and "{" in url and "}" in url)
+
+        # Fallback: Check old metadata structure
+        if not has_params:
+            url_params = _parse_url_parameters(metadata.get("url_parameters", {}))
+            has_params = bool(url_params and len(url_params) > 0)
+
         state["has_parameters"] = has_params
 
-        logger.debug(f"[FORZA] Page has parameters: {has_params}")
+        param_count = metadata.get("parameter_count", 0)
+        logger.debug(
+            f"[FORZA] Page '{metadata.get('title', 'Unknown')}' has parameters: {has_params} "
+            f"(count: {param_count})"
+        )
+
         return state
 
     except ParameterDetectionError:
@@ -185,7 +256,13 @@ def detect_page_parameters_node(state: NavigationState) -> NavigationState:
 def extract_page_parameters_node(
     state: NavigationState, llm: LLM, config: Any
 ) -> NavigationState:
-    """Extract URL parameters using tools."""
+    """
+    Extract URL parameters using tools.
+
+    Supports multiple parameter sources:
+    1. url_parameters metadata (dict or JSON string)
+    2. URL placeholder extraction (fallback)
+    """
     try:
         if not state.get("has_parameters"):
             logger.debug("[FORZA] Page has no parameters, skipping extraction")
@@ -203,11 +280,39 @@ def extract_page_parameters_node(
 
         metadata = doc.metadata or {}
         page_title = metadata.get("title", "")
+
+        # Try to get url_parameters from metadata
         url_params = _parse_url_parameters(metadata.get("url_parameters"))
 
+        # Fallback: Extract from URL placeholders if url_parameters not found
         if not url_params:
-            logger.error("[FORZA] No URL parameters found in document metadata")
-            raise ParameterExtractionError("URL parameters not found in document metadata")
+            logger.warning("[FORZA] No url_parameters in metadata, extracting from URL...")
+            url = metadata.get("url") or metadata.get("url_route", "")
+
+            if url and "{" in url and "}" in url:
+                # Extract parameter names from URL
+                import re
+                param_names = re.findall(r'\{(\w+)\}', url)
+
+                if param_names:
+                    # Create basic url_parameters structure
+                    url_params = {}
+                    for param_name in param_names:
+                        url_params[param_name] = {
+                            "type": "guid",  # Default type
+                            "description": f"Parameter: {param_name}",
+                            "required": True,
+                            "endpoint": _guess_endpoint_from_param_name(param_name)
+                        }
+                    logger.info(f"[FORZA] Extracted {len(url_params)} parameters from URL")
+                else:
+                    logger.warning("[FORZA] Could not extract parameters from URL")
+            else:
+                logger.warning("[FORZA] URL has no parameter placeholders")
+
+        if not url_params:
+            logger.error("[FORZA] No URL parameters found in metadata or URL")
+            raise ParameterExtractionError("URL parameters not found in document metadata or URL")
 
         # Create toolkit and execute tools
         toolkit = ForzaRoutingToolkit(
@@ -235,7 +340,11 @@ def extract_page_parameters_node(
 
 
 def update_url_with_parameters_node(state: NavigationState) -> NavigationState:
-    """Update URL with filled parameters."""
+    """
+    Update URL with filled parameters.
+
+    Works with both old (url_route) and new (url) metadata structures.
+    """
     try:
         doc = state.get("most_related_document")
         if not doc:
@@ -247,10 +356,11 @@ def update_url_with_parameters_node(state: NavigationState) -> NavigationState:
             logger.error("[FORZA] Document metadata is missing")
             raise URLUpdateError("Document metadata is missing")
 
-        original_url = metadata.get("url_route", "")
+        # Try new structure first, fallback to old
+        original_url = metadata.get("url") or metadata.get("url_route", "")
         if not original_url:
-            logger.error("[FORZA] URL route not found in document metadata")
-            raise URLUpdateError("URL route not found in document metadata")
+            logger.error("[FORZA] URL not found in document metadata")
+            raise URLUpdateError("URL not found in document metadata")
 
         updated_url = original_url
 
@@ -266,15 +376,30 @@ def update_url_with_parameters_node(state: NavigationState) -> NavigationState:
                         updated_url = updated_url.replace(placeholder, str(value))
                         logger.debug(f"[FORZA] Updated {param_name}: {value}")
 
-        # Apply baseUrl
+        # Apply baseUrl replacement (support multiple formats)
         from src.services.config_loader import ConfigLoader
         config = ConfigLoader.load_config("config/config.yaml")
         web_site_url = config.forza.web_site_url
-        updated_url = updated_url.replace("{baseUrl}", web_site_url)
+
+        # Support multiple baseUrl formats: {baseUrl}, {base_url}, {BASE_URL}
+        base_url_variants = [
+            "{baseUrl}",
+            "{base_url}",
+            "{BASE_URL}",
+            "{BaseUrl}",
+            "{BASEURL}"
+        ]
+
+        for variant in base_url_variants:
+            if variant in updated_url:
+                updated_url = updated_url.replace(variant, web_site_url)
+                logger.debug(f"[FORZA] Replaced {variant} with {web_site_url}")
 
         # Update document if URL changed
         if updated_url != original_url:
             updated_metadata = metadata.copy()
+            # Update both url and url_route for backwards compatibility
+            updated_metadata["url"] = updated_url
             updated_metadata["url_route"] = updated_url
             updated_metadata["original_url"] = original_url
 
@@ -283,6 +408,8 @@ def update_url_with_parameters_node(state: NavigationState) -> NavigationState:
                 metadata=updated_metadata
             )
             logger.debug(f"[FORZA] URL updated: {original_url} -> {updated_url}")
+        else:
+            logger.debug(f"[FORZA] URL unchanged: {original_url}")
 
         return state
 
@@ -433,6 +560,44 @@ def find_alternative_pages_node(state: NavigationState) -> NavigationState:
 # ============================================================================
 
 
+def _build_metadata_filter(state: NavigationState) -> Optional[Dict[str, Any]]:
+    """
+    Build ChromaDB metadata filter from state.
+
+    Supports filtering by:
+    - category: Filter by page category
+    - has_parameters: Filter by parameter presence
+    - source: Filter by data source
+
+    Returns:
+        Metadata filter dict for ChromaDB, or None if no filtering needed
+    """
+    filters = {}
+
+    # Check state for filter hints (can be extended in the future)
+    # For now, return None to allow all documents
+    # This can be customized based on user input or intent
+
+    # Example: Filter by category if specified in state
+    if "filter_category" in state and state["filter_category"]:
+        filters["category"] = state["filter_category"]
+
+    # Example: Filter by parameter requirement
+    if "filter_has_parameters" in state:
+        filters["has_parameters"] = state["filter_has_parameters"]
+
+    # Example: Filter by source
+    if "filter_source" in state and state["filter_source"]:
+        filters["source"] = state["filter_source"]
+
+    # Return None if no filters, otherwise return filter dict
+    if not filters:
+        return None
+
+    logger.debug(f"[FORZA] Built metadata filter: {filters}")
+    return filters
+
+
 def _parse_url_parameters(url_parameters: Any) -> Optional[Dict[str, Any]]:
     """Parse URL parameters from various formats."""
     if isinstance(url_parameters, str):
@@ -442,6 +607,46 @@ def _parse_url_parameters(url_parameters: Any) -> Optional[Dict[str, Any]]:
             logger.warning(f"[FORZA] Invalid JSON in url_parameters: {url_parameters}")
             return None
     return url_parameters or {}
+
+
+def _guess_endpoint_from_param_name(param_name: str) -> str:
+    """
+    Guess API endpoint from parameter name.
+
+    Common patterns:
+    - cari_id -> api/Customers/getList
+    - stok_id -> api/Items/getList
+    - musteri_id -> api/Customers/getList
+    """
+    param_lower = param_name.lower()
+
+    # Mapping of parameter names to endpoints
+    endpoint_mapping = {
+        "cari": "api/Customers/getList",
+        "musteri": "api/Customers/getList",
+        "customer": "api/Customers/getList",
+        "stok": "api/Items/getList",
+        "urun": "api/Items/getList",
+        "item": "api/Items/getList",
+        "siparis": "api/Orders/getList",
+        "order": "api/Orders/getList",
+        "fatura": "api/Invoices/getList",
+        "invoice": "api/Invoices/getList",
+    }
+
+    # Check for matches
+    for key, endpoint in endpoint_mapping.items():
+        if key in param_lower:
+            logger.debug(f"[FORZA] Guessed endpoint for '{param_name}': {endpoint}")
+            return endpoint
+
+    # Default fallback
+    default_endpoint = "api/Customers/getList"
+    logger.warning(
+        f"[FORZA] Could not guess endpoint for '{param_name}', "
+        f"using default: {default_endpoint}"
+    )
+    return default_endpoint
 
 
 def _execute_tools_for_parameters(
@@ -659,22 +864,33 @@ def _create_empty_output() -> NavigationOutput:
 
 
 def _document_to_navigation_output(document: Document) -> NavigationOutput:
-    """Convert Document to NavigationOutput."""
+    """
+    Convert Document to NavigationOutput.
+
+    Works with both old and new metadata structures.
+    """
     metadata = document.metadata
 
+    # Extract fields with fallbacks
     page_id = metadata.get("page_id", "")
     page_title = metadata.get("title", "Bilinmeyen Sayfa")
-    url = metadata.get("url_route", "")
+
+    # URL: try new structure first, fallback to old
+    url = metadata.get("url") or metadata.get("url_route", "")
+
     category = metadata.get("category", "unknown")
 
+    # Check if sub page (old structure)
     is_sub_page = metadata.get("document_type") == "sub_page"
     sub_page_type = metadata.get("sub_page_type") if is_sub_page else None
     parent_page_id = metadata.get("parent_page_id") if is_sub_page else None
     parent_page_title = metadata.get("main_page_title") if is_sub_page else None
     full_path = metadata.get("full_path") if is_sub_page else None
 
+    # Process parameters (handles both old and new structures)
     requires_params, parameters = _process_parameters(metadata)
 
+    # Build user-friendly messages
     suggestion_text = (
         f"Bu alt sayfada {page_title.lower()} ile ilgili işlemlerinizi yapabilirsiniz."
         if is_sub_page
@@ -684,6 +900,11 @@ def _document_to_navigation_output(document: Document) -> NavigationOutput:
     reasoning = f"{page_title} sayfası kullanıcının isteği için en uygun sayfa olarak belirlendi."
     if is_sub_page:
         reasoning += f" Ana sayfa: {parent_page_title}"
+
+    # Add catalog version info if available
+    catalog_version = metadata.get("catalog_version")
+    if catalog_version:
+        logger.debug(f"[FORZA] Using catalog version: {catalog_version}")
 
     return NavigationOutput(
         page_id=page_id,
@@ -706,24 +927,58 @@ def _document_to_navigation_output(document: Document) -> NavigationOutput:
 
 
 def _process_parameters(metadata: Dict[str, Any]) -> tuple:
-    """Process URL parameters from metadata."""
-    has_url_params = metadata.get("has_url_parameters", "no") == "yes"
+    """
+    Process URL parameters from metadata.
+
+    Supports both old and new metadata structures:
+    - New: has_parameters (bool), parameter_count (int)
+    - Old: has_url_parameters ("yes"/"no"), url_parameters (JSON string)
+    """
     parameters = None
 
-    if has_url_params and metadata.get("url_parameters"):
-        try:
-            url_params = json.loads(metadata.get("url_parameters", "{}"))
-            parameters = {}
-            for param_name, param_info in url_params.items():
-                parameters[param_name] = {
-                    "name": param_name,
-                    "type": param_info.get("type", "string"),
-                    "description": param_info.get("description", ""),
-                    "required": param_info.get("required", False),
-                    "default": param_info.get("default"),
-                }
-        except Exception as e:
-            logger.warning(f"[FORZA] Error processing parameters: {e}")
-            has_url_params = False
+    # Check new structure first
+    has_params = metadata.get("has_parameters", False)
 
-    return has_url_params, parameters
+    # Fallback to old structure
+    if not has_params:
+        has_params = metadata.get("has_url_parameters", "no") == "yes"
+
+    # Extract parameter details if available
+    if has_params:
+        # Try old structure (url_parameters as JSON string)
+        if metadata.get("url_parameters"):
+            try:
+                url_params = _parse_url_parameters(metadata.get("url_parameters"))
+                if url_params:
+                    parameters = {}
+                    for param_name, param_info in url_params.items():
+                        parameters[param_name] = {
+                            "name": param_name,
+                            "type": param_info.get("type", "string"),
+                            "description": param_info.get("description", ""),
+                            "required": param_info.get("required", False),
+                            "default": param_info.get("default"),
+                        }
+            except Exception as e:
+                logger.warning(f"[FORZA] Error processing parameters: {e}")
+
+        # If no parameters extracted but has_parameters is true,
+        # extract from URL placeholders
+        if not parameters:
+            url = metadata.get("url") or metadata.get("url_route", "")
+            if url and "{" in url and "}" in url:
+                # Extract parameter names from URL
+                import re
+                param_names = re.findall(r'\{(\w+)\}', url)
+                if param_names:
+                    parameters = {}
+                    for param_name in param_names:
+                        parameters[param_name] = {
+                            "name": param_name,
+                            "type": "string",
+                            "description": f"URL parameter: {param_name}",
+                            "required": True,
+                            "default": None,
+                        }
+
+    return has_params, parameters

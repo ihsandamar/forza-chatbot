@@ -16,3 +16,16 @@ forza:
   base_url: "https://forza.vegayazilim.com.tr:8805"
   web_site_url: "https://test.vegaforza.com"
   token: "${FORZA_API_TOKEN}"
+
+
+embedding:
+  provider: openai
+  model: text-embedding-3-large
+  api_key: ${OPENAI_API_KEY}
+  base_url: https://api.openai.com/v1
+
+vector_store:
+  type: chroma
+  chunk_size: 1024
+  chunk_overlap: 128
+  persist_directory: "./data/vector_store"

@@ -146,11 +146,9 @@ class RoutingGraph(BaseGraph):
         try:
             logger.info("[FORZA] Initializing vectorstore...")
 
-            # Get base path
-            base_path = self._get_base_path()
-            vectorstore_path = base_path / "data" / "vector_index" / "vegaforza_chroma_db"
+            # Get persist directory from config
+            vectorstore_path = Path(config.vector_store.persist_directory)
 
-            logger.debug(f"[FORZA] Base path: {base_path}")
             logger.debug(f"[FORZA] Vectorstore path: {vectorstore_path}")
 
             # Validate path
@@ -158,11 +156,11 @@ class RoutingGraph(BaseGraph):
                 logger.error(f"[FORZA] Vectorstore path not found: {vectorstore_path}")
                 return None
 
-            # Setup embeddings
+            # Setup embeddings from config
             embeddings = OpenAIEmbeddings(
-                model="text-embedding-3-small",
-                openai_api_key=config.llm.api_key,
-                base_url=config.llm.base_url,
+                model=config.embedding.model,
+                openai_api_key=config.embedding.api_key,
+                base_url=config.embedding.base_url,
             )
 
             # Initialize Chroma
@@ -179,7 +177,7 @@ class RoutingGraph(BaseGraph):
 
             # Validate collection
             try:
-                collection = chroma_client.get_collection("vegaforza_web_pages")
+                collection = chroma_client.get_collection("forza_web_pages")
                 doc_count = collection.count()
 
                 if doc_count == 0:
@@ -195,7 +193,7 @@ class RoutingGraph(BaseGraph):
             # Create vectorstore
             vectorstore = Chroma(
                 client=chroma_client,
-                collection_name="vegaforza_web_pages",
+                collection_name="forza_web_pages",
                 embedding_function=embeddings,
             )
 
