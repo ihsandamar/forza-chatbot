@@ -8,8 +8,7 @@
   ],
   "graphs": {
 
-      "supervisor":"src/graphs/graph_entrypoints.py:supervisor_graph",
-      "routing":"src/graphs/routing/graph_entrypoints.py:routing_graph"
+      "supervisor":"src/graphs/graph_entrypoints.py:supervisor_graph"
 
   },
   "env": "config/.env"

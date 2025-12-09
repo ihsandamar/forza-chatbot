@@ -99,6 +99,69 @@ def extract_user_input_node(state: NavigationState) -> NavigationState:
         raise UserInputExtractionError(f"Failed to extract user input: {str(e)}") from e
 
 
+def extract_category_from_query(state: NavigationState, llm: LLM) -> NavigationState:
+    """Extract category from user query using llm invoke."""
+    try:
+        user_input = state.get("user_input", "")
+
+        # Get categories directly from JSON
+        import json
+        try:
+            with open("data/forza.json", "r", encoding="utf-8") as f:
+                catalog_data = json.load(f)
+
+            # Extract unique categories from web_pages_catalog
+            categories = set()
+            for page_data in catalog_data.get("web_pages_catalog", []):
+                metadata = page_data.get("metadata", {})
+                category = metadata.get("category")
+                if category:
+                    categories.add(category)
+
+            categories = list(categories)
+            logger.debug(f"[FORZA] Found {len(categories)} categories: {categories}")
+
+        except Exception as e:
+            logger.warning(f"[FORZA] Could not load categories from catalog: {e}")
+            categories = []
+
+        if not categories:
+            logger.warning("[FORZA] No categories found, skipping category extraction")
+            state["extracted_category"] = None
+            return state
+
+        matched_category = None
+
+        # llm invoke to find category
+        prompt = f"""Kullanıcı isteği: "{user_input}"
+Aşağıdaki kategorilerden hangisi bu isteğe en uygun olanıdır? Eğer hiçbiri uygun değilse "None" olarak cevapla.
+Kategoriler: {', '.join(categories)}
+Cevap sadece kategori adı veya "None" olmalıdır."""
+        response = llm.get_chat().invoke([HumanMessage(content=prompt)])
+
+        response_text = response.content.strip()
+        if response_text in categories:
+            matched_category = response_text
+        elif response_text.lower() == "none":
+            matched_category = None
+        else:
+            logger.warning(f"[FORZA] LLM returned unknown category: {response_text}")
+            matched_category = None
+
+        state["extracted_category"] = matched_category
+        logger.info(f"[FORZA] Extracted category: {matched_category}")
+
+        return state
+
+    except Exception as e:
+        logger.error(f"[FORZA] Unexpected error extracting category: {e}", exc_info=True)
+        raise ForzaRoutingBaseException(f"Category extraction failed: {str(e)}") from e
+    
+
+
+
+
+
 def find_documents_node(
     state: NavigationState, vectorstore: Optional[Chroma] = None
 ) -> NavigationState:
@@ -686,7 +749,7 @@ def _build_metadata_filter(state: NavigationState) -> Optional[Dict[str, Any]]:
     Build ChromaDB metadata filter from state.
 
     Supports filtering by:
-    - category: Filter by page category
+    - category: Filter by page category (extracted from user query)
     - has_parameters: Filter by parameter presence
     - source: Filter by data source
 
@@ -695,19 +758,22 @@ def _build_metadata_filter(state: NavigationState) -> Optional[Dict[str, Any]]:
     """
     filters = {}
 
-    # Check state for filter hints (can be extended in the future)
-    # For now, return None to allow all documents
-    # This can be customized based on user input or intent
+    # Priority 1: Use extracted category from LLM
+    extracted_category = state.get("extracted_category")
+    if extracted_category:
+        filters["category"] = extracted_category
+        logger.debug(f"[FORZA] Using extracted category filter: {extracted_category}")
 
-    # Example: Filter by category if specified in state
-    if "filter_category" in state and state["filter_category"]:
+    # Priority 2: Use explicit filter_category (manual override)
+    elif "filter_category" in state and state["filter_category"]:
         filters["category"] = state["filter_category"]
+        logger.debug(f"[FORZA] Using manual category filter: {state['filter_category']}")
 
-    # Example: Filter by parameter requirement
+    # Filter by parameter requirement
     if "filter_has_parameters" in state:
         filters["has_parameters"] = state["filter_has_parameters"]
 
-    # Example: Filter by source
+    # Filter by source
     if "filter_source" in state and state["filter_source"]:
         filters["source"] = state["filter_source"]
 
@@ -715,7 +781,7 @@ def _build_metadata_filter(state: NavigationState) -> Optional[Dict[str, Any]]:
     if not filters:
         return None
 
-    logger.debug(f"[FORZA] Built metadata filter: {filters}")
+    logger.info(f"[FORZA] Built metadata filter: {filters}")
     return filters
 
 

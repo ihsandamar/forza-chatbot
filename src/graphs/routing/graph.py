@@ -30,6 +30,7 @@ from src.services.config_loader import ConfigLoader
 from .states import NavigationState
 from .nodes import (
     extract_user_input_node,
+    extract_category_from_query,
     find_documents_node,
     select_most_relevant_document,
     detect_page_parameters_node,
@@ -223,15 +224,16 @@ class RoutingGraph(BaseGraph):
 
         Graph Flow:
             1. extract_user_input: Extract query from messages
-            2. find_documents: Search vectorstore
-            3. select_most_relevant_document: Pick best match
-            4. detect_page_parameters: Check for URL parameters
-            5. [Conditional] extract_page_parameters or skip
-            6. validate_tool_results: Check if tools succeeded
-            7. [Conditional] find_alternative_pages or continue
-            8. update_url_with_parameters: Fill URL placeholders
-            9. format_navigation_output: Format final output
-            10. END
+            2. extract_category: Extract category from query using LLM
+            3. find_documents: Search vectorstore (with category filter)
+            4. select_most_relevant_document: Pick best match
+            5. detect_page_parameters: Check for URL parameters
+            6. [Conditional] extract_page_parameters or skip
+            7. validate_tool_results: Check if tools succeeded
+            8. [Conditional] find_alternative_pages or continue
+            9. update_url_with_parameters: Fill URL placeholders
+            10. format_navigation_output: Format final output
+            11. END
 
         Returns:
             Compiled StateGraph ready for execution
@@ -243,6 +245,9 @@ class RoutingGraph(BaseGraph):
         # =====================
 
         # Create wrappers for nodes that need extra parameters
+        def wrapped_extract_category(state: NavigationState) -> NavigationState:
+            return extract_category_from_query(state, self.llm)
+
         def wrapped_find_docs(state: NavigationState) -> NavigationState:
             return find_documents_node(state, vectorstore=self.vectorstore)
 
@@ -253,6 +258,7 @@ class RoutingGraph(BaseGraph):
             return find_alternative_pages_node(state, vectorstore=self.vectorstore)
 
         builder.add_node("extract_user_input", extract_user_input_node)
+        builder.add_node("extract_category", wrapped_extract_category)
         builder.add_node("find_documents", wrapped_find_docs)
         builder.add_node("select_most_relevant_document", select_most_relevant_document)
         builder.add_node("detect_page_parameters", detect_page_parameters_node)
@@ -268,7 +274,8 @@ class RoutingGraph(BaseGraph):
 
         # Linear pipeline
         builder.add_edge(START, "extract_user_input")
-        builder.add_edge("extract_user_input", "find_documents")
+        builder.add_edge("extract_user_input", "extract_category")
+        builder.add_edge("extract_category", "find_documents")
         builder.add_edge("find_documents", "select_most_relevant_document")
         builder.add_edge("select_most_relevant_document", "detect_page_parameters")
 

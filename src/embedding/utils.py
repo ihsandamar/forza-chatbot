@@ -89,4 +89,34 @@ class EmbeddingUtils:
         return catalog
     
 
+    @staticmethod
+    def get_categories_from_catalog(catalog: Catalog) -> set[str]:
+        """
+        Extract unique categories from the catalog.
+
+        Args:
+            catalog: Catalog model
+        Returns:
+
+            set[str]: Unique categories
+        """
+        categories = set()
+        for page in catalog.pages:
+            if page.metadata.category:
+                categories.add(page.metadata.category)
+        return categories
+    
+    @staticmethod
+    def get_categories_from_catalog_file(file_path: str) -> set[str]:
+        """
+        Load catalog from file and extract unique categories.
+
+        Args:
+            file_path: Path to the forza.json file
+        Returns:
+
+            set[str]: Unique categories
+        """
+        catalog = EmbeddingUtils.load_catalog_from_file(file_path)
+        return EmbeddingUtils.get_categories_from_catalog(catalog)
     
