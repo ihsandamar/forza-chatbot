@@ -395,6 +395,23 @@ def update_url_with_parameters_node(state: NavigationState) -> NavigationState:
                 updated_url = updated_url.replace(variant, web_site_url)
                 logger.debug(f"[FORZA] Replaced {variant} with {web_site_url}")
 
+        # Check for remaining placeholders (indicates parameter filling failed)
+        import re
+        remaining_placeholders = re.findall(r'\{(\w+)\}', updated_url)
+
+        if remaining_placeholders:
+            # Remove base_url variants from placeholder list (they're expected)
+            base_url_names = ["baseUrl", "base_url", "BASE_URL", "BaseUrl", "BASEURL"]
+            param_placeholders = [p for p in remaining_placeholders if p not in base_url_names]
+
+            if param_placeholders:
+                logger.warning(
+                    f"[FORZA] URL still contains unfilled placeholders: {param_placeholders} "
+                    f"- Parameter filling may have failed"
+                )
+                state["has_unfilled_parameters"] = True
+                state["unfilled_parameters"] = param_placeholders
+
         # Update document if URL changed
         if updated_url != original_url:
             updated_metadata = metadata.copy()
@@ -498,21 +515,48 @@ def validate_tool_results_node(state: NavigationState) -> NavigationState:
         return state
 
 
-def find_alternative_pages_node(state: NavigationState) -> NavigationState:
-    """Find alternative pages when parameters cannot be filled."""
+def find_alternative_pages_node(state: NavigationState, vectorstore: Optional[Chroma] = None) -> NavigationState:
+    """
+    Find alternative pages when parameters cannot be filled.
+
+    Strategy:
+    1. Try other parametreli pages with same topic
+    2. If all fail, try parametresiz pages as fallback
+    3. If still no luck, mark as failed (don't return placeholder URLs)
+    """
     try:
         retry_count = state.get("retry_count", 0)
         if retry_count >= MAX_RETRIES:
-            logger.warning(f"[FORZA] Max retries ({MAX_RETRIES}) reached")
+            logger.warning(f"[FORZA] Max retries ({MAX_RETRIES}) reached, trying parametresiz fallback")
+            # Try to find a parametresiz alternative before giving up
+            parametresiz_alternative = _find_parametresiz_alternative(state, vectorstore)
+            if parametresiz_alternative:
+                state["most_related_document"] = parametresiz_alternative
+                state["has_parameters"] = False  # Mark as parametresiz
+                state["no_more_alternatives"] = True
+                state["tool_results_valid"] = True
+                logger.info(f"[FORZA] Fallback to parametresiz page: {parametresiz_alternative.metadata.get('title')}")
+                return state
+
             state["no_more_alternatives"] = True
-            state["tool_results_valid"] = True
+            state["tool_results_valid"] = False  # ✓ Mark as failed, not valid!
             return state
 
         related_pages = state.get("related_pages", [])
         if not related_pages:
             logger.warning("[FORZA] No related pages available for alternatives")
+            # Try parametresiz fallback
+            parametresiz_alternative = _find_parametresiz_alternative(state, vectorstore)
+            if parametresiz_alternative:
+                state["most_related_document"] = parametresiz_alternative
+                state["has_parameters"] = False
+                state["no_more_alternatives"] = True
+                state["tool_results_valid"] = True
+                logger.info(f"[FORZA] Fallback to parametresiz page: {parametresiz_alternative.metadata.get('title')}")
+                return state
+
             state["no_more_alternatives"] = True
-            state["tool_results_valid"] = True
+            state["tool_results_valid"] = False  # ✓ Mark as failed!
             return state
 
         current_doc = state.get("most_related_document")
@@ -522,7 +566,7 @@ def find_alternative_pages_node(state: NavigationState) -> NavigationState:
         if current_page_id:
             tried_pages.add(current_page_id)
 
-        # Find next untried alternative
+        # Strategy 1: Try other parametreli alternatives
         found_alternative = False
         for doc, score in related_pages:
             page_id = doc.metadata.get("page_id")
@@ -540,24 +584,101 @@ def find_alternative_pages_node(state: NavigationState) -> NavigationState:
                 found_alternative = True
                 return state
 
+        # Strategy 2: No more parametreli alternatives, try parametresiz fallback
         if not found_alternative:
-            logger.warning("[FORZA] No more alternative pages available to try")
+            logger.warning("[FORZA] No more parametreli alternatives, trying parametresiz fallback")
+            parametresiz_alternative = _find_parametresiz_alternative(state, vectorstore)
+
+            if parametresiz_alternative:
+                state["most_related_document"] = parametresiz_alternative
+                state["has_parameters"] = False
+                state["tried_page_ids"] = tried_pages
+                state["no_more_alternatives"] = True
+                state["tool_results_valid"] = True
+                logger.info(f"[FORZA] Fallback to parametresiz page: {parametresiz_alternative.metadata.get('title')}")
+                return state
+
+            # Strategy 3: Complete failure - no alternatives found
+            logger.error("[FORZA] No alternatives found (parametreli or parametresiz)")
             state["tried_page_ids"] = tried_pages
             state["no_more_alternatives"] = True
-            state["tool_results_valid"] = True
+            state["tool_results_valid"] = False  # ✓ Mark as failed!
 
         return state
 
     except Exception as e:
         logger.error(f"[FORZA] Unexpected error during alternative page search: {e}", exc_info=True)
         state["no_more_alternatives"] = True
-        state["tool_results_valid"] = True
+        state["tool_results_valid"] = False  # ✓ Mark as failed!
         return state
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+
+def _find_parametresiz_alternative(state: NavigationState, vectorstore: Optional[Chroma] = None) -> Optional[Document]:
+    """
+    Find a parametresiz (no parameters) alternative page from related pages.
+    If not found in related_pages, performs a new vector search for parametresiz pages.
+
+    Args:
+        state: Current navigation state
+        vectorstore: Optional vectorstore for fallback search
+
+    Returns:
+        Document without parameters, or None if not found
+    """
+    related_pages = state.get("related_pages", [])
+    if not related_pages:
+        return None
+
+    # Strategy 1: Look for parametresiz pages in related_pages
+    for doc, score in related_pages:
+        has_params = doc.metadata.get("has_parameters", False)
+
+        # Check if parametresiz
+        if not has_params:
+            # Also check URL doesn't have placeholders and is valid
+            url = doc.metadata.get("url") or doc.metadata.get("url_route", "")
+            if url and url != "N/A" and not ("{" in url and "}" in url):
+                logger.debug(f"[FORZA] Found parametresiz alternative in related_pages: {doc.metadata.get('title')}")
+                return doc
+
+    # Strategy 2: If not found in related_pages, perform new vector search
+    if vectorstore:
+        logger.info("[FORZA] No parametresiz alternative in related_pages, performing new vector search...")
+        user_input = state.get("user_input", "")
+
+        try:
+            # Search with metadata filter for parametresiz pages
+            results = vectorstore.similarity_search_with_score(
+                user_input,
+                k=10,  # Search more to find parametresiz pages
+                filter={"has_parameters": False}
+            )
+
+            # Find first valid parametresiz page
+            for doc, distance in results:
+                url = doc.metadata.get("url") or doc.metadata.get("url_route", "")
+                if url and url != "N/A":
+                    # Verify no placeholders (excluding baseUrl variants)
+                    import re
+                    placeholders = re.findall(r'\{(\w+)\}', url)
+                    base_url_names = ["baseUrl", "base_url", "BASE_URL", "BaseUrl", "BASEURL"]
+                    param_placeholders = [p for p in placeholders if p not in base_url_names]
+
+                    if not param_placeholders:
+                        logger.info(f"[FORZA] Found parametresiz alternative via new search: {doc.metadata.get('title')}")
+                        return doc
+
+        except Exception as e:
+            logger.warning(f"[FORZA] Vector search for parametresiz fallback failed: {e}")
+
+    # Not found anywhere
+    logger.debug("[FORZA] No parametresiz alternative found")
+    return None
 
 
 def _build_metadata_filter(state: NavigationState) -> Optional[Dict[str, Any]]:
@@ -709,7 +830,8 @@ SADECE en genel terimi kullan."""
 
             try:
                 result = selected_tool.invoke(tool_args)
-                logger.debug(f"[FORZA] Tool '{tool_name}' executed successfully")
+                logger.info(f"[FORZA] Tool '{tool_name}' executed successfully")
+                logger.debug(f"[FORZA] Tool result: {json.dumps(result, ensure_ascii=False)[:200]}...")
                 messages.append(
                     ToolMessage(
                         content=json.dumps(result, ensure_ascii=False),
@@ -739,8 +861,9 @@ Tool'lardan aldığın sonuçlara göre parametreleri doldur.
 
 Gerekli URL parametreleri: {json.dumps(url_parameters, ensure_ascii=False)}
 
-Tool sonuçlarından KULLANICI İSTEĞİNE EN UYGUN değeri seç ve bu formatta JSON döndür:
+GÖREV: Tool sonuçlarından KULLANICI İSTEĞİNE EN UYGUN kaydı bul ve parametreyi doldur.
 
+ÇIKTI FORMATI (sadece JSON):
 {{
   "parametre_ismi": {{
     "parameter_name": "parametre_ismi",
@@ -749,14 +872,27 @@ Tool sonuçlarından KULLANICI İSTEĞİNE EN UYGUN değeri seç ve bu formatta 
   }}
 }}
 
-KRİTİK KURALLAR:
-1. EĞER tool sonuçları boş veya hatalıysa, MUTLAKA boş JSON döndür: {{}}
-2. EĞER tool'lardan başarılı sonuç gelmediyse, MUTLAKA boş JSON döndür: {{}}
-3. SADECE başarılı tool sonucu varsa parametre doldur
-4. Tool sonuçlarından kullanıcı isteğine en uygun olanı seç
-5. Sadece düz JSON döndür
+ÖRNEK:
+Kullanıcı: "Ahmet Yılmaz"
+Tool sonucu: [{{"id": "123-abc", "name": "Ahmet Yılmaz"}}, {{"id": "456-def", "name": "Mehmet Yılmaz"}}]
+Parametre: cari_id
 
-Sadece JSON döndür:"""
+Çıktı:
+{{
+  "cari_id": {{
+    "parameter_name": "cari_id",
+    "value": "123-abc",
+    "display_name": "Ahmet Yılmaz"
+  }}
+}}
+
+KRİTİK KURALLAR:
+1. Tool sonuçları BAŞARILI İSE → Kullanıcı isteğine EN UYGUN olanı seç
+2. Tool sonuçları BOŞ veya HATALI İSE → Boş JSON döndür: {{}}
+3. Kullanıcı isteğiyle EŞLEŞMİYORSA → Boş JSON döndür: {{}}
+4. SADECE düz JSON döndür (açıklama yapma!)
+
+Şimdi tool sonuçlarına bakarak parametreyi doldur (SADECE JSON):"""
 
         messages.append(HumanMessage(content=final_prompt))
         final_response = llm.get_chat().invoke(messages)
@@ -766,6 +902,9 @@ Sadece JSON döndür:"""
             final_response.content if hasattr(final_response, "content")
             else str(final_response)
         )
+
+        # Log LLM response for debugging
+        logger.info(f"[FORZA] LLM final response: {response_text[:300]}...")
 
         filled_parameters = None
 
@@ -798,9 +937,11 @@ Sadece JSON döndür:"""
 
         if filled_parameters:
             logger.info(f"[FORZA] Successfully parsed parameters: {list(filled_parameters.keys())}")
+            logger.debug(f"[FORZA] Filled parameters: {json.dumps(filled_parameters, ensure_ascii=False)}")
             return filled_parameters
 
-        logger.warning("[FORZA] Could not parse JSON from LLM response")
+        logger.error("[FORZA] Could not parse JSON from LLM response")
+        logger.error(f"[FORZA] Raw LLM response: {response_text}")
         return {}
 
     except Exception as e:
@@ -810,34 +951,56 @@ Sadece JSON döndür:"""
 
 
 def _check_tool_results_validity(messages: list) -> bool:
-    """Check if any tool returned valid results."""
+    """
+    Check if any tool returned valid results.
+
+    More flexible validity check - accepts multiple formats:
+    - {"data": {"items": [...]}}
+    - {"items": [...]}
+    - {"success": true, "result": [...]}
+    """
     for msg in messages:
         if not isinstance(msg, ToolMessage):
             continue
 
         try:
             result = json.loads(msg.content)
+            logger.debug(f"[FORZA] Checking tool result: {str(result)[:150]}...")
 
+            # Skip error results
             if result.get("status") == "error":
+                logger.debug("[FORZA] Tool result has error status, skipping")
                 continue
 
+            # Strategy 1: Check data field (old format)
             data = result.get("data", {})
+            if data and isinstance(data, dict):
+                for key, value in data.items():
+                    if isinstance(value, list) and len(value) > 0:
+                        logger.info(f"[FORZA] Valid tool result found: {len(value)} {key} in data field")
+                        return True
 
-            # Check for list fields with data
-            found_valid_data = False
-            for key, value in data.items():
+            # Strategy 2: Check root level lists (flexible format)
+            for key, value in result.items():
+                if key in ["data", "status", "error", "message"]:
+                    continue  # Skip metadata fields
+
                 if isinstance(value, list) and len(value) > 0:
-                    logger.debug(f"[FORZA] Found valid tool result with {len(value)} {key}")
-                    found_valid_data = True
-                    break
+                    logger.info(f"[FORZA] Valid tool result found: {len(value)} {key} at root level")
+                    return True
 
-            if found_valid_data:
-                return True
+                # Also check dict values that might contain lists
+                if isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, list) and len(sub_value) > 0:
+                            logger.info(f"[FORZA] Valid tool result found: {len(sub_value)} {key}.{sub_key}")
+                            return True
 
-        except (json.JSONDecodeError, AttributeError, KeyError):
+        except (json.JSONDecodeError, AttributeError, KeyError) as e:
+            logger.debug(f"[FORZA] Error parsing tool message: {e}")
             continue
 
-    logger.warning("[FORZA] No valid tool results found")
+    logger.warning("[FORZA] No valid tool results found in any message")
     return False
 
 

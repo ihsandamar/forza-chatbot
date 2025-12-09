@@ -249,13 +249,16 @@ class RoutingGraph(BaseGraph):
         def wrapped_extract_params(state: NavigationState) -> NavigationState:
             return extract_page_parameters_node(state, self.llm, config)
 
+        def wrapped_find_alternatives(state: NavigationState) -> NavigationState:
+            return find_alternative_pages_node(state, vectorstore=self.vectorstore)
+
         builder.add_node("extract_user_input", extract_user_input_node)
         builder.add_node("find_documents", wrapped_find_docs)
         builder.add_node("select_most_relevant_document", select_most_relevant_document)
         builder.add_node("detect_page_parameters", detect_page_parameters_node)
         builder.add_node("extract_page_parameters", wrapped_extract_params)
         builder.add_node("validate_tool_results", validate_tool_results_node)
-        builder.add_node("find_alternative_pages", find_alternative_pages_node)
+        builder.add_node("find_alternative_pages", wrapped_find_alternatives)
         builder.add_node("update_url_with_parameters", update_url_with_parameters_node)
         builder.add_node("format_navigation_output", format_navigation_output_node)
 
