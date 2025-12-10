@@ -1,12 +1,14 @@
+chatbot:
+  graph_type: supervisor
+
 llm:
   provider: openai
-  model: gpt-4o
+  model: gpt-4o-mini
   temperature: 0
   api_key: ${OPENAI_API_KEY}
   base_url: https://api.openai.com/v1
 
-chatbot:
-  graph_type: supervisor
+
 
 database:
   uri: "${DATABASE_URL}"
