@@ -1,626 +1,1559 @@
 {
+  "name": "FORZA ERP WEB SAYFASI JSON",
+  "version": "0.1.21",
+  "updated_date": "2025-12-08T14:43:32Z",
+  "updated_by": "DESKTOP-TIEAGO8",
+  "total_pages": 25,
   "web_pages_catalog": [
     {
       "metadata": {
-        "page_id": "dashboard",
+        "page_id": "ana_sayfa",
         "title": "Ana Sayfa",
-        "url_route": "{baseUrl}/dashboard/main-dashboard",
-        "category": "dashboard",
+        "url_route": "{base_url}/dashboard/main-dashboard",
+        "category": "Panolar",
         "page_type": "main_page"
       },
-      "embedding_content": "ERP Dashboard - Embedding Context Açıklaması\n\nBu, FORZA ERP sisteminin ana pano (dashboard) sayfasıdır. Sayfa, işletme yöneticilerine finansal ve operasyonel verilerin anlık görünümünü sunar.\n\nSayfa İçeriği ve Bileşenler:\n\nFinansal Göstergeler:\n\nSatışlar ve tahsilatlar trend grafiği (haftalık bazda)\nTahsil edilecek faturalar özeti (vadesi geçmiş, vadesi gelecek, bugün vadesi gelen)\nÖdenecek faturalar özeti (vadesi geçmiş, vadesi gelecek, bugün vadesi gelen)\nKasa bakiyeleri (TRY ve EUR cinsinden)\nBanka hesap bakiyeleri\nPOS cihazlarından tahsil edilecek tutarlar\n\nKarşılaştırmalı Analizler:\n\nBorçlar ve alacaklar karşılaştırmalı grafik (aylık bazda)\nEn çok işlem gören stok kalemleri ve yüzdelik dağılımları\nEn aktif cari hesaplar ve işlem hacimleri\n\nOperasyonel Bilgiler:\n\nSon gerçekleştirilen finansal işlemler listesi (fatura satış işlemleri, tutarlar ve müşteri bilgileri)\n\nKullanım Amacı:\n\nBu pano, faaliyet gösteren firmasının mali durumunu, nakit akışını, stok hareketlerini ve cari hesap durumunu tek bir ekranda izlemesine olanak tanır. Yöneticiler bu sayfa üzerinden kritik finansal kararlar alabilir ve işletmenin genel sağlığını değerlendirebilir.",
+      "embedding_content": "Anasayfa, işletmenizin finansal durumunu ve operasyonel faaliyetlerini tek bir ekrandan takip edebileceğiniz merkezi kontrol panelidir. Bu sayfa, günlük iş akışınızı yönetmek için ihtiyacınız olan tüm önemli bilgileri ve grafikleri içerir.\n\nAnasayfada yer alan özellikler:\n\n- Tarihe göre Satışlar ve Tahsilatlar Grafiği: Belirli tarih aralıklarında gerçekleştirilen satış işlemlerini ve tahsil edilen tutarları görselleştirir. Satış performansınızı ve nakit akışınızı takip edebilirsiniz.\n\n- Vade Durumuna Göre Tahsil Edilecek Faturalar Grafiği: Müşterilerinizden alacaklı olduğunuz faturaları vade durumlarına göre (vadesi geçmiş, vadesi bugün dolan, vadesi gelecek) kategorize eder. Tahsilat planlaması yapmanıza yardımcı olur.\n\n- Vade Durumuna Göre Ödenecek Faturalar Grafiği: Tedarikçilerinize ve diğer taraflara olan borçlarınızı vade durumlarına göre (vadesi geçmiş, vadesi bugün dolan, vadesi gelecek) gösterir. Ödeme önceliklerinizi belirlemenize yardımcı olur.\n\n- Kasalar: Nakit kasa bakiyelerinizi anlık olarak görüntüleyebilir, kasa hareketlerinizi takip edebilirsiniz.\n\n- Bankalar: Banka hesaplarınızın güncel bakiyelerini ve banka işlemlerinizi kontrol edebilirsiniz.\n\n- Tahsil Edilecek POS İşlemler: Kredi kartı ve POS cihazı üzerinden yapılan satışlardan tahsil edilecek tutarları görüntüleyebilirsiniz.\n\n- Aylara Göre Borçlar ve Alacaklar Grafiği: Aylık bazda borç ve alacak durumunuzu karşılaştırmalı olarak gösteren grafik ile finansal dengenizi analiz edebilirsiniz.\n\n- Stoklar Listesi: Envanter durumunuzu hızlıca görüntüleyebilir, stok seviyelerini kontrol edebilirsiniz. Kritik stok seviyelerindeki ürünleri takip edebilirsiniz.\n\n- Cariler Listesi: Müşterileriniz ve tedarikçilerinizin listesine hızlı erişim sağlar. Cari hesap özetlerine ulaşabilirsiniz.\n\n- Son İşlemler Listesi: Sistemde gerçekleştirilen en son işlemleri (satış, alış, tahsilat, ödeme vb.) kronolojik sırayla gösterir. İş akışınızı anlık takip etmenize olanak tanır.\n\nAnasayfa, dashboard, kontrol paneli, özet ekran, genel bakış, ana ekran veya giriş ekranı olarak da adlandırılabilir. Finansal raporlama, nakit yönetimi, alacak-borç takibi, stok kontrolü ve genel işletme yönetimi için kullanılır.",
       "structured_data": {
         "functions": [
-          "Satışlar ve Tahsilatlar grafiği",
-          "Tahsil Edilecek Faturalar grafiği",
-          "Ödenecek Faturalar grafiği",
+          "Tarihe göre Satışlar ve Tahsilatlar grafiği",
+          "Vade durumuna göre Toplam Tahsil Edilecek Faturalar  Grafiği(Vadesi geçmiş, vadesi gelecek, vadesi bugün dolan)",
+          "Vade durumuna göre Toplam Ödenecek Faturalar Grafiği(Vadesi geçmiş, vadesi gelecek, vadesi bugün dolan)",
+          "Kasalar",
+          "Bankalar",
+          "Tahsil Edilecek Pos İşlemler",
+          "Aylara göre Borçlar ve Alacaklar grafiği",
+          "Stoklar listesi",
+          "Cariler listesi",
+          "Son işlemler listesi"
+        ],
+        "keywords": [
+          "Satışlar ve Tahsilatlar",
+          "Tahsil Edilecek Faturalar",
+          "Ödenecek Faturalar",
+          "Vadesi Geçmiş",
+          "Vadesi Gelecek",
+          "Bugün",
+          "Kasalar",
+          "Bankalar",
+          "Tahsil Edilecek Pos İşlemler",
           "Borçlar ve Alacaklar",
+          "Stok",
+          "Cari",
           "Son işlemler"
-        ],
-        "keywords": [
-          "ana sayfa",
-          "main dashboard",
-          "pano"
         ]
       },
       "user_expressions": [
-        "ana sayfaya yönlendir",
-        "panoya git"
+        "Anasayfayı aç",
+        "Ana ekrana dön",
+        "Dashboard göster",
+        "Kontrol panelini görmek istiyorum",
+        "Genel bakışı aç",
+        "Ana sayfa",
+        "Özet ekranı göster",
+        "İlk sayfaya git",
+        "Giriş ekranına dön"
       ]
     },
     {
       "metadata": {
-        "page_id": "activity-list",
-        "title": "Faaliyet Listesi",
-        "url_route": "{baseUrl}/apps/activity-list/list",
-        "category": "dashboard",
-        "page_type": "main_page"
-      },
-      "embedding_content": "Forza faaliyet listesi cari haraketlerini(dokümanlarını, belgelerini, evraklarını) liste olarak görüntüler.",
-      "structured_data": {
-        "functions": [
-          "Belge listesi"
-        ],
-        "keywords": [
-          "faaliyetler",
-          "haraketler",
-          "işlemler"
-        ]
-      },
-      "user_expressions": [
-        "Faaliyet listesini getirir misin?",
-        "Aktiviteleri görüntüle"
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "general-status",
+        "page_id": "genel_durum",
         "title": "Genel Durum",
-        "url_route": "{baseUrl}/apps/general-status",
-        "category": "dashboard",
+        "url_route": "{base_url}/apps/general-status",
+        "category": "Panolar",
         "page_type": "main_page"
       },
-      "embedding_content": "İşletmenin belirli bir tarih aralığındaki gelirlerini, giderlerini ve karını grafikler şeklinde görüntülendiği sayfadır.",
+      "embedding_content": "Genel Durum sayfası, işletmenizin finansal performansını kapsamlı bir şekilde analiz etmenizi sağlayan gelir-gider-kar raporlama ekranıdır. Belirli tarih aralıklarında işletmenizin karlılığını, gelir ve gider dağılımını detaylı olarak görüntüleyebilirsiniz.\n\nSayfada yer alan özellikler:\n\n- Tarih Aralığı Seçimi: Başlangıç ve bitiş tarihi belirleyerek istediğiniz döneme ait finansal verileri filtreleyebilirsiniz. Günlük, haftalık, aylık veya özel tarih aralıklarında analiz yapabilirsiniz.\n\n- KDV Görünüm Seçeneği: Tüm finansal verileri KDV dahil veya KDV hariç olarak görüntüleyebilirsiniz. Bu özellik, net gelir-gider ve kar analizlerini yapmanıza olanak tanır.\n\n- Gelirler Bölümü: İşletmenizin gelir kalemlerini detaylı olarak gösterir:\n  - Satışlar: Mal satışlarından elde edilen gelirler\n  - Satışlar Hizmet: Hizmet satışlarından elde edilen gelirler\n  - Satışlar İade: Müşteri iadelerinden kaynaklanan gelir düşüşleri\n  - Maliyet: Satılan malların maliyeti\n  - Maliyet İade: İade edilen malların maliyet iadesi\n\n- Gelirler Grafiği: Gelir kalemlerinin görsel dağılımını ve oranlarını pasta veya sütun grafiği ile gösterir. Hangi gelir kaleminin daha baskın olduğunu kolayca görebilirsiniz.\n\n- Giderler Bölümü: İşletmenizin gider kalemlerini detaylı olarak gösterir:\n  - Giderler: Genel operasyonel giderler\n  - Gider İade: Gider iadelerinden kaynaklanan düzeltmeler\n  - Maaş: Personel maaş ödemeleri\n\n- Giderler Grafiği: Gider kalemlerinin görsel dağılımını ve oranlarını gösterir. Gider yapınızı analiz ederek maliyet optimizasyonu yapabilirsiniz.\n\n- Kar Hesaplaması: Gelirler ve giderler arasındaki farkı otomatik olarak hesaplayarak net kar veya zarar tutarını gösterir. İşletmenizin belirlediğiniz dönemdeki finansal performansını tek bir rakamda özetler.\n\nBu sayfa, gelir-gider raporu, kar-zarar tablosu, finansal durum raporu, karlılık analizi, gelir analizi, gider analizi, dönemsel kar raporu veya finansal performans sayfası olarak da adlandırılabilir. Muhasebe, finansal planlama, bütçe kontrolü ve stratejik karar alma süreçlerinde kullanılır.",
       "structured_data": {
         "functions": [
-          "gelirler",
-          "giderler",
-          "kar"
+          "Tarih Aralığı Filtreleme - Başlangıç ve bitiş tarihi belirleme",
+          "KDV Görünüm Seçeneği - KDV dahil veya KDV hariç sütunu ile tutar bilgileri",
+          "Gelirler Tablosu - Detaylı gelir kalemlerini listeleme",
+          "Gelirler Grafiği - Gelir kalemlerinin görsel analizi",
+          "Giderler Tablosu - Detaylı gider kalemlerini listeleme",
+          "Giderler Grafiği - Gider kalemlerinin görsel analizi",
+          "Kar Hesaplama - Gelir-gider farkından kar/zarar tutarı hesaplama",
+          "Satışlar Analizi - Mal satışı, hizmet satışı ve iade bilgileri",
+          "Maliyet Analizi - Satış maliyeti ve maliyet iadesi takibi",
+          "Gider Detayları - Genel giderler, gider iadeleri ve maaş ödemeleri"
         ],
         "keywords": [
-          "gelirler",
-          "giderler",
-          "kar",
-          "genel durum",
-          "general status"
+          "Genel durum",
+          "Gelir",
+          "Gider",
+          "Kar",
+          "Zarar",
+          "Karlılık",
+          "Satışlar",
+          "Satış iadesi",
+          "Hizmet satışı",
+          "Maliyet",
+          "Maaş",
+          "KDV",
+          "Finansal durum",
+          "Kar zarar tablosu",
+          "Gelir gider raporu",
+          "Dönemsel kar",
+          "Tarih aralığı",
+          "Finansal performans",
+          "Mali tablo",
+          "Gelir analizi",
+          "Gider analizi",
+          "Grafik",
+          "Tablo"
         ]
       },
       "user_expressions": [
-        "Genel durumu görmek istiyorum."
+        "Genel durum sayfasını aç",
+        "Gelir gider durumunu göster",
+        "Kar zarar tablosunu görmek istiyorum",
+        "Ne kadar kar ettik?",
+        "Bu ay kar ettik mi?",
+        "Toplam gelirimiz ne kadar?",
+        "Giderlerim ne kadar?",
+        "Maaş ödemeleri ne kadar?",
+        "Bu ayın gelir gider durumu",
+        "Bugünkü kar zarar durumu",
+        "KDV hariç kar nedir?",
+        "Gelir mi gider mi fazla?",
+        "Finansal durumu göster",
+        "Karlılık analizi",
+        "Satış iadeleri ne kadar?",
+        "Gelir grafiğini göster",
+        "Finansal performansımız nasıl?",
+        "Karlı mıyız?",
+        "Mali tablolar"
       ]
     },
     {
       "metadata": {
-        "page_id": "risk-analysis",
-        "title": "Risk Analizi",
-        "url_route": "{baseUrl}/apps/risk-analysis",
-        "category": "dashboard",
+        "page_id": "hesap_plani",
+        "title": "Hesap Planı",
+        "url_route": "{base_url}/apps/accounting-plan/list",
+        "category": "Muhasebe",
         "page_type": "main_page"
       },
-      "embedding_content": "Firmanın finansal sağlığını değerlendiren interaktif pivot tablo raporu. Likidite durumu, alacak-borç dengesi ve finansal riskleri görselleştirerek yönetim kararlarına veri sağlamak.",
+      "embedding_content": "Muhasebe Hesap Planı - Hesap Yönetimi Sayfası\n\nMuhasebe Hesap Planı sayfası, işletmenizin muhasebe sisteminde kullanılan tüm hesap kodlarını ve hesap tanımlarını yönetebileceğiniz merkezi bir ekrandır. Tek düzen hesap planına uygun şekilde hesaplarınızı oluşturabilir, düzenleyebilir ve organize edebilirsiniz.\n\nSayfada yer alan özellikler:\n\n- Hesap Planı İnceleme: Mevcut tüm hesap kodlarını, hesap isimlerini ve hiyerarşik yapısını görüntüleyebilirsiniz. Ana hesaplar (100, 120, 600 vb.) ve alt hesaplar (100.01, 120.01.001 vb.) şeklinde organize edilmiş hesap planınızı inceleyebilirsiniz.\n\n- Yeni Hesap Ekleme: İhtiyacınıza göre yeni hesap kodu ve hesap tanımı ekleyebilirsiniz. Varlık, kaynak, gelir ve gider hesaplarını tek düzen hesap planı standartlarına uygun şekilde oluşturabilirsiniz.\n\n- Hesap Düzenleme: Mevcut hesap kodlarının isimlerini, açıklamalarını veya özelliklerini güncelleyebilirsiniz. Hesap yapısında değişiklik yapabilir ve hesap bilgilerini düzenleyebilirsiniz.\n\n- Dönem Seçimi: Farklı muhasebe dönemlerine (yıllara) ait hesap planlarını görüntüleyebilir ve yönetebilirsiniz. Her dönem için ayrı hesap planı yapılandırması yapabilirsiniz.\n\n- Excel'den Toplu Yükleme: Hazırladığınız Excel dosyasından hesap planınızı toplu olarak sisteme aktarabilirsiniz. Bu özellik, çok sayıda hesap kodunu manuel olarak girmek yerine hızlı bir şekilde yüklemenizi sağlar.\n\n- Başlangıç Hesap Planı Kopyalama: Standart tek düzen hesap planı şablonlarını veya daha önceki dönemlerdeki hesap planlarınızı yeni döneme kopyalayabilirsiniz. Sıfırdan hesap planı oluşturmak yerine hazır şablonları kullanarak zaman kazanabilirsiniz.\n\n- Dışa Aktarma: Mevcut hesap planınızı Excel veya PDF formatında dışa aktararak yedekleyebilir veya paylaşabilirsiniz.\n\n- Hesap Arama ve Filtreleme: Belirli bir hesap kodunu veya hesap adını hızlıca bulmak için arama ve filtreleme özelliklerini kullanabilirsiniz.\n\nBu sayfa, hesap planı, hesap kodu tablosu, muhasebe kodları, tek düzen hesap planı, hesap çizelgesi, chart of accounts, hesap yönetimi veya muhasebe kodu düzenleme sayfası olarak da adlandırılabilir. Muhasebe organizasyonu, mali raporlama altyapısı ve genel muhasebe yönetimi için kullanılır.",
       "structured_data": {
         "functions": [
-          "Varlıklarım",
-          "ödemelerim"
+          "Hesap Planı İnceleme - Mevcut hesap planını görüntüleme ve detaylarını inceleme",
+          "Hesap Ekleme - Yeni hesap kodu ve hesap tanımı ekleme",
+          "Hesap Düzenleme - Mevcut hesap bilgilerini güncelleme ve değiştirme",
+          "Hesap Silme - Kullanılmayan hesapları sistemden kaldırma",
+          "Dönem Seçimi - Farklı muhasebe dönemlerine ait hesap planlarını görüntüleme",
+          "Excel'den Hesap Planı Yükleme - Toplu hesap planı aktarımı yapma",
+          "Başlangıç Hesap Planlarını Kopyalama - Standart hesap planı şablonlarını kullanma",
+          "Hesap Planı Dışa Aktarma - Mevcut hesap planını Excel veya PDF formatında kaydetme",
+          "Hesap Arama - Hesap kodu veya hesap adına göre filtreleme"
         ],
         "keywords": [
-          "Risk analizi",
-          "Varlıklarım",
-          "Açık Alacaklar",
-          "Banka Nakit",
-          "Banka Senet",
-          "Banka Çek",
-          "Kasa Nakit",
-          "Kasa Senet",
-          "Kasa Çek",
-          "Pos",
-          "Ödemelerim",
-          "Açık Borçlar",
-          "Banka Nakit",
-          "Banka Senet",
-          "Banka Çek",
-          "Kasa Nakit",
-          "Kasa Senet",
-          "KİRA GİDERİ",
-          "akaryakıt gideri"
+          "Hesap planı",
+          "Muhasebe hesap planı",
+          "Hesap kodu",
+          "Hesap tanımı",
+          "Ana hesap",
+          "Alt hesap",
+          "Tek düzen hesap planı",
+          "Dönem",
+          "Excel yükleme",
+          "Toplu yükleme",
+          "Başlangıç hesap planı",
+          "Kopyalama",
+          "Hesap ekleme",
+          "Hesap düzenleme",
+          "Hesap silme",
+          "Varlık hesabı",
+          "Kaynak hesabı",
+          "Gelir hesabı",
+          "Gider hesabı",
+          "Hiyerarşi",
+          "Chart of accounts",
+          "Hesap çizelgesi",
+          "Muhasebe kodu"
         ]
       },
       "user_expressions": [
-        "Risk analizini getir",
-        "Riskli durumlar nelerdir"
+        "Hesap planını göster",
+        "Muhasebe hesap planı",
+        "Hesap kodlarını görmek istiyorum",
+        "Yeni hesap ekle",
+        "Hesap planına hesap eklemek istiyorum",
+        "Hesap kodunu düzenle",
+        "Hesap bilgilerini güncelle",
+        "Excel'den hesap planı yükle",
+        "Toplu hesap yükleme",
+        "Başlangıç hesap planını kopyala",
+        "Standart hesap planını kullan",
+        "Dönem hesap planı",
+        "Bu yılın hesap planı",
+        "Geçen yılın hesap planını göster",
+        "Hesap kodu ara",
+        "100 nolu hesabı göster",
+        "Kasa hesabı hangi kod?",
+        "Tek düzen hesap planı",
+        "Hesap çizelgesi",
+        "Muhasebe kodları",
+        "Hesap planı şablonu",
+        "Hesap listesi",
+        "Ana hesaplar",
+        "Alt hesaplar"
       ]
     },
     {
       "metadata": {
-        "page_id": "customer-list",
-        "title": "Cari Listesi",
-        "url_route": "{baseUrl}/apps/customer/list",
-        "category": "customer",
+        "page_id": "fis_listesi",
+        "title": "Fiş Listesi",
+        "url_route": "{base_url}/apps/accounting-plug/list",
+        "category": "Muhasebe",
         "page_type": "main_page"
       },
-      "embedding_content": "Firma ile ticari ilişkisi olan tüm müşteri ve tedarikçilerin listelendiği sayfa.",
+      "embedding_content": "Muhasebe Fiş Listesi - Yevmiye Kayıtları Yönetim Sayfası\n\nMuhasebe Fiş Listesi sayfası, işletmenizin tüm muhasebe kayıtlarının (yevmiye fişlerinin) listelendiği, oluşturulduğu ve yönetildiği merkezi muhasebe ekranıdır. Mahsup fişleri, tahsil fişleri, tediye fişleri ve virman fişleri gibi tüm muhasebe işlemlerinizi bu sayfadan takip edebilir ve düzenleyebilirsiniz.\n\nSayfada yer alan özellikler:\n\n- Fiş Listeleme: Oluşturulmuş tüm muhasebe fişlerini kronolojik sırada görüntüleyebilirsiniz. Her fişin numarası, tarihi, türü, açıklaması, borç-alacak toplamları ve dengesi listede görünür.\n\n- Yeni Fiş Ekleme: Mahsup, tahsil, tediye veya virman fişi oluşturabilirsiniz. Çift taraflı kayıt (borç-alacak) sistemine uygun şekilde muhasebe kayıtları yapabilirsiniz. Birden fazla hesap kodunu tek bir fişte kullanarak karmaşık muhasebe işlemlerini kaydedebilirsiniz.\n\n- Fiş Düzenleme: Daha önce oluşturulmuş fişlerin bilgilerini güncelleyebilir, hesap kodlarını değiştirebilir, tutarları düzeltebilir veya açıklama ekleyebilirsiniz.\n\n- Fiş Silme: Hatalı veya iptal edilen muhasebe fişlerini sistemden kaldırabilirsiniz. Ancak muhasebe kuralları gereği dikkatli kullanılması gereken bir özelliktir.\n\n- Gelişmiş Arama ve Filtreleme: \n  - Fiş numarasına göre arama\n  - Tarih aralığına göre filtreleme\n  - Hesap koduna göre arama\n  - Açıklama metnine göre arama\n  - Tutar aralığına göre filtreleme\n  - Fiş tipine göre (mahsup, tahsil, tediye, virman) filtreleme\n\n- Fiş Yazdırma: Tek bir fişi veya seçili birden fazla fişi yazdırabilirsiniz. Fiş çıktıları muhasebe standartlarına uygun formatta hazırlanır ve imza alanlarını içerir.\n\n- Fiş Detaylarını Görüntüleme: Herhangi bir fişe tıklayarak o fişin tüm detaylarını (hesap hareketleri, borç-alacak kayıtları, eklenen belgeler, onay durumu) görebilirsiniz.\n\n- Fiş Kopyalama: Benzer muhasebe kayıtları için mevcut bir fişi şablon olarak kopyalayıp, üzerinde değişiklik yaparak yeni fiş oluşturabilirsiniz.\n\n- Dışa Aktarma: Belirli dönemlere ait fiş listelerini Excel veya PDF formatında dışa aktarabilir, arşivleyebilir veya mali müşavirinizle paylaşabilirsiniz.\n\n- Borç-Alacak Dengesi Kontrolü: Fişlerin borç ve alacak toplamlarının eşit olup olmadığını otomatik kontrol eder. Dengesi tutmayan fişler uyarı ile gösterilir.\n\nBu sayfa, yevmiye defteri, muhasebe kayıtları, muhasebe fişleri, mahsup fişi listesi, yevmiye kayıtları, fiş yönetimi, günlük kayıtlar veya defter-i kebir girişleri olarak da adlandırılabilir. Genel muhasebe, mali kayıt tutma, denetim ve raporlama süreçlerinde kullanılır.",
       "structured_data": {
         "functions": [
-          "cari listesi",
-          "müşteriler"
+          "Fiş Listeleme - Tüm muhasebe fişlerini görüntüleme",
+          "Fiş Ekleme - Yeni muhasebe fişi oluşturma",
+          "Fiş Görüntüleme - Fiş detaylarını inceleme",
+          "Fiş Düzenleme - Mevcut fişi güncelleme ve değiştirme",
+          "Fiş Silme - Hatalı veya iptal edilen fişleri kaldırma",
+          "Fiş Arama - Fiş numarası, tarih, açıklama veya tutara göre arama",
+          "Filtreleme - Tarih aralığı, fiş tipi, hesap koduna göre filtreleme",
+          "Fiş Yazdırma - Seçili fişi veya fiş listesini yazdırma",
+          "Toplu Yazdırma - Birden fazla fişi toplu olarak yazdırma",
+          "Tarih Sıralama - Fişleri tarihe göre sıralama",
+          "Fiş Kopyalama - Mevcut bir fişi kopyalayarak yeni fiş oluşturma",
+          "Dışa Aktarma - Fiş listesini Excel veya PDF formatında kaydetme"
         ],
         "keywords": [
-          "cariler",
-          "müşteriler",
-          "müşteri listesi",
-          "cari listesi",
-          "ticari hesaplar"
-        ]
-      },
-      "user_expressions": [
-        "tüm carileri görmek istiyorum",
-        "carileri getir"
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "customer-stuff",
-        "title": "Personel Carileri",
-        "url_route": "{baseUrl}/apps/customer-stuff/list",
-        "category": "customer",
-        "page_type": "main_page"
-      },
-      "embedding_content": "Firma ile ticari ilişkisi olan tüm bireysel müşteri kayıtlarının listelendiği sayfa.",
-      "structured_data": {
-        "functions": [
-          "Personel carileri"
-        ],
-        "keywords": [
-          "Personel cari listesi"
-        ]
-      },
-      "user_expressions": [
-        "Personel carilerini listeler misin"
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "payment-plan",
-        "title": "Ödeme Planı",
-        "url_route": "{baseUrl}/apps/payment-plan/list",
-        "category": "customer",
-        "page_type": "main_page"
-      },
-      "embedding_content": "Carilerin beklenen ödemeleri liste şeklinde görüntülendiği sayfa",
-      "structured_data": {
-        "functions": [
-          "Cari adı",
+          "Muhasebe fişi",
+          "Fiş listesi",
+          "Yevmiye",
+          "Yevmiye defteri",
+          "Mahsup fişi",
+          "Tahsil fişi",
+          "Tediye fişi",
+          "Virman fişi",
+          "Fiş numarası",
+          "Borç",
+          "Alacak",
+          "Muhasebe kaydı",
+          "Fiş ekleme",
+          "Fiş düzenleme",
+          "Fiş silme",
+          "Fiş yazdırma",
+          "Fiş arama",
+          "Filtreleme",
+          "Tarih aralığı",
+          "Hesap kodu",
+          "Açıklama",
           "Tutar",
-          "Tarih",
-          "İşlem"
-        ],
-        "keywords": [
-          "Ödeme planı",
-          "payment"
+          "Denge",
+          "Çift taraflı kayıt",
+          "Defter-i kebir",
+          "Muhasebe hareketi"
         ]
       },
       "user_expressions": [
-        "Ödeme planını göster."
+        "Muhasebe fişlerini göster",
+        "Fiş listesi",
+        "Yevmiye defterini aç",
+        "Muhasebe kayıtları",
+        "Yeni fiş ekle",
+        "Mahsup fişi oluştur",
+        "Fiş düzenle",
+        "Fişi güncelle",
+        "Fişi sil",
+        "Fiş ara",
+        "Bugünkü fişler",
+        "Bu ayki fişler",
+        "Fiş numarasını ara",
+        "Fişi yazdır",
+        "Muhasebe fişi yazdır",
+        "Tarih aralığına göre fişler",
+        "Hesap koduna göre fiş ara",
+        "Borç alacak kayıtları",
+        "Virman fişi",
+        "Tahsil fişi",
+        "Tediye fişi",
+        "Fiş detayları",
+        "Yevmiye kayıtları",
+        "Defter kayıtları",
+        "Muhasebe hareketleri"
       ]
     },
     {
       "metadata": {
-        "page_id": "customer-view",
-        "title": "Cari Bilgileri",
-        "url_route": "{baseUrl}/apps/customer/view/{customerId}",
-        "category": "customer",
-        "page_type": "sub_page",
-        "parent_page_id": "customer-list",
-        "sub_page_type": "link",
-        "full_path": "customer-view > customer-list",
-        "url_parameters": {
-          "customerId": {
-            "type": "guid",
-            "description": "Cari Id",
-            "required": true
-          }
-        }
-      },
-      "embedding_content": "Müşteri bilgilerinin detayının görüntülendiği sayfadır",
-      "structured_data": {
-        "functions": [],
-        "keywords": [
-          "Cari detayı",
-          "cari bilgileri",
-          "Müşteri detayı",
-          "Müşteri bilgileri"
-        ]
-      },
-      "user_expressions": [
-        "Cari detayını görüntümek istiyorum",
-        "Müşterileri detayını göster"
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "customer-view-activity",
-        "title": "Cari Hareketleri",
-        "url_route": "{baseUrl}/apps/customer/view/{customerId}?tab=0",
-        "category": "customer",
-        "page_type": "sub_page",
-        "parent_page_id": "customer-list",
-        "sub_page_type": "link",
-        "url_parameters": {
-          "customerId": {
-            "type": "guid",
-            "description": "Cari Id",
-            "required": false
-          }
-        }
-      },
-      "embedding_content": "Cari belgelerinin liste şeklinde görüntülendiği sayfa",
-      "structured_data": {
-        "functions": [
-          "Cari haraketleri tablosu"
-        ],
-        "keywords": [
-          "cari belgeleri",
-          "cari hareketleri",
-          "cari dokümanları",
-          "cari evrakları"
-        ]
-      },
-      "user_expressions": [
-        "cari hareketlerini göster"
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "customer-view-document",
-        "title": "Cari Evrakları",
-        "url_route": "{baseUrl}/apps/customer/view/{customerId}?tab=1",
-        "category": "customer",
-        "page_type": "sub_page",
-        "parent_page_id": "customer-list",
-        "sub_page_type": "link",
-        "url_parameters": {
-          "customerId": {
-            "type": "guid",
-            "description": "Cari Id",
-            "required": false
-          }
-        }
-      },
-      "embedding_content": "Carinin tüm evraklarının liste şeklinde görüntülendiği sayfadır",
-      "structured_data": {
-        "functions": [
-          "Cari evrakları tablosu"
-        ],
-        "keywords": [
-          "Cari evrakları",
-          "Cari dokümanları",
-          "cari belgeleri",
-          "müşteri evrakları"
-        ]
-      },
-      "user_expressions": [
-        "Müşteri evrakları tablosunu getir"
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "customer- view-currency",
-        "title": "Cari Döviz Bakiye",
-        "url_route": "{baseUrl}/apps/customer/view/{customerId}?tab=2",
-        "category": "customer",
-        "page_type": "sub_page",
-        "parent_page_id": "customer-list",
-        "sub_page_type": "link",
-        "url_parameters": {
-          "customerId": {
-            "type": "guid",
-            "description": "Cari Id",
-            "required": false
-          }
-        }
-      },
-      "embedding_content": "Carinin döviz kurundaki hareketleri listelendiği sayfadır.",
-      "structured_data": {
-        "functions": [
-          "Cari döviz bakiye listesi"
-        ],
-        "keywords": [
-          "Cari döviz hareketleri",
-          "cari döviz bakiyesi",
-          "Cari farklı kurlar"
-        ]
-      },
-      "user_expressions": [
-        "Carinin farklı kurlardaki hareketlerini getirir misin?"
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "customer-add",
-        "title": "Cari Ekle",
-        "url_route": "{baseUrl}/apps/customer/add",
-        "category": "customer",
+        "page_id": "fis_girisi",
+        "title": "Fiş Girişi",
+        "url_route": "{base_url}/apps/accounting-plug-input/list",
+        "category": "Muhasebe",
         "page_type": "main_page"
       },
-      "embedding_content": "Yeni cari ekleme sayfası",
+      "embedding_content": "Muhasebe Fiş Giriş - Yevmiye Kaydı Oluşturma Sayfası\n\nMuhasebe Fiş Giriş sayfası, yeni bir muhasebe kaydı (yevmiye fişi) oluşturmanızı sağlayan veri giriş ekranıdır. Bu sayfada çift taraflı kayıt (borç-alacak) sistemine uygun şekilde muhasebe işlemlerinizi kaydedebilir, birden fazla hesap kodunu aynı fiş içinde kullanabilirsiniz.\n\nSayfada yer alan özellikler:\n\n- Fiş Tarihi: İşlemin gerçekleştiği tarihi belirleyebilirsiniz. Varsayılan olarak güncel tarih ve saat gelir, ancak geçmiş tarihli kayıt da yapabilirsiniz.\n\n- Fiş Türü Seçimi: Yapacağınız işlemin türünü seçebilirsiniz:\n  - Mahsup: Genel muhasebe kayıtları için\n  - Tahsil: Tahsilat işlemleri için\n  - Tediye: Ödeme işlemleri için\n  - Virman: Transfer işlemleri için\n\n- Fiş Numarası: Sistem tarafından otomatik olarak sıralı fiş numarası atanır. Bu numara fişin benzersiz kimliğidir ve muhasebe kayıtlarınızın takibini kolaylaştırır.\n\n- Yevmiye Numarası: Yevmiye defterindeki sıra numarasını girebilirsiniz. Bu alan opsiyoneldir.\n\n- Genel Açıklama: Fişin tamamı için genel bir açıklama ekleyebilirsiniz. İşlemin ne hakkında olduğunu buraya yazabilirsiniz.\n\n- Hesap Hareketleri Tablosu: Fişinize birden fazla hesap hareketi ekleyebilirsiniz. Her satırda:\n  - Hesap Kodu: İşlem yapılacak hesap kodunu seçin\n  - Borç: Borç tutarını girin\n  - Alacak: Alacak tutarını girin\n  - Açıklama: Satır bazında özel açıklama ekleyin\n  - Vergi No: İlgili vergi numarasını girin\n  - Evrak Tarihi: Dayanak belgenin tarihini girin\n  - Seri No: Belge seri numarasını girin\n  - Evrak No: Belge evrak numarasını girin\n  - Belge Türü: Fatura, makbuz, dekont vb. belge tipini belirtin\n  - Belge Türü Açıklaması: Belge hakkında ek bilgi yazın\n\n- Satır Ekleme: \"+\" butonuna tıklayarak fişinize yeni hesap hareketi satırları ekleyebilirsiniz. Karmaşık muhasebe kayıtları için birden fazla borç ve alacak hesabı kullanabilirsiniz.\n\n- Satır Silme: Hatalı veya gereksiz satırları kırmızı çöp kutusu ikonuna tıklayarak silebilirsiniz.\n\n- Borç-Alacak Dengesi: Muhasebe kuralları gereği, bir fişte toplam borç ve toplam alacak tutarları eşit olmalıdır. Sistem otomatik olarak dengeyi kontrol eder ve uyarı verir.\n\n- Kaydet (Fİ): Girdiğiniz tüm bilgileri kaydederek fişi oluşturur ve fiş listesine ekler. Kayıt sonrası fiş numarası sistem tarafından onaylanır.\n\n- Kapat: Değişiklikleri kaydetmeden veya kaydettikten sonra sayfayı kapatır ve fiş listesine geri döner.\n\nBu sayfa, yevmiye kaydı, fiş oluşturma, muhasebe girişi, mahsup fişi girişi, yevmiye fişi ekleme, borç-alacak kaydı veya muhasebe işlem girişi olarak da adlandırılabilir. Günlük muhasebe işlemleri, mali kayıt tutma ve defter tutma süreçlerinde kullanılır.",
       "structured_data": {
         "functions": [
-          "Cari ekleme"
+          "Fiş Oluşturma - Yeni muhasebe fişi kaydı yapma",
+          "Fiş Tarihi Belirleme - İşlem tarihini seçme ve kaydetme",
+          "Fiş Türü Seçimi - Mahsup, tahsil, tediye veya virman fişi tipini belirleme",
+          "Otomatik Fiş Numarası - Sistem tarafından otomatik fiş numarası atama",
+          "Yevmiye Numarası - Yevmiye defteri sıra numarası girişi",
+          "Hesap Kodu Seçimi - Borç veya alacak kaydedilecek hesapları seçme",
+          "Borç-Alacak Girişi - Çift taraflı kayıt sistemi ile tutar girişi",
+          "Çoklu Satır Ekleme - Bir fişe birden fazla hesap hareketi ekleme",
+          "Satır Silme - Eklenen hesap satırlarını kaldırma",
+          "Açıklama Ekleme - Fiş ve satır bazında açıklama yazma",
+          "Vergi Bilgileri - Vergi numarası, evrak tarihi, seri ve evrak numarası girişi",
+          "Belge Türü Tanımlama - İlgili belge tipini ve açıklamasını ekleme",
+          "Fiş Kaydetme - Girilen bilgileri kaydetme ve fiş oluşturma",
+          "Kapat - Sayfayı kapatma veya fiş listesine dönme",
+          "Borç-Alacak Dengesi Kontrolü - Toplam borç ve alacağın eşitliğini kontrol etme"
         ],
         "keywords": [
-          "Cari ekleme",
-          "Müşteri ekleme"
+          "Fiş girişi",
+          "Fiş oluşturma",
+          "Yevmiye kaydı",
+          "Muhasebe kaydı",
+          "Mahsup fişi",
+          "Tahsil fişi",
+          "Tediye fişi",
+          "Virman fişi",
+          "Fiş tarihi",
+          "Fiş numarası",
+          "Yevmiye numarası",
+          "Hesap kodu",
+          "Borç",
+          "Alacak",
+          "Çift taraflı kayıt",
+          "Açıklama",
+          "Vergi numarası",
+          "Evrak tarihi",
+          "Seri numarası",
+          "Evrak numarası",
+          "Belge türü",
+          "Kaydet",
+          "Satır ekleme",
+          "Satır silme",
+          "Denge kontrolü",
+          "Muhasebe işlemi"
         ]
       },
       "user_expressions": [
-        "Yeni bir cari eklemek istiyorum"
+        "Fiş girmem lazım",
+        "Yeni fiş eklemek istiyorum",
+        "Muhasebe kaydı yapacağım",
+        "Bir fiş oluşturmam gerek",
+        "Mahsup fişi gireceğim",
+        "Borç alacak kaydı yapmam lazım",
+        "Yeni muhasebe kaydı girmem gerek",
+        "Tahsilat kaydı yapacağım",
+        "Ödeme fişi girmek istiyorum",
+        "Virman işlemi kaydetmem lazım",
+        "Fatura kaydı gireceğim",
+        "Yevmiye defterine kayıt yapmalıyım",
+        "Muhasebe işlemi girmem gerek",
+        "Bir ödeme kaydı gireceğim",
+        "Hesap hareketi kaydetmem lazım",
+        "Çift taraflı kayıt yapacağım",
+        "Tediye fişi oluşturmam gerek",
+        "Tahsil fişi girmek istiyorum",
+        "Fiş kaydetme sayfasını aç",
+        "Yeni bir işlem gireceğim"
       ]
     },
     {
       "metadata": {
-        "page_id": "customer-edit",
-        "title": "Cari Düzenleme",
-        "url_route": "{baseUrl}/apps/customer/edit/{customerId}",
-        "category": "customer",
-        "page_type": "sub_page",
-        "parent_page_id": "customer-list",
-        "sub_page_type": "link",
-        "url_parameters": {
-          "customerId": {
-            "type": "guid",
-            "description": "Cari Id",
-            "required": false
-          }
-        }
+        "page_id": "muavin",
+        "title": "muavin",
+        "url_route": "{base_url}/apps/accounting-assistant/list",
+        "category": "Muhasebe",
+        "page_type": "main_page"
       },
-      "embedding_content": "Cari bilgilerinin düzenlendiği sayfa",
+      "embedding_content": "Muavin Raporu - Hesap Hareketleri Detay Sayfası\n\nMuavin Raporu sayfası, belirli bir hesap kodunun veya tüm hesapların belirli tarih aralığındaki tüm muhasebe hareketlerini detaylı olarak gösteren rapor ekranıdır. Muavin defteri, her hesabın borç, alacak ve bakiye hareketlerini kronolojik sırayla gösterir ve hesap mutabakatı yapmanızı sağlar.\n\nSayfada yer alan özellikler:\n\n- Tarih Aralığı Filtreleme: Raporun kapsayacağı başlangıç ve bitiş tarihlerini belirleyebilirsiniz. Günlük, aylık, yıllık veya özel tarih aralıklarında hesap hareketlerini görüntüleyebilirsiniz.\n\n- Hesap Kodu Seçimi: Belirli bir hesap kodunu seçerek sadece o hesaba ait hareketleri görebilirsiniz. Boş bırakırsanız tüm hesapların hareketleri listelenir. Örneğin, sadece 100 nolu kasa hesabının veya 120 nolu banka hesabının muavinini görebilirsiniz.\n\n- Ara Butonu: Belirlediğiniz tarih aralığı ve hesap koduna göre muavin raporunu çalıştırır ve sonuçları tabloda gösterir.\n\n- Temizle Butonu: Tüm filtreleri, arama kriterlerini ve girilen değerleri siler, sayfayı varsayılan haline getirir.\n\n- Muavin Tablosu: Raporun ana kısmı olan tabloda şu bilgiler gösterilir:\n  - Fiş No: İşleme ait muhasebe fiş numarası\n  - Hesap Kodu: İşlemin yapıldığı hesap kodu\n  - Hesap Adı: Hesap kodunun açıklaması/ismi\n  - Detay: İşleme ait açıklama ve ek bilgiler\n  - Evrak Tarih: Dayanak belgenin tarihi\n  - Borç: Hesabın borç hareketi tutarı\n  - Alacak: Hesabın alacak hareketi tutarı\n  - Bakiye: Kümülatif bakiye (artan/azalan bakiye)\n\n- Fiş Detayına Erişim: Fiş numarasına tıklayarak ilgili fişin tüm detaylarını ve diğer hesap hareketlerini görüntüleyebilirsiniz.\n\n- Bakiye Takibi: Her satırda o ana kadarki kümülatif bakiye gösterilir. Böylece hesabın hangi tarihte ne durumda olduğunu kolayca takip edebilirsiniz.\n\n- Sayfalama ve Kayıt Sayısı: Tabloda gösterilecek kayıt sayısını (5, 10, 20, 100, 1000) seçebilir ve sayfalar arasında gezinebilirsiniz. Çok fazla kayıt varsa sayfalama ile rahatlıkla navigasyon yapabilirsiniz.\n\n- Sıralama: Tablo sütunlarına tıklayarak fiş numarasına, tarihe, tutara veya bakiyeye göre artan veya azalan sıralama yapabilirsiniz.\n\n- Dışa Aktarma ve Yazdırma: Muavin raporunu Excel veya PDF formatında dışa aktarabilir, yazdırabilir veya mali müşavirinizle paylaşabilirsiniz.\n\nBu sayfa, muavin defteri, hesap ekstresi, hesap hareketleri raporu, detaylı hesap raporu, hesap mutabakat raporu, subsidiary ledger veya account statement olarak da adlandırılabilir. Hesap analizi, mutabakat, denetim, mali kontrol ve raporlama süreçlerinde kullanılır.",
       "structured_data": {
         "functions": [
-          "Cari düzenleme"
+          "Tarih Aralığı Seçimi - Başlangıç ve bitiş tarihi belirleme",
+          "Hesap Kodu Filtreleme - Belirli hesap koduna ait hareketleri görüntüleme",
+          "Ara (Sorgulama) - Belirlenen kriterlere göre raporu çalıştırma",
+          "Temizle - Tüm filtreleri ve arama kriterlerini sıfırlama",
+          "Fiş Detaylarını Görüntüleme - Fiş numarasına tıklayarak detaylı bilgi alma",
+          "Borç-Alacak Görüntüleme - Hesap hareketlerinin borç ve alacak tutarlarını gösterme",
+          "Bakiye Hesaplama - Kümülatif bakiye durumunu gösterme",
+          "Sayfalama - Kayıt sayısını belirleme (5, 10, 20, 100, 1000)",
+          "Sıralama - Sütunlara göre artan/azalan sıralama yapma",
+          "Dışa Aktarma - Raporu Excel veya PDF formatında kaydetme",
+          "Yazdırma - Muavin raporunu yazdırma",
+          "Evrak Takibi - İlgili evrak tarih ve numaralarını görüntüleme"
         ],
         "keywords": [
-          "Cari düzenleme",
-          "Müşteri düzenleme",
-          "Customer edit"
+          "Muavin",
+          "Muavin defteri",
+          "Muavin raporu",
+          "Hesap hareketleri",
+          "Hesap ekstresi",
+          "Detaylı hesap raporu",
+          "Hesap mutabakat",
+          "Subsidiary ledger",
+          "Fiş numarası",
+          "Hesap kodu",
+          "Hesap adı",
+          "Borç hareketi",
+          "Alacak hareketi",
+          "Bakiye",
+          "Kümülatif bakiye",
+          "Tarih aralığı",
+          "Evrak tarihi",
+          "Detay",
+          "Hesap analizi",
+          "Kronolojik hareket",
+          "Sorgulama",
+          "Filtreleme",
+          "Ara",
+          "Temizle"
         ]
       },
       "user_expressions": [
-        "Carisini düzenlemek istiyorum"
+        "Muavin raporunu göster",
+        "Hesap hareketlerini görmek istiyorum",
+        "Kasa hareketlerini göster",
+        "Banka hesap ekstresi",
+        "100 nolu hesabın muavini",
+        "Belirli bir hesabın tüm işlemlerini göster",
+        "Bu ayki hesap hareketleri",
+        "Hesap mutabakatı yapmam lazım",
+        "Muavin defteri",
+        "Detaylı hesap raporu",
+        "Cari hesap hareketlerini göster",
+        "Hangi tarihte ne işlem yapılmış",
+        "Hesap bakiyelerini kontrol etmek istiyorum",
+        "Muavin çıktısı almam gerek",
+        "Aylık muavin raporu",
+        "Yıllık hesap özeti",
+        "Hesap ekstresi yazdır",
+        "Borç alacak hareketlerini göster",
+        "Fiş bazında hesap hareketleri",
+        "Hesabımın durumu ne"
       ]
     },
     {
       "metadata": {
-        "page_id": "customer-summary",
-        "title": "Cari Hesap Ekstresi Özeti",
-        "url_route": "{baseUrl}/apps/dynamic-report/view/f778a170-5939-11ee-9bf2-1bccd1389976/%20/%7B%22CustomerId%22:%7B%22value%22:%22{customerId}%22%7D%7D",
-        "category": "customer",
+        "page_id": "mizan",
+        "title": "Mizan",
+        "url_route": "{base_url}/apps/accounting-balance/list",
+        "category": "Muhasebe",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Mizan Raporu - Hesap Özetleri ve Bakiyeler Sayfası\n\nMizan Raporu sayfası, belirli bir dönem içindeki tüm hesapların toplam borç, alacak ve bakiye durumlarını özetleyen temel muhasebe raporudur. Mizan, muhasebe sistemindeki tüm hesapların özet tablosudur ve finansal raporların temelini oluşturur.\n\nSayfada yer alan özellikler:\n\n- Tarih Aralığı Filtreleme: Mizan raporunun kapsayacağı başlangıç ve bitiş tarihlerini belirleyebilirsiniz. Aylık, yıllık veya özel dönemler için mizan çıkarabilirsiniz.\n\n- Hesap Seviyesi Seçimi: Hesap planınızın hangi seviyesinde rapor istediğinizi belirleyebilirsiniz:\n  - Seviye 1: Ana hesaplar (100, 120, 600 gibi)\n  - Seviye 2: Alt hesaplar (100.01, 120.01 gibi)\n  - Seviye 3: Detay hesaplar (100.01.001 gibi)\n  - Ve daha detay seviyeler...\n  Seçtiğiniz seviyeye göre hesaplar gruplanır veya detaylandırılır.\n\n- Kod Aralığı: Belirli hesap kodları arasında mizan almak istiyorsanız başlangıç ve bitiş kodlarını girebilirsiniz. Örneğin, sadece 100-200 arası (varlık hesapları) veya 600-700 arası (gelir-gider hesapları) mizan alabilirsiniz.\n\n- Çalışmayan Hesaplar Dahil Mi?: \n  - \"Hayır\" seçilirse: Sadece seçilen dönemde hareketi olan hesaplar gösterilir\n  - \"Evet\" seçilirse: Hiç hareketi olmayan hesaplar da raporda yer alır\n  Bu özellik, raporun daha temiz veya daha kapsamlı olmasını sağlar.\n\n- Ara Butonu: Belirlediğiniz tüm kriterlere göre mizan raporunu oluşturur ve sonuçları tabloda gösterir.\n\n- Temizle Butonu: Tüm filtreleri ve arama kriterlerini varsayılan değerlere döndürür.\n\n- Mizan Tablosu: Raporun ana kısmı olan tabloda şu bilgiler gösterilir:\n  - Hesap Kodu: Muhasebe hesap kodu\n  - Hesap Adı: Hesap kodunun açıklaması\n  - Borç: Seçilen dönemdeki toplam borç tutarı\n  - Alacak: Seçilen dönemdeki toplam alacak tutarı\n  - Borç Bakiye: Eğer hesabın net bakiyesi borç ise gösterilir\n  - Alacak Bakiye: Eğer hesabın net bakiyesi alacak ise gösterilir\n\n- Genel Toplam: Tablo sonunda tüm hesapların toplam borç, toplam alacak ve toplam bakiyeleri gösterilir. Muhasebe kuralı gereği toplam borç ve toplam alacak eşit olmalıdır.\n\n- Sayfalama: Çok sayıda hesap varsa sayfa sayfa görüntüleyebilir, kayıt sayısını (5, 10, 20, 100, 1000) kendiniz belirleyebilirsiniz.\n\n- Dışa Aktarma ve Yazdırma: Mizan raporunu Excel veya PDF formatında kaydedebilir, yazdırabilir veya mali müşavirinizle paylaşabilirsiniz.\n\n- Denge Kontrolü: Mizan raporu, muhasebe sisteminizdeki borç-alacak dengesini kontrol etmenizi sağlar. Eğer toplam borç ve toplam alacak eşit değilse, sistemde hata olduğunu gösterir.\n\nBu sayfa, mizan defteri, trial balance, hesap özeti raporu, bakiye mizan, dönemsel mizan, hesaplar özetler tablosu veya muhasebe denge raporu olarak da adlandırılabilir. Mali tablolar hazırlama, denetim, finansal analiz ve muhasebe kontrolü süreçlerinde kullanılır.",
+      "structured_data": {
+        "functions": [
+          "Tarih Aralığı Seçimi - Başlangıç ve bitiş tarihi belirleme",
+          "Hesap Seviyesi Filtreleme - Hesap planı seviyesini seçme (1-9 arası)",
+          "Kod Aralığı Belirleme - Başlangıç ve bitiş hesap kodu aralığı seçme",
+          "Çalışmayan Hesaplar Filtresi - Hareketsiz hesapları dahil etme/hariç tutma",
+          "Ara (Sorgulama) - Belirlenen kriterlere göre mizan raporunu çalıştırma",
+          "Temizle - Tüm filtreleri sıfırlama",
+          "Borç-Alacak Toplam Görüntüleme - Dönemsel toplam borç ve alacak tutarları",
+          "Bakiye Hesaplama - Her hesabın borç veya alacak bakiyesini gösterme",
+          "Sayfalama - Kayıt sayısını belirleme (5, 10, 20, 100, 1000)",
+          "Sıralama - Hesap koduna göre sıralama",
+          "Dışa Aktarma - Excel veya PDF formatında raporlama",
+          "Yazdırma - Mizan raporunu yazdırma",
+          "Genel Toplam - Tüm hesapların borç-alacak toplamını gösterme"
+        ],
+        "keywords": [
+          "Mizan",
+          "Mizan raporu",
+          "Mizan defteri",
+          "Trial balance",
+          "Hesap özeti",
+          "Bakiye raporu",
+          "Borç toplam",
+          "Alacak toplam",
+          "Borç bakiye",
+          "Alacak bakiye",
+          "Hesap seviyesi",
+          "Kod aralığı",
+          "Tarih aralığı",
+          "Çalışmayan hesaplar",
+          "Hareketsiz hesaplar",
+          "Genel toplam",
+          "Muhasebe dengesi",
+          "Dönemsel mizan",
+          "Hesap bakiyeleri",
+          "Ana hesap",
+          "Alt hesap",
+          "Detay hesap",
+          "Denge kontrolü",
+          "Finansal özet",
+          "Ara",
+          "Temizle"
+        ]
+      },
+      "user_expressions": [
+        "Mizan çıkarmam lazım",
+        "Bu ayın mizanını görebilir miyim",
+        "Hesapların bakiyelerini kontrol etmek istiyorum",
+        "Mizan raporu almam gerek",
+        "Aylık mizan çıktısı alabilir miyim",
+        "Yıl sonu mizanı lazım bana",
+        "Tüm hesapların durumunu görmem gerek",
+        "Borç alacak dengesini kontrol etmeliyim",
+        "Sadece çalışan hesapların mizanını göster",
+        "Ana hesapların bakiyelerine bakmak istiyorum",
+        "Mizan yazdırmam lazım",
+        "Bu dönemin mizanını çıkar",
+        "Geçen ayın mizanı var mı",
+        "Hesapların genel durumunu görmek istiyorum",
+        "Muhasebe dengesi tutmuş mu kontrol etmem lazım",
+        "Mizan defterini görebilir miyim",
+        "100 ile 200 arası hesapların mizanını göster",
+        "Detaylı mizan raporu çıkarmam gerek",
+        "Hareketsiz hesapları da göster mizanda",
+        "Trial balance almam lazım"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "donemler",
+        "title": "Dönemler",
+        "url_route": "{base_url}/apps/accounting-periods/list",
+        "category": "Muhasebe",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Muhasebe Dönemleri - Mali Yıl ve Dönem Yönetimi Sayfası\n\nMuhasebe Dönemleri sayfası, işletmenizin mali yıllarını ve muhasebe dönemlerini tanımladığınız, yönettiğiniz ve hangisinde çalışacağınızı belirlediğiniz ayar ekranıdır. Her mali yıl için ayrı bir dönem oluşturarak muhasebe kayıtlarınızı düzenli bir şekilde organize edebilirsiniz.\n\nSayfada yer alan özellikler:\n\n- Dönem Listesi: Tanımlanmış tüm muhasebe dönemlerini görüntüleyebilirsiniz. Her dönemin adı, başlangıç tarihi, bitiş tarihi ve aktif/pasif durumu listede görünür.\n\n- Yeni Dönem Ekleme: \"Yeni Kayıt Ekle\" butonuna tıklayarak yeni bir mali yıl veya muhasebe dönemi oluşturabilirsiniz. Örneğin: \"2024 Mali Yılı\", \"2025 Mali Yılı\" veya \"2024 1. Çeyrek\" gibi.\n\n- Dönem Adı: Her dönem için açıklayıcı bir isim verebilirsiniz. Genellikle \"2024 Mali Yılı\", \"2023 Hesap Dönemi\" gibi tarih bazlı isimler kullanılır.\n\n- Başlangıç Tarihi: Dönemin ne zaman başladığını belirlersiniz. Genellikle mali yılın ilk günüdür (01.01.2024 gibi).\n\n- Bitiş Tarihi: Dönemin ne zaman sona erdiğini belirlersiniz. Genellikle mali yılın son günüdür (31.12.2024 gibi).\n\n- Aktif Dönem İşaretleme: Hangi dönemde çalışmak istediğinizi \"Aktif\" olarak işaretleyebilirsiniz. Tüm muhasebe işlemleriniz aktif dönem üzerinde gerçekleşir. Aynı anda sadece bir dönem aktif olabilir.\n\n- Pasif Dönemler: Geçmiş yıllara ait kapatılmış dönemler pasif olarak işaretlenir. Bu dönemlere sadece görüntüleme amaçlı erişebilirsiniz.\n\n- Dönem Düzenleme: Yeşil kalem ikonuna tıklayarak dönem bilgilerini (adı, tarihleri, aktiflik durumu) güncelleyebilirsiniz.\n\n- Dönem Silme: Kırmızı çöp kutusu ikonuna tıklayarak kullanılmayan veya yanlış tanımlanmış dönemleri silebilirsiniz. Ancak içinde muhasebe kaydı olan dönemler silinemez.\n\n- Dönem Arama: Arama kutusunu kullanarak dönem adına göre hızlı filtreleme yapabilirsiniz.\n\n- Kayıt Sayısı: Sayfada aynı anda kaç dönem görüntüleneceğini (5, 10, 20, vb.) seçebilirsiniz.\n\n- Dönem Geçişi: Farklı mali yıllar arasında geçiş yaparak o döneme ait tüm muhasebe verilerini, raporlarını ve kayıtlarını görüntüleyebilirsiniz.\n\n- Dönem Kapatma: Bir mali yıl sona erdiğinde o dönemi pasif yaparak kapanış işlemlerini gerçekleştirebilirsiniz.\n\nBu sayfa, mali yıl, hesap dönemi, muhasebe periyodu, dönem tanımlama, mali dönem ayarları, fiscal year, accounting period veya yıl sonu işlemleri olarak da adlandırılabilir. Mali yıl organizasyonu, dönem bazlı raporlama ve geçmiş dönem kayıtlarına erişim için kullanılır.",
+      "structured_data": {
+        "functions": [
+          "Dönem Listeleme - Tüm muhasebe dönemlerini görüntüleme",
+          "Yeni Dönem Ekleme - Yeni mali yıl veya dönem oluşturma",
+          "Dönem Düzenleme - Mevcut dönem bilgilerini güncelleme",
+          "Dönem Silme - Kullanılmayan dönemleri kaldırma",
+          "Dönem Adı Tanımlama - Dönem için açıklayıcı isim verme",
+          "Başlangıç Tarihi Belirleme - Dönemin başlangıç tarihini ayarlama",
+          "Bitiş Tarihi Belirleme - Dönemin bitiş tarihini ayarlama",
+          "Aktif Dönem Seçimi - Çalışılacak dönemi aktif hale getirme",
+          "Pasif Dönem İşaretleme - Kapalı dönemleri pasif yapma",
+          "Dönem Arama - Dönem adına göre filtreleme",
+          "Kayıt Sayısı Ayarlama - Sayfada gösterilecek dönem sayısını belirleme",
+          "Dönem Geçişi - Farklı mali yıllar arasında geçiş yapma"
+        ],
+        "keywords": [
+          "Muhasebe dönemi",
+          "Mali yıl",
+          "Hesap dönemi",
+          "Dönem tanımlama",
+          "Aktif dönem",
+          "Pasif dönem",
+          "Başlangıç tarihi",
+          "Bitiş tarihi",
+          "Dönem ekleme",
+          "Dönem düzenleme",
+          "Dönem silme",
+          "Yeni kayıt",
+          "Dönem geçişi",
+          "Mali yıl açma",
+          "Mali yıl kapatma",
+          "Fiscal year",
+          "Accounting period",
+          "Dönem listesi",
+          "Çalışma dönemi",
+          "Yıl sonu",
+          "Dönem adı",
+          "Aktif/Pasif",
+          "Dönem arama",
+          "Retry"
+        ]
+      },
+      "user_expressions": [
+        "Yeni mali yıl açmam lazım",
+        "2025 dönemini oluşturabilir miyim",
+        "Aktif dönemi değiştirmek istiyorum",
+        "Hangi dönemde çalışıyorum şu an",
+        "Geçen yılın kayıtlarına bakmam gerek",
+        "2024 mali yılını kapatmam lazım",
+        "Yeni bir dönem tanımlamam gerekiyor",
+        "Muhasebe dönemlerini görmek istiyorum",
+        "Mali yıl ayarları nerede",
+        "Bu dönemin tarihlerini değiştirmem lazım",
+        "Eski dönemi pasif yapmam gerek",
+        "2023 yılına geri dönmem lazım",
+        "Dönem bilgilerini düzenlemek istiyorum",
+        "Aktif mali yılı 2025 yapabilir miyim",
+        "Yanlış dönem açmışım silmem lazım",
+        "Mali yıl listesini göster",
+        "Hangi dönemler tanımlı sistemde",
+        "Geçmiş yıl kayıtlarına nasıl erişirim",
+        "Dönem geçişi yapmam gerek",
+        "Çalışma dönemini değiştireceğim"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "kdv_tanimlari_listesi",
+        "title": "KDV Tanımları Listesi",
+        "url_route": "{base_url}/apps/accounting-tax/list",
+        "category": "Muhasebe",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Muhasebe KDV Tanım Listesi - Vergi Oranları Yönetim Sayfası\n\nKDV Tanım Listesi sayfası, işletmenizde kullanılan tüm Katma Değer Vergisi (KDV) oranlarının ve bunlara bağlı muhasebe hesaplarının listelendiği, yönetildiği merkezi ekrandır. Bu sayfadan KDV tanımlarınızı görüntüleyebilir, yeni oranlar ekleyebilir, mevcut tanımları düzenleyebilir veya silebilirsiniz.\n\nSayfada yer alan özellikler:\n\n- KDV Tanımları Listesi: Sisteme kayıtlı tüm KDV oranları tablo formatında görüntülenir. Her satırda şu bilgiler yer alır:\n  - KDV Hesap Adı: KDV tanımının açıklayıcı ismi (örn: \"KDV %20\", \"İndirilecek KDV %10\")\n  - KDV Hesap Kodu: KDV'nin muhasebe hesap kodu (örn: 391.01, 191.02)\n  - KDV Oranı (%): Uygulanacak vergi yüzdesi (örn: %1, %10, %20)\n  - İşlemler: Düzenleme ve silme butonları\n\n- Yeni Kayıt Ekle: Sağ üst köşedeki \"Yeni Kayıt Ekle\" butonuna tıklayarak yeni bir KDV oranı tanımlayabilirsiniz. Bu buton sizi KDV tanım ekranına yönlendirir.\n\n- Arama Özelliği: Arama kutusunu kullanarak KDV hesap adına, hesap koduna veya oranına göre hızlı arama yapabilirsiniz. Örneğin \"%20\" yazarsanız yalnızca %20 KDV oranı olan tanımlar listelenir.\n\n- Kayıt Sayısı Seçimi: Sayfada aynı anda kaç KDV tanımı görüntüleneceğini (5, 10, 20, 50, 100) seçebilirsiniz. Çok sayıda KDV tanımınız varsa bu özellik navigasyonu kolaylaştırır.\n\n- Düzenleme İşlemi: Her KDV tanımının yanındaki düzenleme (kalem) ikonuna tıklayarak o tanımın bilgilerini güncelleyebilir, bağlı hesap kodlarını değiştirebilirsiniz.\n\n- Silme İşlemi: Kullanılmayan veya yanlış tanımlanmış KDV oranlarını çöp kutusu ikonuna tıklayarak silebilirsiniz. Ancak faturalarda veya işlemlerde kullanılan KDV tanımları silinemez.\n\n- Sıralama: Tablo başlıklarına tıklayarak KDV tanımlarını hesap adına, koduna veya oranına göre artan/azalan şekilde sıralayabilirsiniz.\n\n- Boş Liste Durumu: Eğer hiç KDV tanımı yoksa \"Aranan Kayıt Bulunamadı!\" mesajı görünür. Bu durumda \"Yeni Kayıt Ekle\" butonunu kullanarak ilk KDV tanımınızı oluşturmalısınız.\n\n- KDV Tanım Özeti: Liste size işletmenizdeki tüm vergi oranlarını ve bunların hangi hesaplara bağlı olduğunu tek bakışta gösterir. Bu sayede vergi yapılandırmanızı kolayca kontrol edebilirsiniz.\n\n- Hızlı Erişim: Fatura işlemleri sırasında KDV oranı seçimi bu tanımlardan yapılır. Doğru ve eksiksiz KDV tanımları, otomatik vergi hesaplaması için kritik öneme sahiptir.\n\nBu sayfa, KDV listesi, vergi oranları listesi, KDV yönetimi, KDV tanım tablosu, vergi yapılandırması, VAT configuration veya KDV master data olarak da adlandırılabilir. Vergi yönetimi, fatura hazırlığı ve muhasebe otomasyonu süreçlerinde kullanılır.",
+      "structured_data": {
+        "functions": [
+          "KDV Tanımlarını Listeleme - Tanımlı tüm KDV oranlarını görüntüleme",
+          "Yeni KDV Tanımı Ekleme - \"Yeni Kayıt Ekle\" ile yeni KDV oranı oluşturma",
+          "KDV Düzenleme - Mevcut KDV tanımını güncelleme",
+          "KDV Silme - Kullanılmayan KDV tanımlarını kaldırma",
+          "KDV Arama - KDV hesap adı, kodu veya oranına göre arama",
+          "Kayıt Sayısı Ayarlama - Sayfada gösterilecek kayıt sayısını belirleme (10, 20, 50 vb.)",
+          "Sıralama - KDV hesap adı, kodu veya oranına göre sıralama",
+          "Filtreleme - Belirli KDV oranlarına göre filtreleme",
+          "Toplu İşlemler - Birden fazla KDV tanımını seçme ve işlem yapma",
+          "KDV Detaylarını Görüntüleme - Bağlı hesap kodlarını ve detayları inceleme"
+        ],
+        "keywords": [
+          "KDV tanım listesi",
+          "KDV listesi",
+          "Vergi oranları",
+          "KDV hesap adı",
+          "KDV hesap kodu",
+          "KDV oranı",
+          "KDV yüzdesi",
+          "Yeni kayıt ekle",
+          "KDV ekleme",
+          "KDV düzenleme",
+          "KDV silme",
+          "KDV arama",
+          "%1 KDV",
+          "%10 KDV",
+          "%20 KDV",
+          "İndirilecek KDV",
+          "Hesaplanan KDV",
+          "Vergi tanımları",
+          "VAT",
+          "KDV yönetimi",
+          "Vergi yapılandırması",
+          "KDV master data",
+          "Kayıt sayısı",
+          "Sıralama",
+          "Filtreleme",
+          "İşlemler"
+        ]
+      },
+      "user_expressions": [
+        "KDV tanımlarını görmek istiyorum",
+        "Hangi KDV oranları tanımlı sistemde",
+        "Yeni bir KDV oranı eklemem lazım",
+        "KDV listesini göster",
+        "%20 KDV tanımlı mı kontrol etmem gerek",
+        "KDV hesaplarını görebilir miyim",
+        "Vergi oranlarını düzenlemem lazım",
+        "KDV ayarlarına bakmak istiyorum",
+        "Hangi hesaplara hangi KDV bağlı görmem gerek",
+        "İndirimli KDV var mı sistemde",
+        "KDV tanımlarını düzenlemem lazım",
+        "Yanlış tanımlanmış KDV'yi silmem gerek",
+        "Tüm vergi oranlarını göster",
+        "KDV hesap kodlarını kontrol etmeliyim",
+        "%1 KDV eklemem lazım sisteme",
+        "KDV yapılandırmasına bakmak istiyorum",
+        "Vergi tanımları nerede",
+        "Faturada kullanılacak KDV oranlarını görmem gerek",
+        "KDV master data'yı kontrol etmeliyim",
+        "Hangi KDV oranları aktif"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "yansitma_hesaplari_tanim_listesi",
+        "title": "Yansıtma Hesapları Tanım Listesi",
+        "url_route": "{base_url}/apps/accounting-reflection/list",
+        "category": "Muhasebe",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Muhasebe Yansıtma Hesapları Tanım Listesi - Gider Yansıtma Eşleştirme Sayfası\n\nYansıtma Hesapları Tanım Listesi sayfası, gider hesaplarının (6xx hesaplar) hangi yansıtma hesaplarına (7xx hesaplar) aktarılacağını tanımladığınız ve yönettiğiniz konfigürasyon ekranıdır. Bu tanımlamalar sayesinde dönem sonu işlemlerinde giderlerinizi otomatik olarak doğru maliyet ve fonksiyon hesaplarına yansıtabilirsiniz.\n\nSayfada yer alan özellikler:\n\n- Yansıtma Tanımları Listesi: Sisteme kayıtlı tüm yansıtma eşleştirmeleri tablo formatında görüntülenir. Her satırda şu bilgiler yer alır:\n  - Gider Hesap Kodu: Kaynak gider hesabı (örn: 600 - Satılan Mal Maliyeti, 770 - Genel Yönetim Giderleri)\n  - Yansıtma Hesap Kodu: Giderin yansıtılacağı hedef hesap (örn: 710 - Yansıtma Hesapları)\n  - Sonuç Hesap Kodu: Netleştirme veya sonuç hesabı (varsa)\n  - İşlemler: Düzenleme ve silme butonları\n\n- Yeni Kayıt Ekle: Sağ üst köşedeki \"Yeni Kayıt Ekle\" butonuna tıklayarak yeni bir gider-yansıtma eşleştirmesi tanımlayabilirsiniz.\n\n- Arama Özelliği: Arama kutusunu kullanarak gider hesap koduna veya yansıtma hesap koduna göre hızlı arama yapabilirsiniz.\n\n- Kayıt Sayısı Seçimi: Sayfada aynı anda kaç yansıtma tanımı görüntüleneceğini (5, 10, 20, 50, 100) seçebilirsiniz.\n\n- Gider Hesapları: Tek düzen hesap planında 6xx grubu gider hesaplarıdır:\n  - 600: Satılan Mal Maliyeti\n  - 610: Satılan Hizmet Maliyeti\n  - 620: Satılan Ticari Mal Maliyeti\n  - 630: Pazarlama Satış Dağıtım Giderleri\n  - 640: Genel Yönetim Giderleri\n  - 660: Araştırma Geliştirme Giderleri\n\n- Yansıtma Hesapları: Tek düzen hesap planında 7xx grubu hesaplardır:\n  - 710: Diğer Olağan Gelir ve Karlar (yansıtma hesabı)\n  - 740: Hizmet Üretim Maliyeti\n  - 750: Araştırma Geliştirme Giderleri Yansıtma Hesabı\n\n- Düzenleme İşlemi: Her yansıtma tanımının yanındaki düzenleme (kalem) ikonuna tıklayarak hesap eşleştirmelerini güncelleyebilirsiniz.\n\n- Silme İşlemi: Kullanılmayan veya yanlış tanımlanmış yansıtma eşleştirmelerini çöp kutusu ikonuna tıklayarak silebilirsiniz.\n\n- Otomatik Yansıtma: Bu tanımlamalar sayesinde dönem sonu işlemlerinde \"yansıtma işlemi\" çalıştırıldığında giderler otomatik olarak belirlenen hesaplara aktarılır.\n\n- Boş Liste Durumu: Eğer hiç yansıtma tanımı yoksa \"Aranan Kayıt Bulunamadı!\" mesajı görünür. İlk tanımınızı oluşturmak için \"Yeni Kayıt Ekle\" butonunu kullanın.\n\n- Fonksiyonel Gider Dağılımı: Yansıtma hesapları, giderlerin fonksiyonel olarak (üretim, pazarlama, yönetim vb.) dağıtılmasını ve doğru raporlanmasını sağlar.\n\n- Maliyet Muhasebesi: Özellikle maliyet muhasebesi yapan işletmeler için kritik öneme sahiptir. Giderlerin doğru maliyet merkezlerine ve ürünlere yüklenmesini sağlar.\n\nBu sayfa, yansıtma hesapları, gider yansıtma tanımları, maliyet dağıtım ayarları, fonksiyonel gider eşleştirmesi, cost allocation setup veya expense reflection accounts olarak da adlandırılabilir. Dönem sonu işlemleri, maliyet muhasebesi ve finansal raporlama süreçlerinde kullanılır.",
+      "structured_data": {
+        "functions": [
+          "Yansıtma Hesapları Listeleme - Tanımlı tüm yansıtma eşleştirmelerini görüntüleme",
+          "Yeni Yansıtma Tanımı Ekleme - Gider hesabı ve yansıtma hesabı eşleştirmesi oluşturma",
+          "Yansıtma Düzenleme - Mevcut yansıtma tanımını güncelleme",
+          "Yansıtma Silme - Kullanılmayan yansıtma tanımlarını kaldırma",
+          "Yansıtma Arama - Hesap koduna göre arama",
+          "Kayıt Sayısı Ayarlama - Sayfada gösterilecek kayıt sayısını belirleme",
+          "Sıralama - Gider veya yansıtma hesap koduna göre sıralama",
+          "Otomatik Yansıtma İşlemi - Dönem sonu gider yansıtma işlemlerini gerçekleştirme"
+        ],
+        "keywords": [
+          "Yansıtma hesapları",
+          "Gider yansıtma",
+          "Yansıtma tanımları",
+          "Gider hesap kodu",
+          "Yansıtma hesap kodu",
+          "Sonuç hesap kodu",
+          "Maliyet dağıtımı",
+          "Cost allocation",
+          "Fonksiyonel gider",
+          "6xx gider hesapları",
+          "7xx yansıtma hesapları",
+          "600 hesap",
+          "710 hesap",
+          "Dönem sonu işlemleri",
+          "Gider aktarımı",
+          "Yansıtma eşleştirmesi",
+          "Maliyet muhasebesi",
+          "Yeni kayıt ekle",
+          "Yansıtma düzenleme",
+          "Yansıtma silme",
+          "Hesap eşleştirme",
+          "Otomatik yansıtma",
+          "Gider dağılımı",
+          "Maliyet yükleme"
+        ]
+      },
+      "user_expressions": [
+        "Yansıtma hesaplarını görmek istiyorum",
+        "Gider yansıtma tanımları nerede",
+        "Hangi gider hangi hesaba yansıtılıyor",
+        "Yeni yansıtma hesabı tanımlamam lazım",
+        "Yansıtma eşleştirmelerini göster",
+        "600 hesabı nereye yansıtılacak",
+        "Maliyet dağıtım ayarlarına bakmak istiyorum",
+        "Dönem sonu yansıtma ayarları nerede",
+        "Gider hesaplarının yansıtma kodlarını görmem gerek",
+        "Yansıtma tanımlarını düzenlemem lazım",
+        "Fonksiyonel gider dağılımı nasıl yapılıyor",
+        "710 hesabına hangi giderler yansıyor",
+        "Yanlış yansıtma tanımını silmem gerek",
+        "Maliyet hesaplarını ayarlamam lazım",
+        "Giderlerin nereye aktarıldığını görmek istiyorum",
+        "Yansıtma hesap eşleştirmesi yapmam gerek",
+        "Cost allocation ayarlarına bakmam lazım",
+        "Dönem sonu gider yansıtma için tanım yapmam gerek",
+        "Hangi hesaplar yansıtma yapıyor",
+        "Gider dağıtım ayarlarını kontrol etmeliyim"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "cari_listesi",
+        "title": "Cari Listesi",
+        "url_route": "{base_url}/apps/customer/list",
+        "category": "Ticari Hesaplar",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Bu sayfa, sistemdeki tüm cari hesapların (müşteriler, tedarikçiler ve diğer iş ortakları) merkezi yönetimini sağlar. Kullanıcılar bu ekrandan cari kayıtlarını görüntüleyebilir, yeni cari ekleyebilir, mevcut kayıtları düzenleyebilir, silebilir ve Excel üzerinden toplu veri aktarımı yapabilir. Sayfa üzerinde arama ve filtreleme özellikleri bulunmakta olup, firma adı, firma kodu ve ünvan bilgilerine göre hızlı erişim sağlanabilmektedir.",
+      "structured_data": {
+        "functions": [
+          "Cari kayıt görüntüleme",
+          "Yeni cari kaydı ekleme",
+          "Mevcut cari bilgilerini düzenleme ve güncelleme",
+          "Cari kaydı silme",
+          "Excel dosyasından toplu cari aktarma",
+          "Sayfa başına gösterilecek kayıt sayısını ayarlama",
+          "Firma adı veya kodu ile arama yapma",
+          "Cari profil resmi görüntüleme"
+        ],
+        "keywords": [
+          "cari listesi",
+          "müşteri listesi",
+          "firma listesi",
+          "cari hesaplar",
+          "müşteri yönetimi",
+          "cari kartı",
+          "firma adı",
+          "firma kodu",
+          "ünvan",
+          "Excel aktarma",
+          "toplu cari ekleme",
+          "cari arama",
+          "müşteri kaydı",
+          "tedarikçi listesi",
+          "iş ortağı yönetimi",
+          "cari modülü"
+        ]
+      },
+      "user_expressions": [
+        "Belirli bir firma adını arayarak cari kaydına ulaşmak",
+        "Yeni müşteri nasıl eklenir",
+        "Excel'den toplu cari aktarma nasıl yapılır",
+        "Cari bilgileri nasıl düzenlenir",
+        "Müşteri listesini nasıl görüntülerim",
+        "Firma koduna göre arama yapma",
+        "Cari listesinde filtreleme",
+        "Müşteri kaydı silme",
+        "Toplu cari güncelleme"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "cari_detayi",
+        "title": "Cari Detayı",
+        "url_route": "{base_url}/apps/customer/view/{cari_id}",
+        "category": "Ticari Hesaplar",
         "page_type": "main_page",
-        "parent_page_id": "customer-list",
+        "parent_page_id": "cari_listesi",
+        "url_parameters": {
+          "cari_id": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true,
+            "endpoint": "api/Customers/getList"
+          }
+        }
+      },
+      "embedding_content": "Bu sayfa, seçili bir cari hesaba ait tüm detaylı bilgilerin ve işlemlerin merkezi görüntüleme ve yönetim noktasıdır. Kullanıcılar bu ekran üzerinden ilgili carinin tüm finansal hareketlerini, belge kayıtlarını, döviz bazlı bakiyelerini, teklif ve sipariş süreçlerini, devir belgelerini, tahsilat ve ödeme işlemlerini, satış ve alış operasyonlarını takip edebilir ve yeni işlemler oluşturabilirler. Sayfa, çok sekmeli yapısıyla farklı modüllere hızlı erişim sağlar ve her sekme altında ilgili işlem türlerine özel fonksiyonlar sunar. Detaylı belge bazlı görüntüleme, borç-alacak takibi, bakiye hesaplama ve çeşitli raporlama seçenekleri ile kapsamlı bir cari yönetim deneyimi sunmaktadır.",
+      "structured_data": {
+        "functions": [
+          "Cari hesap hareketlerini tarih, belge tipi ve tutar bazında görüntüleme",
+          "Belge detaylarını inceleme ve düzenleme",
+          "Evrak kayıtlarını listeleme ve yönetme",
+          "Döviz bazlı bakiye görüntüleme ve takibi",
+          "Teklif ve sipariş süreçlerini izleme",
+          "Devir belgelerini görüntüleme",
+          "Giriş ve çıkış bordrosu oluşturma",
+          "Havale işlemleri gerçekleştirme",
+          "Virman belgesi düzenleme",
+          "İade bordrosu işlemleri yapma",
+          "Yeni satış kaydı oluşturma",
+          "Satış iade işlemi gerçekleştirme",
+          "Yeni alış kaydı oluşturma",
+          "Alış iade işlemi gerçekleştirme",
+          "Cari hesap ekstresi özet raporu alma",
+          "Cari hesap ekstre detay raporu alma",
+          "Şube bazlı işlem filtreleme",
+          "Borç ve alacak tutarlarını görüntüleme",
+          "Güncel bakiye hesaplama ve takibi",
+          "Sayfalama ile geçmiş kayıtlarda gezinme"
+        ],
+        "keywords": [
+          "cari detay",
+          "müşteri detayları",
+          "cari hareketler",
+          "borç alacak takibi",
+          "cari ekstre",
+          "tahsilat ödeme",
+          "giriş bordrosu",
+          "çıkış bordrosu",
+          "havale işlemleri",
+          "virman belgesi",
+          "satış işlemleri",
+          "alış işlemleri",
+          "iade işlemleri",
+          "döviz bakiye",
+          "teklif sipariş",
+          "devir belgeleri",
+          "belge yönetimi",
+          "şube bazlı işlemler",
+          "cari rapor",
+          "hesap ekstresi"
+        ]
+      },
+      "user_expressions": [
+        "Müşterinin tüm hareketlerini nasıl görüntülerim",
+        "Cari hesap ekstresini nasıl alırım",
+        "Tahsilat bordrosu nasıl oluşturulur",
+        "Müşteriye ödeme nasıl kaydedilir",
+        "Satış faturası nasıl kesilir",
+        "Alış faturası nasıl girilir",
+        "İade işlemi nasıl yapılır",
+        "Cari borç alacak durumu nasıl öğrenilir",
+        "Havale işlemi nasıl gerçekleştirilir",
+        "Virman belgesi nasıl düzenlenir",
+        "Müşteri bakiyesi nasıl hesaplanır",
+        "Dövizli işlemler nasıl takip edilir",
+        "Şube bazlı hareketleri nasıl filtrelerim",
+        "Geçmiş belgeleri nasıl bulurum",
+        "Cari ekstre detay raporu nasıl çıkarılır"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "cari_evraklari",
+        "title": "Cari Evrakları",
+        "url_route": "{base_url}/apps/customer/view/{cari_id}?tab=1",
+        "category": "Ticari Hesaplar",
+        "page_type": "sub_page",
+        "parent_page_id": "cari_detayi",
         "sub_page_type": "link",
         "url_parameters": {
-          "CustomerId": {
+          "cari_id": {
             "type": "guid",
             "description": "Cari Id",
-            "required": false
+            "required": true,
+            "endpoint": "api/customers/getall"
           }
         }
       },
-      "embedding_content": "Cari Hesap Ekstresi Özeti sayfasıdır.",
+      "embedding_content": "Bu sekme, ilgili cari hesaba ait tüm evrak ve belgelerin sistematik olarak saklandığı ve erişilebildiği modüldür. Faturalar, irsaliyeler, sözleşmeler ve diğer ticari belgeler bu bölümde organize edilir. Kullanıcılar belge yükleme, görüntüleme ve indirme işlemlerini gerçekleştirebilirler.",
       "structured_data": {
         "functions": [
-          "Cari hesap özeti listesi"
+          "Evrak listesini görüntüleme",
+          "Yeni evrak yükleme",
+          "Mevcut evrakları görüntüleme",
+          "Evrak indirme",
+          "Evrak silme",
+          "Belge türüne göre filtreleme"
         ],
         "keywords": [
-          "Cari Hesap Ekstresi Özeti",
-          "Cari hesap özeti"
+          "cari evrakları",
+          "belge yönetimi",
+          "fatura arşivi",
+          "evrak yükleme",
+          "döküman saklama",
+          "belge listesi"
         ]
       },
       "user_expressions": [
-        "Cari Hesap Ekstresi Özeti lsitesini getir"
+        "Müşteriye ait belgeleri nasıl görürüm",
+        "Yeni evrak nasıl yüklenir",
+        "Fatura belgesi nasıl bulunur",
+        "Evrakları nasıl indiririm"
       ]
     },
     {
       "metadata": {
-        "page_id": "customer-dynamic-report",
-        "title": "Cari Raporu",
-        "url_route": "{baseUrl}/apps/dynamic-report/view/{reportId}/%20/%7B%22CustomerId%22:%7B%22value%22:%22{customerId}%22%7D%7D",
-        "category": "customer",
+        "page_id": "cari_doviz",
+        "title": "Cari Döviz",
+        "url_route": "{base_url}/apps/customer/view/{cari_id}?tab=2",
+        "category": "Ticari Hesaplar",
         "page_type": "sub_page",
-        "parent_page_id": "customer",
+        "parent_page_id": "cari_detayi",
+        "sub_page_type": "link",
         "url_parameters": {
-          "customerId": {
+          "cari_id": {
             "type": "guid",
             "description": "Cari Id",
-            "required": true
-          },
-          "reportId": {
-            "type": "guid",
-            "description": "Dynamic Report Id",
-            "required": true
+            "required": true,
+            "endpoint": "api/customers/getall"
           }
         }
       },
-      "embedding_content": "İlgili raporda carinin hareketlerini görüntüleyen özel dinamik rapor sayfasıdır",
+      "embedding_content": "Bu sekme, cari hesabın farklı döviz cinslerindeki borç ve alacak bakiyelerinin ayrı ayrı görüntülendiği özel bir modüldür. TL, USD, EUR gibi farklı para birimlerindeki işlemler ve bakiyeler bu bölümde detaylı olarak takip edilebilir, böylece çoklu para birimi ile çalışan firmalar için kapsamlı bir bakiye yönetimi sağlanır.",
       "structured_data": {
-        "functions": [],
+        "functions": [
+          "Döviz bazlı bakiye görüntüleme",
+          "Para birimi türüne göre filtreleme",
+          "Her döviz için borç tutarını görüntüleme",
+          "Her döviz için alacak tutarını görüntüleme",
+          "Döviz bazlı net bakiye hesaplama",
+          "Çoklu para birimi karşılaştırması"
+        ],
         "keywords": [
-          "cari filtresi",
-          "dinamik rapor"
+          "döviz bakiye",
+          "çoklu para birimi",
+          "dövizli işlemler",
+          "TL bakiye",
+          "USD bakiye",
+          "EUR bakiye",
+          "para birimi takibi",
+          "döviz bazlı borç alacak"
         ]
       },
       "user_expressions": [
-        "'Cari Adı' carisi için 'Dinamik rapor Adı' raporunu görüntülemek istiyorum."
+        "Müşterinin döviz bazlı bakiyesi nasıl görülür",
+        "USD cinsinden borç alacak durumu",
+        "Farklı para birimlerindeki bakiyeler nasıl takip edilir",
+        "Dövizli işlemleri nasıl kontrol ederim"
       ]
     },
     {
       "metadata": {
-        "page_id": "master-report",
-        "title": "Master Raporlar",
-        "url_route": "{baseUrl}/apps/master-reports/turnover",
-        "category": "master-report",
-        "page_type": "main_page"
-      },
-      "embedding_content": "Restorant/kafe ticari işletmelerinin satış analizlerinin ayrıntılı olarak raporlarının görüntülendiği raporlar sayfasıdır.",
-      "structured_data": {
-        "functions": [],
-        "keywords": [
-          "şefim raporları",
-          "master panel",
-          "master raporlar",
-          "şefim raporları",
-          "şefim analizi"
-        ]
-      },
-      "user_expressions": [
-        "Şefim raporlarını görmek istiyorum."
-      ]
-    },
-    {
-      "metadata": {
-        "page_id": "master-report-open-table",
-        "title": "Açık Masalar Raporu",
-        "url_route": "{baseUrl}/apps/master-reports/turnover",
-        "category": "master-report",
+        "page_id": "cari_teklif",
+        "title": "Cari Teklif ve Sipariş Sekmesi",
+        "url_route": "{base_url}/apps/customer/view/{cari_id}?tab=3",
+        "category": "Ticari Hesaplar",
         "page_type": "sub_page",
-        "parent_page_id": "master-report",
-        "sub_page_type": "tab"
+        "parent_page_id": "cari_detayi",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "cari_id": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true,
+            "endpoint": "api/customers/getall"
+          }
+        }
       },
-      "embedding_content": "Şefim uygulmasında hala açık olan masaların raporlandığı sayfadır.",
+      "embedding_content": "Bu sekme, cari hesaba ait teklif ve sipariş süreçlerinin izlendiği özel bir modüldür. Müşteriye verilen tekliflerin durumu, onaylanan siparişler, bekleyen teklifler ve sipariş geçmişi bu bölümde detaylı olarak takip edilebilir. Satış süreçlerinin yönetimi ve müşteri ilişkileri takibi için kritik bir araçtır.",
       "structured_data": {
         "functions": [
-          "masa sayısı ve toplam tutar",
-          "tarih filtresi",
-          "şube performans grafiği ve tablosu"
+          "Teklif listesini görüntüleme",
+          "Sipariş listesini görüntüleme",
+          "Teklif durumunu takip etme",
+          "Sipariş durumunu kontrol etme",
+          "Yeni teklif oluşturma",
+          "Teklifi siparişe dönüştürme",
+          "Bekleyen teklifleri görüntüleme",
+          "Onaylı siparişleri listeleme"
         ],
         "keywords": [
-          "açık masalar",
-          "kapalı olmayan masalar",
-          "ödemesi alınmayan masalar"
+          "teklif yönetimi",
+          "sipariş takibi",
+          "satış süreci",
+          "teklif durumu",
+          "sipariş durumu",
+          "teklif listesi",
+          "sipariş geçmişi",
+          "bekleyen teklifler"
         ]
       },
       "user_expressions": [
-        "hangi şubede kaç müşteri halen ödemesi alınmamıştır?"
+        "Müşteriye verilen teklifleri nasıl görürüm",
+        "Sipariş durumunu nasıl kontrol ederim",
+        "Teklif siparişe nasıl dönüştürülür",
+        "Bekleyen teklifler nasıl bulunur",
+        "Müşteri sipariş geçmişini nasıl incelerim"
       ]
     },
     {
       "metadata": {
-        "page_id": "product-list",
-        "title": "Ürün/Hizmet Listesi",
-        "url_route": "{baseUrl}/apps/stock/list",
-        "category": "product",
-        "page_type": "main_page"
+        "page_id": "cari_devir",
+        "title": "Cari Devir Belgeleri Sekmesi",
+        "url_route": "{base_url}/apps/customer/view/{cari_id}?tab=4",
+        "category": "Ticari Hesaplar",
+        "page_type": "sub_page",
+        "parent_page_id": "cari_detayi",
+        "sub_page_type": "link",
+        "url_parameters": {
+          "cari_id": {
+            "type": "guid",
+            "description": "Cari Id",
+            "required": true,
+            "endpoint": "api/customers/getall"
+          }
+        }
       },
-      "embedding_content": "Ürünlerin ve Hizmetlerin lsitelendiği sayfadır.",
+      "embedding_content": "Bu sekme, cari hesaba ait dönem başı devir işlemlerinin ve açılış bakiyelerinin kaydedildiği ve görüntülendiği özel bir modüldür. Yeni bir hesap dönemine geçildiğinde veya sistem kurulumunda önceki dönemlere ait bakiyelerin sisteme aktarılması için kullanılan devir belgeleri bu bölümde yönetilir. Belge numarası, tarih, belge tipi, şube bilgisi ve devir tutarları detaylı olarak takip edilebilir. Dönem başı borç ve alacak bakiyelerinin doğru bir şekilde sisteme girilmesi, sonraki dönem hesaplamalarının sağlıklı yürütülmesi açısından kritik öneme sahiptir.",
       "structured_data": {
         "functions": [
-          "ürün listesi"
+          "Devir belgelerini listeleme",
+          "Yeni devir belgesi oluşturma",
+          "Belge numarasını görüntüleme",
+          "Belge tarihini takip etme",
+          "Belge tipini görüntüleme",
+          "Şube bazlı devir işlemlerini görme",
+          "Devir borç tutarını kaydetme ve görüntüleme",
+          "Devir alacak tutarını kaydetme ve görüntüleme",
+          "Devir bakiyesini hesaplama",
+          "İşletme adı bilgisini görüntüleme"
         ],
         "keywords": [
-          "ürünler",
+          "devir belgeleri",
+          "devir işlemleri",
+          "devir kaydı",
+          "başlangıç bakiyesi",
+          "dönem devri",
+          "devir borç alacak"
+        ]
+      },
+      "user_expressions": [
+        "Devir belgesi nasıl oluşturulur",
+        "Dönem başı bakiye nasıl girilir",
+        "Açılış devri nasıl yapılır",
+        "Önceki dönem bakiyesi nasıl aktarılır",
+        "Devir belgelerini nasıl görüntülerim",
+        "Cari devir kaydı nasıl girilir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "cari_ekleme",
+        "title": "Cari Ekleme",
+        "url_route": "{base_url}/apps/customer/add",
+        "category": "Ticari Hesaplar",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Bu sayfa, sisteme yeni bir cari hesap kaydı oluşturmak için kullanılan kapsamlı bir form ekranıdır. Kullanıcılar bu sayfada firma veya şahıs bazlı cari bilgilerini, iletişim detaylarını, vergi ve kimlik bilgilerini, adres bilgilerini, finansal limit ve iskonto tanımlamalarını, banka hesap bilgilerini ve diğer özel ayarları sisteme girebilirler. Sayfa, hem müşteri hem de tedarikçi kayıtları için kullanılabilir ve cari hesap türüne göre esnek veri girişi sağlar. Zorunlu ve isteğe bağlı alanlar belirlenmiş olup, veri doğrulama kontrolleri ile hatalı kayıt oluşturulmasının önüne geçilir. Form doldurulduktan sonra kayıt işlemi tamamlanır ve yeni cari hesap sisteme dahil edilir.",
+      "structured_data": {
+        "functions": [
+          "Cari hesap tipi seçimi yapma",
+          "Firma ünvanı veya ad soyad girişi",
+          "Ticari unvan ve kısa kod tanımlama",
+          "Vergi dairesi ve vergi numarası kaydetme",
+          "TC kimlik numarası veya yabancı kimlik numarası girişi",
+          "Telefon ve cep telefonu bilgisi ekleme",
+          "E-posta adresi kaydetme",
+          "Web sitesi bilgisi girme",
+          "Fatura adresi tanımlama",
+          "Sevk adresi tanımlama",
+          "İl ilçe mahalle seçimi yapma",
+          "Posta kodu girişi",
+          "Cari hesap limiti belirleme",
+          "Vade gün sayısı tanımlama",
+          "İskonto oranı belirleme",
+          "Risk limiti tanımlama",
+          "Banka hesap bilgileri ekleme",
+          "IBAN numarası kaydetme",
+          "Yetkili kişi bilgileri girme",
+          "Cari gruplandırma ve kategori ataması",
+          "Özel not ve açıklama ekleme",
+          "Kayıt işlemini tamamlama",
+          "Form alanlarını temizleme"
+        ],
+        "keywords": [
+          "yeni cari",
+          "müşteri ekleme",
+          "cari kartı oluşturma",
+          "firma kaydı",
+          "cari bilgileri",
+          "vergi bilgileri",
+          "adres girişi",
+          "iletişim bilgileri",
+          "cari limiti",
+          "vade tanımı",
+          "iskonto oranı",
+          "banka bilgileri",
+          "IBAN kayıt",
+          "müşteri kayıt formu",
+          "tedarikçi ekleme"
+        ]
+      },
+      "user_expressions": [
+        "Yeni müşteri nasıl eklenir",
+        "Cari kartı nasıl oluşturulur",
+        "Firma bilgileri nasıl girilir",
+        "Vergi numarası nereye yazılır",
+        "Müşteri adresi nasıl kaydedilir",
+        "Cari limit nasıl belirlenir",
+        "Vade günü nasıl tanımlanır",
+        "İskonto oranı nasıl girilir",
+        "Banka bilgileri nasıl eklenir",
+        "IBAN numarası nereye yazılır",
+        "Tedarikçi kaydı nasıl yapılır",
+        "Yeni cari formu doldurma",
+        "Zorunlu alanlar nelerdir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "personel_cari_listesi",
+        "title": "Personel Cari Listesi",
+        "url_route": "{base_url}/apps/customer-stuff/list",
+        "category": "Ticari Hesaplar",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Bu sayfa, firmada çalışan tüm personellerin cari hesap bazlı merkezi yönetimini sağlayan özel bir modüldür. Çalışanların temel kimlik bilgileri, iletişim detayları ve aktif durum bilgileri bu ekran üzerinden kolayca erişilebilir ve yönetilebilir. Sayfa, personel cari hesaplarının listelenmesi, görüntülenmesi, düzenlenmesi ve yeni personel kaydı oluşturulması gibi temel fonksiyonları içermektedir. Kullanıcılar personel adı, kodu veya diğer kriterlere göre arama yapabilir, çalışanların profil resimlerini görüntüleyebilir ve ilgili personelin detay sayfasına erişerek tüm finansal işlemlerini takip edebilirler. Personel listesi üzerinde sayfalama ve kayıt sayısı ayarlama özellikleri bulunmakta olup, büyük çalışan sayısına sahip firmalar için verimli bir yönetim arayüzü sunmaktadır.",
+      "structured_data": {
+        "functions": [
+          "Personel listesini görüntüleme",
+          "Yeni personel kaydı ekleme",
+          "Mevcut personel bilgilerini düzenleme",
+          "Personel kaydını silme",
+          "Personel profil resmini görüntüleme",
+          "Personel adı soyadına göre arama yapma",
+          "Personel koduna göre filtreleme",
+          "TC kimlik numarasına göre arama",
+          "E-posta adresine göre filtreleme",
+          "Telefon numarasına göre arama",
+          "Personel durumunu görüntüleme",
+          "Sayfa başına gösterilecek kayıt sayısını ayarlama",
+          "Personel detay sayfasına erişme"
+        ],
+        "keywords": [
+          "personel listesi",
+          "çalışan yönetimi",
+          "personel carisi",
+          "personel kaydı",
+          "çalışan bilgileri",
+          "personel kodu",
+          "TCKN",
+          "personel iletişim",
+          "çalışan durumu",
+          "personel arama",
+          "personel profili",
+          "çalışan takibi"
+        ]
+      },
+      "user_expressions": [
+        "Personel listesini nasıl görüntülerim",
+        "Yeni çalışan nasıl eklenir",
+        "Personel bilgileri nasıl düzenlenir",
+        "Çalışan kaydı nasıl silinir",
+        "Personel adına göre arama yapma",
+        "TC kimlik numarasıyla personel bulma",
+        "Çalışan durumu nasıl görülür",
+        "Personel detaylarına nasıl erişilir",
+        "Personel kodu nerede görünür",
+        "Çalışan iletişim bilgileri nasıl güncellenir"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "odeme_plani",
+        "title": "Ödeme Planı",
+        "url_route": "{base_url}/apps/payment-plan/list",
+        "category": "Ticari Hesaplar",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Bu sayfa, firma bünyesindeki tüm cari hesaplara ait planlanan ve gerçekleştirilmesi gereken ödeme işlemlerinin merkezi takip ve yönetim noktasıdır. Kullanıcılar bu ekran üzerinden gelecek dönemlere ait ödeme planlarını görüntüleyebilir, hangi cariye ne zaman ne kadar ödeme yapılması gerektiğini takip edebilir ve nakit akışını önceden planlayabilirler. Sayfa, tarih bazlı sıralama, cari adı filtreleme, tutar bazlı arama ve şube veya firma bazlı gruplama gibi çeşitli organizasyon seçenekleri sunarak karmaşık ödeme süreçlerinin etkin yönetimini sağlar. Her ödeme planı kaydı için sorumlu kullanıcı bilgisi de sistemde tutulmakta olup, sorumluluk takibi ve yetkilendirme kolaylıkla yapılabilmektedir.",
+      "structured_data": {
+        "functions": [
+          "Ödeme planı listesini görüntüleme",
+          "Tarih bazlı sıralama yapma",
+          "Cari adına göre filtreleme ve arama",
+          "Tutar bazlı sıralama ve filtreleme",
+          "Firma adına göre gruplama",
+          "Şube bazlı filtreleme",
+          "Kullanıcı adına göre arama",
+          "Ödeme planı detaylarını görüntüleme",
+          "Sayfa başına gösterilecek kayıt sayısını ayarlama"
+        ],
+        "keywords": [
+          "ödeme planı",
+          "ödeme takvimi",
+          "cari ödeme",
+          "ödeme takibi",
+          "nakit akış planlama",
+          "vade takibi",
+          "ödeme tarihi",
+          "cari borç",
+          "ödeme yönetimi",
+          "planlı ödeme",
+          "ödeme programı"
+        ]
+      },
+      "user_expressions": [
+        "Ödeme planı nasıl oluşturulur",
+        "Gelecek ödemeleri nasıl görürüm",
+        "Cariye ait ödeme planını nasıl bulurum",
+        "Tarih bazlı ödeme planı sıralama",
+        "Hangi cariye ne zaman ödeme yapacağım",
+        "Ödeme takvimine nasıl erişirim",
+        "Şube bazlı ödeme planı filtreleme",
+        "Planlı ödemeleri nasıl yönetirim",
+        "Ödeme planını nasıl düzenlerim"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "urun_listesi",
+        "title": "Ürün Listesi",
+        "url_route": "{base_url}/apps/stock/list",
+        "category": "Urun/Hizmet",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Bu sayfa, firmanın tüm ürün ve hizmet envanterinin merkezi yönetim ve görüntüleme noktasıdır. Hammaddelerden yarı mamul ve mamul ürünlere, hizmetlerden paket ürünlere kadar tüm stok kalemleri bu ekran üzerinden sistematik bir şekilde organize edilmektedir. Kullanıcılar bu sayfada her bir ürüne ait temel tanımlayıcı bilgileri, stok kodlarını, güncel stok miktarlarını, ölçü birimlerini ve aktif durum bilgilerini kolayca görüntüleyebilmektedir. Sayfa ayrıca ürünlerin işlem tiplerine göre kategorize edilmesine olanak tanımakta ve stok tiplerinin net bir şekilde ayrıştırılmasını sağlamaktadır. Yeni ürün tanımlama, mevcut ürün kartlarının güncellenmesi, stok bilgilerinin düzenlenmesi ve ürün görsellerinin yönetimi gibi kapsamlı fonksiyonlar sunulmaktadır. Arama ve filtreleme özellikleri sayesinde binlerce ürün arasından istenen kaleme hızlı erişim sağlanabilmekte, negatif stok durumları gibi kritik bilgiler görsel olarak vurgulanarak kullanıcının dikkatine sunulmaktadır.",
+      "structured_data": {
+        "functions": [
+          "Ürün ve hizmet listesini görüntüleme",
+          "Yeni ürün/hizmet kaydı ekleme",
+          "Mevcut ürün bilgilerini düzenleme",
+          "Ürün kaydını silme",
+          "Ürün detay sayfasını görüntüleme",
+          "Ürün görselini yükleme ve görüntüleme",
+          "Stok adına göre arama yapma",
+          "Stok koduna göre filtreleme",
+          "İşlem tipine göre sınıflandırma",
+          "Stok tipine göre gruplama",
+          "Güncel stok miktarını görüntüleme",
+          "Birim bilgisini takip etme",
+          "Aktif/pasif durum kontrolü yapma",
+          "Negatif stok durumunu izleme",
+          "Sayfa başına gösterilecek kayıt sayısını ayarlama"
+        ],
+        "keywords": [
           "ürün listesi",
-          "hizmetler",
-          "hizmet listesi"
+          "stok yönetimi",
+          "ürün kartı",
+          "stok kodu",
+          "hammadde",
+          "yarı mamül",
+          "mamul ürün",
+          "hizmet tanımı",
+          "stok takibi",
+          "envanter yönetimi",
+          "ürün kodu",
+          "stok miktarı",
+          "birim tanımı",
+          "ürün görseli",
+          "stok durumu"
         ]
       },
       "user_expressions": [
-        "Ürünleri görmek istiyorum"
+        "Stok miktarı nasıl görülür",
+        "Negatif stok nasıl kontrol edilir",
+        "Stok koduna göre arama",
+        "Ürün listesini nasıl filtrelerim"
       ]
     },
     {
       "metadata": {
-        "page_id": "product-view",
-        "title": "Stok Bilgileri",
-        "url_route": "{baseUrl}/apps/stock/view/{productId}",
-        "category": "product",
-        "page_type": "sub_page",
-        "parent_page_id": "product-list",
-        "sub_page_type": "link",
+        "page_id": "urun_detay_sayfasi",
+        "title": "Ürün Detay Sayfası",
+        "url_route": "{base_url}/apps/stock/view/{stok_id}",
+        "category": "Urun/Hizmet",
+        "page_type": "main_page",
         "url_parameters": {
-          "productId": {
+          "stok_id": {
             "type": "guid",
             "description": "Ürün Id",
-            "required": false
+            "required": false,
+            "endpoint": "api/products/getall"
           }
         }
       },
-      "embedding_content": "Ürün detayının görüntülendiği sayfadır",
+      "embedding_content": "Bu sayfa, seçili bir ürüne ait tüm detaylı bilgilerin, stok hareketlerinin ve işlem geçmişinin merkezi görüntüleme ve analiz noktasıdır. Kullanıcılar bu ekran üzerinden ilgili ürünün tanımlayıcı özelliklerini, güncel stok durumunu, tarihsel hareket kayıtlarını ve finansal işlem detaylarını kapsamlı bir şekilde inceleyebilmektedirler. Sayfa, giriş ve çıkış işlemlerinin kronolojik takibini sağlamakta, her işlem için belge numarası, işlem tarihi, işlem tipi, miktar, birim fiyat ve toplam tutar gibi kritik bilgileri sunmaktadır. Stok giriş ve çıkış hareketlerinin ayrıştırılması sayesinde ürünün tedarik zinciri içindeki akışı net bir şekilde görülebilmekte, hangi belgelerle ne kadar mal girişi veya çıkışı yapıldığı detaylı olarak izlenebilmektedir. Ayrıca sayfa üzerinde anlık stok seviyesi, minimum ve maksimum stok uyarıları, ürün maliyeti, satış fiyatı ve kar marjı gibi finansal göstergeler de yer almaktadır. Çok sekmeli yapısıyla farklı veri gruplarına hızlı erişim imkanı sunan bu ekran, envanter yönetimi, maliyet analizi ve operasyonel karar alma süreçlerinde kritik bir araç olarak kullanılmaktadır.",
       "structured_data": {
         "functions": [
-          "Ürün detayı\tlistesi"
+          "Ürün genel bilgilerini görüntüleme",
+          "Güncel stok miktarını takip etme",
+          "Stok giriş hareketlerini listeleme",
+          "Stok çıkış hareketlerini listeleme",
+          "İşlem tarihine göre sıralama yapma",
+          "Belge numarasına göre filtreleme",
+          "İşlem tipini görüntüleme",
+          "Giren miktar bilgisini takip etme",
+          "Çıkan miktar bilgisini takip etme",
+          "Kalan stok miktarını hesaplama",
+          "Birim fiyat bilgisini görüntüleme",
+          "Toplam işlem tutarını takip etme",
+          "İşlem yapan kullanıcı bilgisini görme",
+          "Şube bazlı hareketleri filtreleme",
+          "Belge detayına erişim sağlama",
+          "Ürün maliyet analizi yapma",
+          "Satış fiyatı geçmişini görüntüleme",
+          "Tedarikçi bazlı alımları takip etme",
+          "Müşteri bazlı satışları izleme",
+          "Sayfalama ile geçmiş kayıtlarda gezinme"
         ],
         "keywords": [
-          "Ürün",
-          "Stok",
-          "Stock",
-          "Product",
-          "Hizmet",
-          "Ürün/hizmet"
+          "ürün detayı",
+          "stok hareketi",
+          "giriş çıkış takibi",
+          "ürün işlemleri",
+          "stok geçmişi",
+          "envanter hareketi",
+          "mal giriş",
+          "mal çıkış",
+          "stok seviyesi",
+          "ürün maliyet",
+          "hareket kartı",
+          "stok akışı",
+          "belge bazlı işlem",
+          "miktar takibi",
+          "ürün analizi"
         ]
       },
       "user_expressions": [
-        "Ürün detayını getir"
+        "Ürünün tüm hareketlerini nasıl görürüm",
+        "Stok giriş çıkış takibi nasıl yapılır",
+        "Hangi belgelerle mal girişi yapılmış",
+        "Ürün çıkışları nasıl kontrol edilir",
+        "Güncel stok seviyesi nasıl öğrenilir",
+        "Belirli tarihteki stok durumu nasıl görülür",
+        "Ürün maliyet geçmişi nasıl incelenir",
+        "Hangi müşterilere satış yapılmış",
+        "Tedarikçi bazlı alımları nasıl görürüm",
+        "Ürün hareket raporunu nasıl alırım",
+        "Stok akış analizi nasıl yapılır",
+        "Geçmiş işlemleri nasıl filtrelerim"
       ]
     },
     {
       "metadata": {
-        "page_id": "dynamic_reports",
-        "title": "Dinamik Reporlar",
-        "url_route": "{baseUrl}/apps/dynamic-report/list",
-        "category": "dynamic_reports",
+        "page_id": "toplu_stok_islemleri",
+        "title": "Toplu Stok İşlemleri",
+        "url_route": "{base_url}/apps/stock/multipleEditList",
+        "category": "Urun/Hizmet",
         "page_type": "main_page"
       },
-      "embedding_content": "Dinamik raporlar",
+      "embedding_content": "Bu sayfa, sistemde kayıtlı olan birden fazla ürün ve hizmet kaydı üzerinde aynı anda toplu güncelleme ve düzenleme işlemlerinin gerçekleştirildiği özel bir yönetim modülüdür. Özellikle geniş ürün portföyüne sahip firmaların operasyonel verimliliğini artırmak amacıyla tasarlanan bu ekran, kullanıcılara tek tek ürün kartlarına girmeden toplu işlem yapma imkanı sunmaktadır. Sayfa üç ana işlev kategorisi etrafında yapılandırılmıştır. İlk olarak genel bilgi düzenleme modülünde stok adı, stok kodu, entegrasyon tipi, alış ve satış KDV oranları, özel tüketim vergisi ve menşei bilgisi gibi temel ürün özelliklerinin seçili ürünler üzerinde toplu olarak güncellenmesi sağlanmaktadır. İkinci olarak fiyatlandırma modülünde, kullanıcılar birim bazında fiyat artış veya azalış işlemlerini hem yüzde oran hem de sabit tutar olarak uygulayabilmekte, böylece piyasa koşullarına göre hızlı fiyat revizyonları gerçekleştirebilmektedir. Üçüncü olarak birim ve barkod yönetimi modülünde ise ürünlere yeni ölçü birimleri eklenebilmekte, mevcut birim tanımları düzenlenebilmekte ve farklı barkod sistemleri ile entegrasyon sağlanabilmektedir. Bu çok yönlü yaklaşım sayesinde envanter yönetimi süreçlerinde zamandan tasarruf edilmekte ve veri tutarlılığı korunmaktadır.",
       "structured_data": {
-        "functions": [],
-        "keywords": [],
-        "related_terms": [],
-        "user_types": []
+        "functions": [
+          "Çoklu ürün seçimi yapma",
+          "Toplu stok adı güncelleme",
+          "Toplu stok kodu değiştirme",
+          "Entegrasyon tipi toplu atama",
+          "Alış KDV oranı toplu güncelleme",
+          "Satış KDV oranı toplu güncelleme",
+          "ÖTV oranı toplu düzenleme",
+          "Menşei bilgisi toplu güncelleme",
+          "Birim bazlı fiyat artışı uygulama",
+          "Birim bazlı fiyat azalışı uygulama",
+          "Yüzde oran ile fiyat güncelleme",
+          "Sabit tutar ile fiyat güncelleme",
+          "Yeni birim tanımı ekleme",
+          "Mevcut birim bilgilerini düzenleme",
+          "Birim silme işlemi",
+          "Barkod ekleme",
+          "Barkod güncelleme",
+          "Barkod silme",
+          "Toplu işlem önizlemesi görüntüleme",
+          "Toplu güncelleme işlemini onaylama"
+        ],
+        "keywords": [
+          "toplu stok işlemi",
+          "çoklu ürün güncelleme",
+          "toplu fiyat değişikliği",
+          "toplu KDV güncelleme",
+          "toplu düzenleme",
+          "birim yönetimi",
+          "barkod yönetimi",
+          "fiyat artışı",
+          "fiyat indirimi",
+          "oran bazlı güncelleme",
+          "toplu veri güncelleme",
+          "menşei bilgisi",
+          "ÖTV güncelleme",
+          "entegrasyon tipi"
+        ]
       },
-      "user_expressions": []
+      "user_expressions": [
+        "Birden fazla ürünün fiyatını nasıl güncellerim",
+        "Toplu fiyat artışı nasıl yapılır",
+        "Tüm ürünlere KDV oranı nasıl atanır",
+        "Toplu stok kodu değiştirme",
+        "Birden fazla ürüne barkod nasıl eklenir",
+        "Yüzde bazında fiyat güncelleme",
+        "Toplu birim ekleme işlemi",
+        "Menşei bilgisini toplu güncelleme",
+        "ÖTV oranı toplu değiştirme",
+        "Çoklu ürün seçimi nasıl yapılır",
+        "Toplu işlem nasıl gerçekleştirilir"
+      ]
     },
     {
       "metadata": {
-        "page_id": "dynamic_reports_tab",
+        "page_id": "dinamik_raporlar",
         "title": "Dinamik Raporlar",
-        "url_route": "{baseUrl}/apps/dynamic-report/list#{categoryName}",
-        "category": "dynamic_reports",
+        "url_route": "{base_url}/apps/dynamic-report/list",
+        "category": "Dinamik Raporlar",
+        "page_type": "main_page"
+      },
+      "embedding_content": "Bu sayfa, kullanıcıların iş süreçlerine özel olarak tasarladıkları ve yapılandırdıkları raporların merkezi yönetim ve erişim noktasıdır. Standart sistem raporlarının ötesinde, firmaların kendilerine özgü raporlama ihtiyaçlarını karşılamak üzere tasarlanan bu modül, son derece esnek ve özelleştirilebilir bir yapı sunmaktadır. Sayfa üst kısımda kategori bazlı bir organizasyon sistemi ile düzenlenmiş olup, her kategori altında ilgili raporlar gruplandırılmaktadır. Kullanıcılar finansal raporlardan operasyonel analizlere, satış performans takibinden envanter raporlamalarına kadar geniş bir yelpazede kendi rapor şablonlarını oluşturabilmekte, mevcut raporları düzenleyebilmekte ve ihtiyaçları doğrultusunda yeni rapor kategorileri ekleyebilmektedirler. Her rapor, özel filtreler, parametreler, alan seçimleri ve görsel tasarım özellikleri ile zenginleştirilebilmekte, böylece kullanıcılar tam anlamıyla kişiselleştirilmiş bir raporlama deneyimi yaşayabilmektedirler. Sistemin sunduğu bu esneklik sayesinde farklı departmanların ve kullanıcı gruplarının kendilerine özgü veri analizi ihtiyaçları tek bir platform üzerinden karşılanabilmektedir.",
+      "structured_data": {
+        "functions": [
+          "Rapor kategorilerini görüntüleme",
+          "Yeni rapor kategorisi oluşturma",
+          "Mevcut kategorileri düzenleme",
+          "Kategori silme işlemi",
+          "Kategori altındaki raporları listeleme",
+          "Yeni rapor ekleme",
+          "Mevcut rapor düzenleme",
+          "Rapor silme işlemi",
+          "Rapor detaylarını görüntüleme",
+          "Rapor parametrelerini belirleme",
+          "Rapor filtrelerini ayarlama",
+          "Veri kaynaklarını seçme",
+          "Rapor alanlarını özelleştirme",
+          "Görsel tasarım düzenlemeleri yapma",
+          "Rapor çıktısını görüntüleme",
+          "Rapor çıktısını Excel formatında dışa aktarma",
+          "Rapor çıktısını PDF formatında kaydetme",
+          "Rapor paylaşım ayarlarını düzenleme",
+          "Otomatik rapor oluşturma zamanlama",
+          "Rapor şablonu kaydetme"
+        ],
+        "keywords": [
+          "dinamik raporlar",
+          "özel rapor",
+          "kullanıcı tanımlı rapor",
+          "rapor kategorisi",
+          "raporlama modülü",
+          "özelleştirilebilir rapor",
+          "rapor tasarımı",
+          "veri analizi",
+          "rapor şablonu",
+          "filtreli rapor",
+          "parametreli rapor",
+          "rapor oluşturma",
+          "rapor yönetimi"
+        ]
+      },
+      "user_expressions": [
+        "Yeni rapor nasıl oluşturulur",
+        "Özel rapor tasarlama",
+        "Rapor kategorisi nasıl eklenir",
+        "Mevcut raporu nasıl düzenlerim",
+        "Rapor filtrelerini nasıl ayarlarım",
+        "Rapor parametreleri nasıl belirlenir",
+        "Rapor çıktısını Excel olarak nasıl alırım",
+        "Otomatik rapor oluşturma nasıl yapılır",
+        "Rapor şablonu nasıl kaydedilir",
+        "Hangi alanları rapora ekleyebilirim",
+        "Rapor paylaşım ayarları nasıl yapılır"
+      ]
+    },
+    {
+      "metadata": {
+        "page_id": "dinamik_raporlar_kategori",
+        "title": "Dinamik Raporlar Kategori",
+        "url_route": "{base_url}/apps/dynamic-report/list#{kategori_adi}",
+        "category": "Dinamik Raporlar",
         "page_type": "sub_page",
-        "parent_page_id": "dynamic_reports",
-        "sub_page_type": "tab",
-        "full_path": "Dinamik Raporlar Kategori > Dinamik Raporlar",
+        "parent_page_id": "dinamik_raporlar",
+        "sub_page_type": "link",
         "url_parameters": {
-          "categoryName": {
+          "kategori_adi": {
             "type": "string",
-            "description": "Dimaik raporlar kategorisi",
-            "required": true
+            "description": "Dinamik Raporlar Kategori Adı",
+            "required": true,
+            "endpoint": "api/templates/getall"
           }
         }
       },
-      "embedding_content": "Dimaik raporlar kategori bazlı listeleme",
+      "embedding_content": "Bu sayfa, dinamik raporlar ana sayfasından seçilen belirli bir rapor kategorisine ait tüm raporların detaylı olarak listelendiği ve yönetildiği özel bir görüntüleme ekranıdır. Kullanıcılar bu sayfaya ana raporlar ekranında bir kategori başlığına tıklayarak erişim sağlamakta ve seçilen kategoriye özel rapor koleksiyonunu inceleyebilmektedirler. Sayfa yapısı, kategori bilgilerinin üst bölümde net bir şekilde sunulmasıyla başlamakta ve altında ilgili kategoriye ait tüm raporların sistematik bir liste formatında görüntülenmesiyle devam etmektedir. Her rapor kaydı için başlık, açıklama, oluşturulma tarihi, son güncelleme tarihi ve rapor sahibi gibi tanımlayıcı bilgiler sunulmaktadır. Kullanıcılar bu ekran üzerinden hızlı bir şekilde ihtiyaç duydukları rapora erişebilmekte, rapor detaylarını inceleyebilmekte ve ilgili raporu çalıştırarak sonuçları görüntüleyebilmektedirler. Ayrıca sayfa, kategori düzeyinde yeni rapor ekleme, mevcut raporları düzenleme ve gereksiz raporları silme gibi yönetim fonksiyonlarını da içermektedir. Kategori bazlı bu organizasyon yaklaşımı, özellikle çok sayıda özel rapor barındıran sistemlerde kullanıcıların ihtiyaç duydukları bilgilere daha hızlı ve organize bir şekilde ulaşmalarını sağlamaktadır.",
       "structured_data": {
-        "functions": [],
-        "keywords": [],
-        "related_terms": [],
-        "user_types": []
+        "functions": [
+          "Dinamik raporlar kategorleri görüntülebilme",
+          "İlgili kategorideki raporları inceleme"
+        ],
+        "keywords": [
+          "dinamik raporlar",
+          "özel rapor",
+          "kullanıcı tanımlı rapor",
+          "rapor kategorisi",
+          "raporlama modülü",
+          "özelleştirilebilir rapor",
+          "rapor tasarımı",
+          "veri analizi",
+          "rapor şablonu",
+          "filtreli rapor",
+          "parametreli rapor",
+          "rapor oluşturma",
+          "rapor yönetimi"
+        ]
       },
-      "user_expressions": []
+      "user_expressions": [
+        "Yeni rapor nasıl oluşturulur",
+        "Özel rapor tasarlama",
+        "Rapor kategorisi nasıl eklenir",
+        "Mevcut raporu nasıl düzenlerim",
+        "Rapor filtrelerini nasıl ayarlarım",
+        "Rapor parametreleri nasıl belirlenir",
+        "Rapor çıktısını Excel olarak nasıl alırım",
+        "Otomatik rapor oluşturma nasıl yapılır",
+        "Rapor şablonu nasıl kaydedilir",
+        "Hangi alanları rapora ekleyebilirim",
+        "Rapor paylaşım ayarları nasıl yapılır"
+      ]
     },
     {
       "metadata": {
-        "page_id": "dynamic_report_detail",
-        "title": "Dinamik Rapor Detayı",
-        "url_route": "{baseUrl}/apps/dynamic-report/view/{reportId}",
-        "category": "dynamic_reports",
-        "page_type": "main_page",
-        "parent_page_id": "dynamic_report",
-        "sub_page_type": "tab",
-        "full_path": "Dinamik Raporlama Detayı > Dinamik Raporlar",
+        "page_id": "dinamik_rapor_detay",
+        "title": "Dinamik Rapor Detay Görünümü",
+        "url_route": "{base_url}/apps/dynamic-report/view/{rapor_id}",
+        "category": "Dinamik Raporlar",
+        "page_type": "sub_page",
+        "parent_page_id": "dinamik_raporlar",
+        "sub_page_type": "link",
         "url_parameters": {
-          "reportId": {
+          "rapor_id": {
             "type": "guid",
             "description": "Dinamik Rapor Id",
-            "required": true
+            "required": true,
+            "endpoint": "api/templates/getall"
           }
         }
       },
-      "embedding_content": "Dinamik raporlar detayı",
+      "embedding_content": "Bu sayfa, kullanıcının dinamik raporlar modülünden seçtiği belirli bir raporun çalıştırılması sonucunda elde edilen verilerin görsel ve tablo formatında sunulduğu kapsamlı bir görüntüleme ekranıdır. Sayfanın en belirgin özelliği, her raporun kendine özgü veri yapısına ve sütun konfigürasyonuna sahip olması nedeniyle tamamen esnek ve dinamik bir içerik yapısı sunmasıdır. Bir finansal rapor için gösterilen sütunlar borç, alacak, bakiye ve tarih bilgilerini içerirken, envanter raporu için stok adı, miktar, birim ve maliyet gibi farklı alanlar gösterilebilmektedir. Bu esneklik sayesinde kullanıcılar her rapor için en uygun veri görüntüleme formatına sahip olmakta ve ihtiyaç duydukları bilgilere en doğru şekilde erişebilmektedirler.",
       "structured_data": {
-        "functions": [],
-        "keywords": [],
-        "related_terms": [],
-        "user_types": []
+        "functions": [
+          "Excel formatında dışa aktarma fonksiyonu rapor verilerinin elektronik tablo dosyası olarak indirilmesini sağlamaktadır."
+        ],
+        "keywords": [
+          "Dinamik raporlar",
+          "özel rapor"
+        ]
       },
-      "user_expressions": []
+      "user_expressions": [
+        "x raporunu görmek istorum"
+      ]
     }
   ]
 }
