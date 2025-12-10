@@ -289,14 +289,21 @@ def detect_page_parameters_node(state: NavigationState) -> NavigationState:
         # Check using new metadata structure first
         has_params = metadata.get("has_parameters", False)
 
-        # Fallback: Check URL for parameter placeholders
+        # Fallback: Check URL for parameter placeholders (excluding base_url)
         if not has_params:
             url = metadata.get("url", "")
-            has_params = bool(url and "{" in url and "}" in url)
+            if url and "{" in url and "}" in url:
+                import re
+                param_names = re.findall(r'\{(\w+)\}', url)
+                # Filter out base_url placeholders - they are not real parameters
+                param_names = [p for p in param_names if not _is_base_url_parameter(p)]
+                has_params = bool(param_names)
 
-        # Fallback: Check old metadata structure
+        # Fallback: Check old metadata structure (also filter base_url)
         if not has_params:
             url_params = _parse_url_parameters(metadata.get("url_parameters", {}))
+            # Filter out base_url parameters
+            url_params = {k: v for k, v in (url_params or {}).items() if not _is_base_url_parameter(k)}
             has_params = bool(url_params and len(url_params) > 0)
 
         state["has_parameters"] = has_params
@@ -361,21 +368,31 @@ def extract_page_parameters_node(
                     # Create basic url_parameters structure
                     url_params = {}
                     for param_name in param_names:
+                        # Skip base_url placeholders
+                        if _is_base_url_parameter(param_name):
+                            logger.debug(f"[FORZA] Skipping base_url placeholder: {param_name}")
+                            continue
+
                         url_params[param_name] = {
                             "type": "guid",  # Default type
                             "description": f"Parameter: {param_name}",
                             "required": True,
                             "endpoint": _guess_endpoint_from_param_name(param_name)
                         }
-                    logger.info(f"[FORZA] Extracted {len(url_params)} parameters from URL")
+                    logger.info(f"[FORZA] Extracted {len(url_params)} real parameters from URL")
                 else:
                     logger.warning("[FORZA] Could not extract parameters from URL")
             else:
                 logger.warning("[FORZA] URL has no parameter placeholders")
 
+        # Filter out base_url parameters (in case they were in metadata)
+        if url_params:
+            url_params = {k: v for k, v in url_params.items() if not _is_base_url_parameter(k)}
+
         if not url_params:
-            logger.error("[FORZA] No URL parameters found in metadata or URL")
-            raise ParameterExtractionError("URL parameters not found in document metadata or URL")
+            logger.debug("[FORZA] No real parameters to fill (only base_url placeholders)")
+            # Don't run tools if only base_url needs to be filled
+            return state
 
         # Create toolkit and execute tools
         toolkit = ForzaRoutingToolkit(
@@ -463,9 +480,8 @@ def update_url_with_parameters_node(state: NavigationState) -> NavigationState:
         remaining_placeholders = re.findall(r'\{(\w+)\}', updated_url)
 
         if remaining_placeholders:
-            # Remove base_url variants from placeholder list (they're expected)
-            base_url_names = ["baseUrl", "base_url", "BASE_URL", "BaseUrl", "BASEURL"]
-            param_placeholders = [p for p in remaining_placeholders if p not in base_url_names]
+            # Remove base_url placeholders (they're expected and will be filled)
+            param_placeholders = [p for p in remaining_placeholders if not _is_base_url_parameter(p)]
 
             if param_placeholders:
                 logger.warning(
@@ -681,6 +697,17 @@ def find_alternative_pages_node(state: NavigationState, vectorstore: Optional[Ch
 # ============================================================================
 
 
+def _is_base_url_parameter(param_name: str) -> bool:
+    """
+    Check if parameter name is a base_url placeholder.
+
+    Base URL placeholders should not be treated as real parameters
+    because they are automatically filled from config.forza.web_site_url.
+    """
+    base_url_names = ["baseUrl", "base_url", "BASE_URL", "BaseUrl", "BASEURL"]
+    return param_name in base_url_names
+
+
 def _find_parametresiz_alternative(state: NavigationState, vectorstore: Optional[Chroma] = None) -> Optional[Document]:
     """
     Find a parametresiz (no parameters) alternative page from related pages.
@@ -703,11 +730,17 @@ def _find_parametresiz_alternative(state: NavigationState, vectorstore: Optional
 
         # Check if parametresiz
         if not has_params:
-            # Also check URL doesn't have placeholders and is valid
+            # Also check URL doesn't have real parameter placeholders (base_url is OK)
             url = doc.metadata.get("url") or doc.metadata.get("url_route", "")
-            if url and url != "N/A" and not ("{" in url and "}" in url):
-                logger.debug(f"[FORZA] Found parametresiz alternative in related_pages: {doc.metadata.get('title')}")
-                return doc
+            if url and url != "N/A":
+                import re
+                placeholders = re.findall(r'\{(\w+)\}', url)
+                # Filter out base_url placeholders
+                param_placeholders = [p for p in placeholders if not _is_base_url_parameter(p)]
+                # If no real parameters, this is a valid parametresiz page
+                if not param_placeholders:
+                    logger.debug(f"[FORZA] Found parametresiz alternative in related_pages: {doc.metadata.get('title')}")
+                    return doc
 
     # Strategy 2: If not found in related_pages, perform new vector search
     if vectorstore:
@@ -726,11 +759,10 @@ def _find_parametresiz_alternative(state: NavigationState, vectorstore: Optional
             for doc, distance in results:
                 url = doc.metadata.get("url") or doc.metadata.get("url_route", "")
                 if url and url != "N/A":
-                    # Verify no placeholders (excluding baseUrl variants)
+                    # Verify no real parameter placeholders (base_url is OK)
                     import re
                     placeholders = re.findall(r'\{(\w+)\}', url)
-                    base_url_names = ["baseUrl", "base_url", "BASE_URL", "BaseUrl", "BASEURL"]
-                    param_placeholders = [p for p in placeholders if p not in base_url_names]
+                    param_placeholders = [p for p in placeholders if not _is_base_url_parameter(p)]
 
                     if not param_placeholders:
                         logger.info(f"[FORZA] Found parametresiz alternative via new search: {doc.metadata.get('title')}")
@@ -1202,6 +1234,10 @@ def _process_parameters(metadata: Dict[str, Any]) -> tuple:
                 if param_names:
                     parameters = {}
                     for param_name in param_names:
+                        # Skip base_url placeholders
+                        if _is_base_url_parameter(param_name):
+                            continue
+
                         parameters[param_name] = {
                             "name": param_name,
                             "type": "string",
