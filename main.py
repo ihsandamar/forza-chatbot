@@ -90,4 +90,4 @@ if __name__ == "__main__":
             title="Forza Chatbot API",
             version="2.0"
         )
-        interface.run(host="0.0.0.0", port=8000, reload=False)
+        interface.run(host="0.0.0.0", port=8089, reload=False)
