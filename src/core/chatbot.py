@@ -230,6 +230,11 @@ class Chatbot:
                 )
 
             graph_state = self._to_graph_state(messages)
+
+            # Add token to graph state if provided in adapter_kwargs
+            if 'token' in adapter_kwargs:
+                graph_state['token'] = adapter_kwargs['token']
+
             # Extract thread_id from adapter_kwargs if provided
             thread_id = adapter_kwargs.get('thread_id')
             return self._invoke_graph(graph_state, thread_id=thread_id)
@@ -379,6 +384,11 @@ class Chatbot:
                 )
 
             graph_state = self._to_graph_state(messages)
+
+            # Add token to graph state if provided in adapter_kwargs
+            if 'token' in adapter_kwargs:
+                graph_state['token'] = adapter_kwargs['token']
+
             thread_id = adapter_kwargs.get('thread_id')
             return await self._invoke_graph_async(graph_state, thread_id=thread_id)
         except (MessageProcessingException, ConfigurationException, GraphExecutionException):

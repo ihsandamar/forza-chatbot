@@ -15,6 +15,7 @@ from langchain_openai import OpenAIEmbeddings
 import chromadb
 from chromadb.config import Settings
 
+from src.graphs.routing.assistant_configuration import RoutingAssistantConfiguration
 from src.models.llm import LLM
 from src.graphs.base.base_graph import BaseGraph
 from src.graphs.base.graph_config import GraphConfig
@@ -46,7 +47,7 @@ config = ConfigLoader.load_config("config/config.yaml")
 
 
 @register_graph("routing")
-class RoutingGraph(BaseGraph):
+class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
     """
     Complete Forza navigation graph with parameter extraction and fallback logic.
 
@@ -68,22 +69,14 @@ class RoutingGraph(BaseGraph):
     - Proper integration with supervisor via tool messages
     """
 
-    def __init__(self, llm: LLM, config: Optional[GraphConfig] = None):
+    def __init__(self, llm: LLM, config: Optional[RoutingAssistantConfiguration] = None):
         """
-        Initialize ForzaRoutingGraph.
+        Initialize RoutingGraph.
 
         Args:
             llm: Language model instance
-            config: Optional GraphConfig instance
+            config: Optional RoutingAssistantConfiguration instance
         """
-        if config is None:
-            try:
-                config = GraphConfig.from_yaml("src/graphs/forza_routing/config.yaml")
-                logger.info("[FORZA] Loaded config from YAML")
-            except FileNotFoundError:
-                logger.warning("[FORZA] Config file not found, using defaults")
-                config = GraphConfig(name="forza_routing")
-
         super().__init__(
             llm=llm,
             state_class=NavigationState,
@@ -96,6 +89,39 @@ class RoutingGraph(BaseGraph):
             logger.info("[FORZA] ForzaRoutingGraph initialized successfully")
         else:
             logger.warning("[FORZA] Vectorstore initialization failed")
+
+        # Create node kit with config (will hold all node logic)
+        # Import here to avoid circular imports
+        from src.graphs.routing.nodes import RoutingNodeKit
+        from src.services.config_loader import ConfigLoader
+
+        global_config = ConfigLoader.load_config("config/config.yaml")
+        self.node_kit = RoutingNodeKit(
+            llm=self.llm,
+            config=self.config,
+            vectorstore=self.vectorstore,
+            global_config=global_config
+        )
+        logger.debug("[FORZA] RoutingNodeKit initialized")
+
+    def _get_default_config(self) -> RoutingAssistantConfiguration:
+        """
+        Get default configuration for routing graph.
+
+        Returns:
+            RoutingAssistantConfiguration with default values
+
+        Note:
+            Token is intentionally empty and will be injected at runtime.
+            Runtime token is injected into state by supervisor's prepare_routing_config node.
+        """
+        logger.debug("[FORZA] Using empty token, will be injected at runtime via state")
+
+        return RoutingAssistantConfiguration(
+            system_prompt="Sen Forza navigasyon asistanısın. Kullanıcıları doğru sayfalara yönlendirirsin.",
+            assistant_name="RoutingAssistant",
+            token=""  # Empty by design - injected at runtime
+        )
 
     def _get_default_metadata(self) -> GraphMetadata:
         """
@@ -222,6 +248,9 @@ class RoutingGraph(BaseGraph):
         """
         Build the Forza routing graph with all nodes and edges.
 
+        Uses RoutingNodeKit pattern for cleaner configuration management.
+        Token is now accessed from config, not state.
+
         Graph Flow:
             1. extract_user_input: Extract query from messages
             2. extract_category: Extract category from query using LLM
@@ -241,32 +270,22 @@ class RoutingGraph(BaseGraph):
         builder = self.get_graph_builder()
 
         # =====================
-        # Node Registration
+        # Node Registration - Using RoutingNodeKit Pattern
         # =====================
+        # All nodes are now methods of node_kit, which holds config and dependencies
 
-        # Create wrappers for nodes that need extra parameters
-        def wrapped_extract_category(state: NavigationState) -> NavigationState:
-            return extract_category_from_query(state, self.llm)
+        logger.info("[FORZA] Registering nodes using RoutingNodeKit pattern...")
 
-        def wrapped_find_docs(state: NavigationState) -> NavigationState:
-            return find_documents_node(state, vectorstore=self.vectorstore)
-
-        def wrapped_extract_params(state: NavigationState) -> NavigationState:
-            return extract_page_parameters_node(state, self.llm, config)
-
-        def wrapped_find_alternatives(state: NavigationState) -> NavigationState:
-            return find_alternative_pages_node(state, vectorstore=self.vectorstore)
-
-        builder.add_node("extract_user_input", extract_user_input_node)
-        builder.add_node("extract_category", wrapped_extract_category)
-        builder.add_node("find_documents", wrapped_find_docs)
-        builder.add_node("select_most_relevant_document", select_most_relevant_document)
-        builder.add_node("detect_page_parameters", detect_page_parameters_node)
-        builder.add_node("extract_page_parameters", wrapped_extract_params)
-        builder.add_node("validate_tool_results", validate_tool_results_node)
-        builder.add_node("find_alternative_pages", wrapped_find_alternatives)
-        builder.add_node("update_url_with_parameters", update_url_with_parameters_node)
-        builder.add_node("format_navigation_output", format_navigation_output_node)
+        builder.add_node("extract_user_input", self.node_kit.extract_user_input_node)
+        builder.add_node("extract_category", self.node_kit.extract_category_from_query)
+        builder.add_node("find_documents", self.node_kit.find_documents_node)
+        builder.add_node("select_most_relevant_document", self.node_kit.select_most_relevant_document_node)
+        builder.add_node("detect_page_parameters", self.node_kit.detect_page_parameters_node)
+        builder.add_node("extract_page_parameters", self.node_kit.extract_page_parameters_node)
+        builder.add_node("validate_tool_results", self.node_kit.validate_tool_results_node)
+        builder.add_node("find_alternative_pages", self.node_kit.find_alternative_pages_node)
+        builder.add_node("update_url_with_parameters", self.node_kit.update_url_with_parameters_node)
+        builder.add_node("format_navigation_output", self.node_kit.format_navigation_output_node)
 
         # =====================
         # Edge Configuration

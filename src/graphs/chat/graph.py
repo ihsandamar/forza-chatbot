@@ -9,7 +9,6 @@ from langgraph.graph import StateGraph, START, END
 
 from src.models.llm import LLM
 from src.graphs.base.base_graph import BaseGraph
-from src.graphs.base.graph_config import GraphConfig
 from src.graphs.base.graph_metadata import (
     GraphMetadata,
     GraphCapability,
@@ -19,10 +18,11 @@ from src.graphs.base.graph_metadata import (
 from src.graphs.registry import register_graph
 from .state import ChatState
 from .nodes import chat_node
+from .assistant_configuration import ChatAssistantConfiguration
 
 
 @register_graph("chat")
-class ChatGraph(BaseGraph):
+class ChatGraph(BaseGraph[ChatAssistantConfiguration]):
     """
     Chat graph for conversational interactions.
 
@@ -32,26 +32,32 @@ class ChatGraph(BaseGraph):
     def __init__(
         self,
         llm: LLM,
-        config: Optional[GraphConfig] = None
+        config: Optional[ChatAssistantConfiguration] = None
     ):
         """
         Initialize ChatGraph.
 
         Args:
             llm: Language model instance
-            config: GraphConfig instance (optional)
+            config: ChatAssistantConfiguration instance (optional)
         """
-        if config is None:
-            try:
-                config = GraphConfig.from_yaml("src/graphs/chat/config.yaml")
-            except FileNotFoundError:
-                config = GraphConfig(name="chat")
-
         super().__init__(
             llm=llm,
             state_class=ChatState,
             config=config,
             metadata=self._get_default_metadata(),
+        )
+
+    def _get_default_config(self) -> ChatAssistantConfiguration:
+        """
+        Get default configuration for chat graph.
+
+        Returns:
+            ChatAssistantConfiguration with default values
+        """
+        return ChatAssistantConfiguration(
+            system_prompt="Sen yardımcı bir sohbet asistanısın. Kullanıcılarla doğal ve samimi bir şekilde konuşursun.",
+            assistant_name="ChatAssistant"
         )
 
     def _get_default_metadata(self) -> GraphMetadata:
