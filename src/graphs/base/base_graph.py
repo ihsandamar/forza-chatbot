@@ -38,37 +38,45 @@ Usage:
 
 from abc import ABC, abstractmethod
 import asyncio
-from typing import Type, Optional, Dict, Any
+from typing import Type, Optional, Dict, Any, TypeVar, Generic
 from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
+from src.models.base_assistant_configuration import BaseAssistantConfiguration
 from src.models.llm import LLM
 from src.graphs.base.graph_config import GraphConfig
 from src.graphs.base.graph_metadata import GraphMetadata
 from src.graphs.base.graph_types import GraphState
 
+# Generic type variable for configuration
+ConfigT = TypeVar('ConfigT', bound=BaseAssistantConfiguration)
 
-class BaseGraph(ABC):
+
+class BaseGraph(ABC, Generic[ConfigT]):
     """
-    Enhanced abstract base class for all graphs.
+    Enhanced abstract base class for all graphs with generic configuration support.
 
     Provides:
-    - Configuration management
+    - Configuration management with type safety
     - Metadata tracking
     - Type-safe state
     - Input/output validation
     - DI-compatible constructor
 
+    Type Parameters:
+        ConfigT: Configuration type (must extend BaseAssistantConfiguration)
+
     Subclasses must implement:
     - _get_default_metadata(): Returns GraphMetadata
     - build_graph(): Returns compiled StateGraph
+    - _get_default_config(): Returns default ConfigT instance (optional)
     """
 
     def __init__(
         self,
         llm: LLM,
         state_class: Type[GraphState],
-        config: Optional[GraphConfig] = None,
+        config: Optional[ConfigT] = None,
         metadata: Optional[GraphMetadata] = None,
         memory: Optional[MemorySaver] = None
     ):
@@ -78,7 +86,7 @@ class BaseGraph(ABC):
         Args:
             llm: Language model instance
             state_class: GraphState subclass for this graph
-            config: GraphConfig instance (optional)
+            config: Agent configuration instance (optional, uses _get_default_config if None)
             metadata: GraphMetadata instance (optional)
             memory: MemorySaver for state checkpointing (optional)
         """
@@ -87,7 +95,7 @@ class BaseGraph(ABC):
 
         # Configuration
         if config is None:
-            config = GraphConfig(name=self.__class__.__name__)
+            config = self._get_default_config()
         self.config = config
 
         # Metadata
@@ -99,6 +107,18 @@ class BaseGraph(ABC):
         if memory is None:
             memory = MemorySaver()
         self.memory = memory
+
+    def _get_default_config(self) -> ConfigT:
+        """
+        Return default configuration for this graph.
+
+        Subclasses SHOULD override this to provide their specific configuration.
+        Default implementation returns a basic BaseAssistantConfiguration.
+
+        Returns:
+            ConfigT instance with default configuration
+        """
+        return BaseAssistantConfiguration()
 
     @abstractmethod
     def _get_default_metadata(self) -> GraphMetadata:
@@ -129,9 +149,20 @@ class BaseGraph(ABC):
         Get StateGraph builder for constructing the graph.
 
         Returns:
-            StateGraph instance initialized with state_class
+            StateGraph instance initialized with state_class and config_schema
+
+        Note:
+            config_schema enables LangGraph Dev to control and override
+            configuration at runtime. The configuration type (ConfigT) is used
+            as the schema, making all config fields available in LangGraph Dev.
         """
-        return StateGraph(self.state_class)
+        # Get the actual configuration class type from the generic
+        config_class = type(self.config)
+
+        return StateGraph(
+            state_schema=self.state_class,
+            config_schema=config_class
+        )
 
     def get_memory(self) -> MemorySaver:
         """
@@ -142,12 +173,12 @@ class BaseGraph(ABC):
         """
         return self.memory
 
-    def get_config(self) -> GraphConfig:
+    def get_config(self) -> ConfigT:
         """
         Get graph configuration.
 
         Returns:
-            GraphConfig instance
+            ConfigT instance (agent configuration)
         """
         return self.config
 
@@ -231,7 +262,8 @@ class BaseGraph(ABC):
         Returns:
             Parameter value or default
         """
-        return self.config.get_parameter(key, default)
+        # Try to get attribute from config
+        return getattr(self.config, key, default)
 
     def get_state_class(self) -> Type[GraphState]:
         """Get state class for this graph."""
@@ -251,7 +283,7 @@ class BaseGraph(ABC):
             'category': self.get_category(),
             'capabilities': self.get_capabilities(),
             'state_class': self.state_class.__name__,
-            'config': self.config.to_dict(),
+            'config': self.config.to_dict() if hasattr(self.config, 'to_dict') else self.config.model_dump(),
             'metadata': self.metadata.to_dict()
         }
 
@@ -269,6 +301,66 @@ class BaseGraph(ABC):
             f")"
         )
 
+    def _prepare_config_for_langgraph(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Prepare configuration for LangGraph runtime.
+
+        If no config is provided, uses self.config as default.
+        LangGraph Dev can override by providing config parameter.
+
+        Args:
+            config: Optional runtime config from LangGraph Dev
+
+        Returns:
+            Configuration dict ready for LangGraph
+        """
+        if config is None:
+            config = {}
+
+        # Add 'configurable' key with our configuration instance
+        # This is the LangGraph pattern for runtime configuration
+        if 'configurable' not in config:
+            config['configurable'] = self.config
+
+        return config
+
+    def _inject_config_to_state(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Inject configuration into state for backward compatibility.
+
+        This allows existing nodes that read from state (e.g., state.get("token"))
+        to continue working while also supporting LangGraph's native config system.
+
+        Args:
+            input: Input state
+            config: LangGraph config dict (may contain 'configurable')
+
+        Returns:
+            Input state with config fields injected
+        """
+        # Get the configuration instance (either from config or self.config)
+        if config and 'configurable' in config:
+            config_instance = config['configurable']
+        else:
+            config_instance = self.config
+
+        # Convert to dict
+        if hasattr(config_instance, 'model_dump'):
+            config_dict = config_instance.model_dump()
+        elif hasattr(config_instance, 'to_dict'):
+            config_dict = config_instance.to_dict()
+        elif hasattr(config_instance, '__dict__'):
+            config_dict = config_instance.__dict__
+        else:
+            config_dict = {}
+
+        # Inject config fields into state (without overwriting existing values)
+        for key, value in config_dict.items():
+            if key not in input:
+                input[key] = value
+
+        return input
+
     # Async methods for non-blocking execution
     async def ainvoke(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -277,13 +369,25 @@ class BaseGraph(ABC):
         Runs the compiled graph's invoke method in an executor to avoid blocking.
         The compiled graph must have an 'invoke' method.
 
+        Configuration is passed via LangGraph's native config system (config_schema + configurable).
+        Additionally, config fields are injected into state for backward compatibility.
+        LangGraph Dev can override configuration at runtime.
+
         Args:
             input: Input state dictionary
-            config: Configuration for graph execution (optional)
+            config: Configuration for graph execution (optional).
+                   If not provided, uses self.config as default.
+                   LangGraph Dev can provide custom config here.
 
         Returns:
             Output from the graph
         """
+        # Prepare configuration for LangGraph (adds 'configurable' key)
+        config = self._prepare_config_for_langgraph(config)
+
+        # Inject config into state for backward compatibility
+        input = self._inject_config_to_state(input, config)
+
         compiled_graph = self.build_graph()
         loop = asyncio.get_event_loop()
 
@@ -325,12 +429,24 @@ class BaseGraph(ABC):
         """
         Synchronous invoke method for the graph.
 
+        Configuration is passed via LangGraph's native config system (config_schema + configurable).
+        Additionally, config fields are injected into state for backward compatibility.
+        LangGraph Dev can override configuration at runtime.
+
         Args:
             input: Input state dictionary
-            config: Configuration for graph execution (optional)
+            config: Configuration for graph execution (optional).
+                   If not provided, uses self.config as default.
+                   LangGraph Dev can provide custom config here.
 
         Returns:
             Output from the graph
         """
+        # Prepare configuration for LangGraph (adds 'configurable' key)
+        config = self._prepare_config_for_langgraph(config)
+
+        # Inject config into state for backward compatibility
+        input = self._inject_config_to_state(input, config)
+
         compiled_graph = self.build_graph()
         return compiled_graph.invoke(input, config)

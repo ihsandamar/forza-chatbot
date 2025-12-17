@@ -34,7 +34,7 @@ if __name__ == "__main__":
         load_dotenv()  # Try to load from default locations
 
     # Get port from environment or use default
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "8089"))
     host = os.getenv("HOST", "0.0.0.0")
 
     print("=" * 60)

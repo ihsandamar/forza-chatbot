@@ -1,4 +1,5 @@
 import uuid
+import re
 from datetime import datetime
 from typing import Optional, Dict
 from src.api.models.requests.chat import SessionStartRequest, ChatMessageRequest
@@ -77,6 +78,57 @@ class ChatService:
         """Check if session exists"""
         return session_id in self.sessions
 
+    def _extract_url_from_message(self, content: str) -> Optional[str]:
+        """
+        Extract URL from message content.
+
+        Args:
+            content: Message content to search for URLs
+
+        Returns:
+            First URL found, or None if no URL exists
+        """
+        # Regex pattern to match URLs
+        url_pattern = r'https?://[^\s\)\]\}]+'
+        match = re.search(url_pattern, content)
+        if match:
+            return match.group(0)
+        return None
+
+    def _detect_routing_response(self, messages: list) -> Optional[dict]:
+        """
+        Detect if messages contain a routing response (tool message with URL).
+
+        Checks the last few messages for tool messages containing URLs,
+        which indicates a navigation/routing action.
+
+        Args:
+            messages: List of messages from graph output
+
+        Returns:
+            Dict with routing info if detected, None otherwise
+            Format: {"url": str, "text": str}
+        """
+        # Check last 5 messages for tool messages with URLs
+        check_count = min(5, len(messages))
+        recent_messages = messages[-check_count:] if check_count > 0 else []
+
+        for msg in reversed(recent_messages):
+            # Parse message to get role and content
+            role, content = self._parse_message(msg)
+
+            # Check if it's a tool message
+            if role == "tool" and content:
+                # Check if content contains URL
+                url = self._extract_url_from_message(str(content))
+                if url:
+                    return {
+                        "url": url,
+                        "text": str(content)
+                    }
+
+        return None
+
     async def send_message(self, request: ChatMessageRequest) -> ChatMessageResponse:
         """
         Send a message to the chatbot
@@ -131,17 +183,34 @@ class ChatService:
         # Don't invoke graph again - use the output we already have
         bot_response_text = self.chatbot._from_graph_state(graph_output)
 
-        # Build response from graph output
-        response_data = ResponseData(
-            text=bot_response_text,
-            type="text",
-            confidence=0.95,
-            action=ActionResponse(
-                type="none",
-                target="",
-                params={}
+        # Detect if this is a routing/navigation response
+        routing_info = self._detect_routing_response(graph_messages)
+
+        # Build response based on whether routing was detected
+        if routing_info:
+            # Navigation response with special format
+            response_data = ResponseData(
+                text=bot_response_text,
+                type="navigation",
+                confidence=0.85,
+                action=ActionResponse(
+                    type="routing",
+                    target=routing_info["url"],
+                    params={}
+                )
             )
-        )
+        else:
+            # Regular text response
+            response_data = ResponseData(
+                text=bot_response_text,
+                type="text",
+                confidence=0.95,
+                action=ActionResponse(
+                    type="none",
+                    target="",
+                    params={}
+                )
+            )
 
         return ChatMessageResponse(
             session_id=request.session_id,

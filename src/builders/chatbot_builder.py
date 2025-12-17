@@ -4,10 +4,15 @@ Chatbot Builder - Dependency Injection Factory pattern kullanarak Chatbot oluşt
 
 Single Responsibility: Sadece Chatbot örneği oluşturmak.
 DI işlemi DependencyFactory ve AdapterFactory'ye taşındı.
+
+Runtime Configuration Support:
+- Accepts RuntimeConfiguration for dynamic configuration
+- Supports both traditional method chaining and runtime config
 """
 
 from typing import Optional
 from src.core.chatbot import Chatbot
+from src.core.runtime_config import RuntimeConfiguration
 from src.adapters.base_state_adapter import BaseStateAdapter
 from src.builders.dependency_factory import DependencyFactory
 from src.builders.adapter_factory import AdapterFactory
@@ -43,6 +48,7 @@ class ChatbotBuilder:
         self._adapter: Optional[BaseStateAdapter] = None
         self._graph_type = None
         self._graph_repository = None
+        self._runtime_config: Optional[RuntimeConfiguration] = None
 
     def with_model(
         self,
@@ -131,6 +137,61 @@ class ChatbotBuilder:
         self._adapter = adapter
         return self
 
+    def with_runtime_config(self, runtime_config: RuntimeConfiguration):
+        """
+        Configure builder with RuntimeConfiguration.
+
+        This method provides a convenient way to configure the builder
+        with all settings at once using RuntimeConfiguration.
+
+        Args:
+            runtime_config: RuntimeConfiguration instance
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            from src.graphs.routing.assistant_configuration import RoutingAssistantConfiguration
+
+            config = RuntimeConfiguration(
+                llm=LLMRuntimeConfig(model="gpt-4o-mini"),
+                graph_type="supervisor"
+            )
+            config = config.add_subagent(
+                "routing",
+                RoutingAssistantConfiguration(
+                    system_prompt="You are a routing assistant",
+                    token="secret-token",
+                    assistant_name="RoutingAssistant"
+                )
+            )
+
+            chatbot = (
+                ChatbotBuilder(factory, adapter_factory)
+                .with_runtime_config(config)
+                .build()
+            )
+        """
+        self._runtime_config = runtime_config
+
+        # Configure LLM
+        self.with_model(
+            model_name=runtime_config.llm.model,
+            temperature=runtime_config.llm.temperature,
+            api_key=runtime_config.llm.api_key,
+            provider=runtime_config.llm.provider,
+            base_url=runtime_config.llm.base_url
+        )
+
+        # Configure graph
+        self.with_graph(runtime_config.graph_type)
+
+        # Configure graph config with runtime configurable params
+        graph_config = {"configurable": runtime_config.to_graph_configurable()}
+        self.with_graph_config(graph_config)
+
+        return self
+
     def build(self) -> Chatbot:
         """
         Build Chatbot instance with all configured dependencies.
@@ -158,5 +219,6 @@ class ChatbotBuilder:
             llm=self._llm,
             config=self._graph_config,
             graph=graph,
-            assistant_config=self._assistant_configuration
+            assistant_config=self._assistant_configuration,
+            runtime_config=self._runtime_config
         )

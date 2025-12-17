@@ -89,7 +89,7 @@ def get_customers_list(base_url: str, token: str, name: str, business_id: str = 
     # No filters - get all customers
     params = {
         "pageNumber": 1,
-        "viewCount": 10,
+        "viewCount": 1000,
         "search": "",
         "filterParameters": '{"andOp":[],"orOp":[]}',
         "orderParameters": '[{"ColumnName":"name", "OrderType":"Desc"}]'

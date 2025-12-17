@@ -43,7 +43,8 @@ def get_chatbot() -> Chatbot:
                 config.llm.base_url
             )
             .with_graph(config.chatbot.graph_type)
-            .with_graph_config({"configurable": {"thread_id": config.chatbot.thread_id}})
+            # Note: thread_id is passed at runtime via adapter_kwargs (session_id)
+            # No need to set it here as default config
             .with_assistant_configuration(getattr(config, 'sql_agent_configuration', None))
             .build()
         )
