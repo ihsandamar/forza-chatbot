@@ -26,6 +26,7 @@ from src.api.models.requests.chat import (
     ChatMessageRequest
 )
 from src.core.models import ResponseFormat
+from src.core.runtime_config import RuntimeConfiguration
 
 
 class GradioInterface:
@@ -41,15 +42,22 @@ class GradioInterface:
         chatbot: Gradio Chatbot component (for state management)
     """
 
-    def __init__(self, chat_service: ChatService, title: str = "Forza Chatbot"):
+    def __init__(
+        self,
+        chat_service: ChatService,
+        runtime_config: Optional[RuntimeConfiguration] = None,
+        title: str = "Forza Chatbot"
+    ):
         """
         Initialize Gradio interface.
 
         Args:
             chat_service: Configured ChatService instance
+            runtime_config: RuntimeConfiguration for dynamic settings UI
             title: Title for the Gradio app
         """
         self.chat_service = chat_service
+        self.runtime_config = runtime_config
         self.title = title
         self.session_id: Optional[str] = None
         self.current_session_id: Optional[str] = None  # Track currently selected session
@@ -686,19 +694,73 @@ class GradioInterface:
                             stats_refresh_btn = gr.Button("Yenile", size="sm")
 
                         with gr.Tab("⚙️ Ayarlar"):
-                            gr.Checkbox(label="Bildirimler", value=True)
-                            gr.Slider(
-                                minimum=0,
-                                maximum=1,
-                                value=0.7,
-                                label="Sıcaklık",
-                                step=0.1
-                            )
-                            gr.Dropdown(
-                                choices=["Türkçe", "English"],
-                                value="Türkçe",
-                                label="Dil"
-                            )
+                            # Runtime Configuration Section
+                            if self.runtime_config:
+                                gr.Markdown("### 🤖 LLM Yapılandırması")
+
+                                llm_model_input = gr.Textbox(
+                                    label="Model",
+                                    value=self.runtime_config.llm.model,
+                                    placeholder="gpt-4o-mini",
+                                    info="Kullanılacak LLM modeli"
+                                )
+                                llm_temp_slider = gr.Slider(
+                                    minimum=0,
+                                    maximum=1,
+                                    value=self.runtime_config.llm.temperature,
+                                    label="Sıcaklık",
+                                    step=0.1,
+                                    info="Model yaratıcılık derecesi"
+                                )
+
+                                # Sub-Agent Configurations
+                                gr.Markdown("### 🔧 Alt-Agent Yapılandırması")
+
+                                # Routing Agent Config
+                                routing_config = self.runtime_config.get_subagent("routing")
+                                gr.Markdown("**Routing Agent**")
+                                routing_token_input = gr.Textbox(
+                                    label="Token",
+                                    value=getattr(routing_config, 'token', '') if routing_config else '',
+                                    placeholder="Forza API token...",
+                                    type="password",
+                                    info="Routing agent için API token",
+                                    interactive=True
+                                )
+
+                                routing_prompt_input = gr.Textbox(
+                                    label="System Prompt",
+                                    value=routing_config.system_prompt if routing_config else '',
+                                    lines=3,
+                                    info="Routing agent için sistem mesajı",
+                                    interactive=True
+                                )
+
+                                # Chat Agent Config
+                                chat_config = self.runtime_config.get_subagent("chat")
+                                gr.Markdown("**Chat Agent**")
+                                chat_prompt_input = gr.Textbox(
+                                    label="System Prompt",
+                                    value=chat_config.system_prompt if chat_config else '',
+                                    lines=3,
+                                    info="Chat agent için sistem mesajı",
+                                    interactive=True
+                                )
+
+                                # Save Configuration Button
+                                config_save_btn = gr.Button("💾 Yapılandırmayı Kaydet", variant="primary")
+                                config_status = gr.Textbox(
+                                    label="Durum",
+                                    interactive=False,
+                                    lines=2,
+                                    value="",
+                                    show_label=False
+                                )
+
+                                gr.Markdown("---")
+
+                            # General UI Settings
+                            gr.Markdown("### 🎨 Arayüz Ayarları")
                             response_format_dropdown = gr.Dropdown(
                                 choices=[
                                     ("Tüm Mesajlar", ResponseFormat.ALL_MESSAGES),
@@ -709,13 +771,13 @@ class GradioInterface:
                                 info="Sohbetlerde gösterilecek mesaj sayısını ayarla"
                             )
 
-                            # Token input section
-                            gr.Markdown("### 🔑 Kimlik Doğrulama")
+                            # Token input section (legacy)
+                            gr.Markdown("### 🔑 Kimlik Doğrulama (Eski)")
                             token_input = gr.Textbox(
                                 label="Token",
                                 placeholder="API token giriniz...",
                                 type="password",
-                                lines=3,
+                                lines=2,
                                 info="İhtiyaç durumunda API çağrıları için kullanılacak token"
                             )
                             token_status = gr.Textbox(
@@ -835,6 +897,57 @@ class GradioInterface:
                 lambda: "",
                 outputs=[message_input]
             )
+
+            # Runtime Configuration Handlers
+            if self.runtime_config:
+                def save_runtime_config(llm_model, llm_temp, routing_token, routing_prompt, chat_prompt):
+                    """Save updated runtime configuration"""
+                    try:
+                        # Update LLM config
+                        new_config = self.runtime_config.update_llm(
+                            model=llm_model,
+                            temperature=llm_temp
+                        )
+
+                        # Update routing agent if exists
+                        if new_config.get_subagent("routing"):
+                            new_config = new_config.update_subagent(
+                                "routing",
+                                token=routing_token,
+                                system_prompt=routing_prompt
+                            )
+
+                        # Update chat agent if exists
+                        if new_config.get_subagent("chat"):
+                            new_config = new_config.update_subagent(
+                                "chat",
+                                system_prompt=chat_prompt
+                            )
+
+                        # Apply new configuration to chatbot
+                        self.runtime_config = new_config
+                        if self.chat_service.chatbot:
+                            self.chat_service.chatbot.update_runtime_config(new_config)
+
+                        return "✓ Yapılandırma başarıyla kaydedildi!\n\nNot: Model değişiklikleri yeni oturumlarda geçerli olacaktır."
+
+                    except Exception as e:
+                        return f"✗ Hata: {str(e)}"
+
+                # Build input list - inputs are always available now
+                config_inputs = [
+                    llm_model_input,
+                    llm_temp_slider,
+                    routing_token_input,
+                    routing_prompt_input,
+                    chat_prompt_input
+                ]
+
+                config_save_btn.click(
+                    fn=save_runtime_config,
+                    inputs=config_inputs,
+                    outputs=[config_status]
+                )
 
             demo.load(
                 fn=self._get_stats,

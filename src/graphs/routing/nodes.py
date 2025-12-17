@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from src.models.llm import LLM
 from src.tools.forza_routing_toolkit import ForzaRoutingToolkit
 from src.graphs.routing.assistant_configuration import RoutingAssistantConfiguration
@@ -246,7 +247,7 @@ Cevap sadece kategori adı veya "None" olmalıdır."""
             logger.error(f"[FORZA] Unexpected error during document retrieval: {e}", exc_info=True)
             raise DocumentRetrievalError(f"Document retrieval failed: {str(e)}") from e
 
-    def extract_page_parameters_node(self, state: NavigationState, config: dict = None) -> NavigationState:
+    def extract_page_parameters_node(self, state: NavigationState, *, config: RunnableConfig) -> NavigationState:
         """Extract URL parameters using tools."""
         try:
             if not state.get("has_parameters"):

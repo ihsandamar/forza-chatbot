@@ -5,6 +5,7 @@ Single Responsibility:
 - Generic message processing
 - Graph orchestration
 - Adapter-based state transformation
+- Runtime configuration management
 
 Interface-specific handling moved to interface adapters (GradioAdapter, etc).
 """
@@ -21,6 +22,7 @@ from src.core.exceptions import (
     GraphInvocationException,
     InvalidGraphStateException,
 )
+from src.core.runtime_config import RuntimeConfiguration
 
 
 class Chatbot:
@@ -36,7 +38,8 @@ class Chatbot:
         llm: LLM,
         graph: BaseGraph,
         config: dict = None,
-        assistant_config: dict = None
+        assistant_config: dict = None,
+        runtime_config: Optional[RuntimeConfiguration] = None
     ):
         """
         Initialize chatbot.
@@ -46,11 +49,13 @@ class Chatbot:
             graph: LangGraph instance
             config: Graph configuration
             assistant_config: Assistant-specific configuration
+            runtime_config: Runtime configuration for dynamic updates
         """
         self.llm = llm
         self.graph = graph
         self.config = config if config else {}
         self.assistant_config = assistant_config if assistant_config else {}
+        self.runtime_config = runtime_config
 
     def _prepare_config(self, thread_id: str = None) -> dict:
         """
@@ -483,3 +488,89 @@ class Chatbot:
                 f"Failed to get graph output asynchronously: {str(e)}",
                 context={"original_error": str(e)}
             ) from e
+
+    # ========================================
+    # Runtime Configuration Management
+    # ========================================
+
+    def get_runtime_config(self) -> Optional[RuntimeConfiguration]:
+        """
+        Get current runtime configuration.
+
+        Returns:
+            RuntimeConfiguration instance or None
+        """
+        return self.runtime_config
+
+    def update_runtime_config(self, new_config: RuntimeConfiguration):
+        """
+        Update runtime configuration.
+
+        Note: This updates the configuration but does NOT rebuild the chatbot.
+        For LLM or graph type changes, you need to rebuild the chatbot.
+        For sub-agent config changes (prompts, tokens), they will be applied
+        on the next graph execution.
+
+        Args:
+            new_config: New RuntimeConfiguration instance
+
+        Example:
+            # Update sub-agent token
+            new_config = chatbot.runtime_config.update_subagent(
+                "routing",
+                token="new-token"
+            )
+            chatbot.update_runtime_config(new_config)
+        """
+        self.runtime_config = new_config
+
+        # Update graph config with new configurable params
+        if "configurable" not in self.config:
+            self.config["configurable"] = {}
+        self.config["configurable"].update(new_config.to_graph_configurable())
+
+    def get_config_for_ui(self) -> Dict[str, Any]:
+        """
+        Get configuration in UI-friendly format.
+
+        Returns:
+            Dict with configuration data suitable for display in UI
+
+        Example:
+            config_data = chatbot.get_config_for_ui()
+            # Returns:
+            # {
+            #     "llm": {"model": "gpt-4o-mini", "temperature": 0.0, ...},
+            #     "graph_type": "supervisor",
+            #     "subagents": {
+            #         "routing": {"system_prompt": "...", "token": "***", ...}
+            #     }
+            # }
+        """
+        if self.runtime_config:
+            config_dict = self.runtime_config.to_dict()
+
+            # Mask sensitive data for UI
+            if "llm" in config_dict and config_dict["llm"].get("api_key"):
+                api_key = config_dict["llm"]["api_key"]
+                if len(api_key) > 8:
+                    config_dict["llm"]["api_key"] = f"{api_key[:4]}...{api_key[-4:]}"
+
+            # Mask tokens in subagents
+            for name, subagent in config_dict.get("subagents", {}).items():
+                if subagent.get("token"):
+                    token = subagent["token"]
+                    if len(token) > 8:
+                        subagent["token"] = f"{token[:4]}...{token[-4:]}"
+
+            return config_dict
+
+        # Fallback for chatbots without runtime config
+        return {
+            "llm": {
+                "model": getattr(self.llm, "model_name", "unknown"),
+                "temperature": getattr(self.llm, "temperature", 0.0)
+            },
+            "graph_type": getattr(self.graph, "name", "unknown"),
+            "subagents": {}
+        }
