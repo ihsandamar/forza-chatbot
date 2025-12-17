@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from src.api.routes import chat, health
+from src.api.routes import chat, health, configuration
 from src.api.utils.error_handlers import validation_exception_handler, general_exception_handler
 from src.services.config_loader import ConfigLoader
 
@@ -44,6 +44,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 # Include routers
 app.include_router(health.router, prefix="/api/health", tags=["Health"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(configuration.router, prefix="/api/configuration", tags=["Configuration"])
 
 
 @app.get("/")
