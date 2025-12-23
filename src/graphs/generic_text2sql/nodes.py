@@ -10,8 +10,8 @@ from decimal import Decimal
 from langchain_openai import ChatOpenAI
 from src.graphs.generic_text2sql.prompts import (
     INTENT_PARSER_PROMPT,
-    SQL_QUERY_BUILDER_PROMPT,
-    COLUMN_METADATA_SHORT
+    INTENT_MATCHER_PROMPT,
+    SQL_QUERY_BUILDER_PROMPT
 )
 from src.graphs.generic_text2sql.tools import GENERIC_TEXT2SQL_TOOLS
 from src.graphs.generic_text2sql.state import (
@@ -96,16 +96,16 @@ def intent_parser_to_json(response_text: str) -> ParsedIntent:
 
 async def intent_parser_node(state: GenericText2SQLState) -> GenericText2SQLState:
     """
-    Kullanıcı sorgusunu analiz edip structured intent'e çevir.
+    Parse user query into generic structured intent (no business logic).
 
-    Uses LLM to parse user query and extract structured SQL intent.
-    Automatically resolves date expressions to actual dates.
+    Generic parser that understands query structure and resolves dates,
+    but doesn't know about specific database schema.
 
     Args:
         state: Current generic text2sql state with user_query
 
     Returns:
-        Updated state with parsed_intent or error
+        Updated state with parsed_intent (generic field names) or error
     """
     try:
         logger.debug(f"Parsing user intent for query: {state['user_query'][:50]}...")
@@ -125,7 +125,7 @@ async def intent_parser_node(state: GenericText2SQLState) -> GenericText2SQLStat
 
         logger.debug(f"Date context: {today_date}, year={current_year}, month={current_month}")
 
-        # Get LLM response with date context
+        # Get LLM response with date context (generic parsing)
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         chain = INTENT_PARSER_PROMPT | llm
 
@@ -142,7 +142,7 @@ async def intent_parser_node(state: GenericText2SQLState) -> GenericText2SQLStat
         state["parsed_intent"] = intent
 
         logger.info(
-            f"Intent parsed successfully: complexity={intent['complexity']}, "
+            f"Generic intent parsed: complexity={intent['complexity']}, "
             f"steps={len(intent['steps'])}"
         )
 
@@ -161,6 +161,62 @@ async def intent_parser_node(state: GenericText2SQLState) -> GenericText2SQLStat
 
     return state
 
+async def intent_matching_node(state: GenericText2SQLState) -> GenericText2SQLState:
+    """
+    Match generic intent to specific database schema (business logic).
+
+    Takes generic field_hint values (tarih, şube, ürün, etc.) and maps them
+    to actual database column names (DocumentDate, BranchName, ProductName, etc.)
+    based on business rules defined in INTENT_MATCHER_PROMPT.
+
+    Args:
+        state: Current generic text2sql state with parsed_intent (generic)
+
+    Returns:
+        Updated state with parsed_intent (DB-specific field names) or error
+    """
+    try:
+        logger.debug("Matching generic intent to database schema...")
+
+        # Check if parsed_intent exists
+        if not state.get("parsed_intent"):
+            logger.error("No parsed_intent found in state")
+            state["error"] = "Intent matching için parsed_intent gerekli"
+            return state
+
+        # Convert parsed_intent to JSON for prompt
+        parsed_intent_json = json.dumps(state["parsed_intent"], indent=2, ensure_ascii=False)
+
+        logger.debug(f"Matching intent with {len(state['parsed_intent']['steps'])} step(s)")
+
+        # Get LLM response with business logic mapping
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        chain = INTENT_MATCHER_PROMPT | llm
+
+        response = await chain.ainvoke({
+            "parsed_intent": parsed_intent_json
+        })
+
+        # Convert response to ParsedIntent model
+        matched_intent = intent_parser_to_json(response.content)
+        state["parsed_intent"] = matched_intent
+
+        logger.info(
+            f"Intent matched to DB schema: complexity={matched_intent['complexity']}, "
+            f"steps={len(matched_intent['steps'])}"
+        )
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Intent matching JSON error: {e}")
+        state["error"] = f"Intent matching hatası (JSON): {str(e)}"
+    except ValueError as e:
+        logger.error(f"Intent matching validation error: {e}")
+        state["error"] = f"Intent matching validation hatası: {str(e)}"
+    except Exception as e:
+        logger.error(f"Unexpected error in intent_matching_node: {e}", exc_info=True)
+        state["error"] = f"Intent matching beklenmeyen hata: {str(e)}"
+
+    return state
 
 async def get_value_resolver(db_connection_string: str) -> ValueResolverService:
     """
@@ -249,6 +305,16 @@ async def value_resolver_node(state: GenericText2SQLState) -> GenericText2SQLSta
                     logger.debug(f"Skipping resolution for date value: {value_hint}")
                     continue
 
+                # Skip numeric values (Hour, DayOfWeek, etc. - already correct values)
+                try:
+                    # Try to parse as number (int or float)
+                    float(str(value_hint))
+                    logger.debug(f"Skipping resolution for numeric value '{value_hint}' in column '{field_hint}'")
+                    continue
+                except (ValueError, TypeError):
+                    # Not a number, continue with resolution
+                    pass
+
                 total_values += 1
 
                 # Try to resolve the value
@@ -280,22 +346,22 @@ async def value_resolver_node(state: GenericText2SQLState) -> GenericText2SQLSta
         state["resolved_steps"] = resolved_steps
         state["resolution_metadata"] = resolution_metadata
 
-        # Check if all critical values were resolved
+        # Log resolution results
         if unresolved_values:
-            error_msg = (
+            warning_msg = (
                 f"Bazı değerler çözümlenemedi ({len(unresolved_values)}/{total_values}): "
-                f"{', '.join(unresolved_values)}"
+                f"{', '.join(unresolved_values)} - value_hint değerleri kullanılacak"
             )
-            logger.error(error_msg)
-            state["error"] = error_msg
-        else:
-            # Format confidence message
-            avg_conf = resolution_metadata['avg_confidence']
-            conf_msg = f" (avg confidence: {avg_conf:.1f}%)" if avg_conf is not None else ""
+            logger.warning(warning_msg)
+            # Don't set error - let SQL generation continue with value_hint
 
-            logger.info(
-                f"Value resolution completed successfully: {resolved_values}/{total_values} values resolved{conf_msg}"
-            )
+        # Format confidence message
+        avg_conf = resolution_metadata['avg_confidence']
+        conf_msg = f" (avg confidence: {avg_conf:.1f}%)" if avg_conf is not None else ""
+
+        logger.info(
+            f"Value resolution completed: {resolved_values}/{total_values} values resolved{conf_msg}"
+        )
 
     except Exception as e:
         logger.error(f"Unexpected error in value_resolver_node: {e}", exc_info=True)
@@ -306,10 +372,10 @@ async def value_resolver_node(state: GenericText2SQLState) -> GenericText2SQLSta
 
 async def sql_query_builder_node(state: GenericText2SQLState) -> GenericText2SQLState:
     """
-    Build SQL query from resolved steps using LLM with date/time awareness.
+    Build SQL query from resolved steps using LLM.
 
-    Takes resolved_steps and generates MSSQL query using GPT-4o-mini.
-    Automatically resolves date expressions like "bugün", "dün", "son 5 yıl" etc.
+    Takes resolved_steps (with matched column names and resolved values)
+    and generates MSSQL query using GPT-4o-mini.
 
     Args:
         state: Current generic text2sql state with resolved_steps
@@ -326,9 +392,10 @@ async def sql_query_builder_node(state: GenericText2SQLState) -> GenericText2SQL
             state["error"] = "SQL query oluşturma için resolved_steps gerekli"
             return state
 
-        # Check if there was an error in value resolution
-        if state.get("error"):
-            logger.warning(f"Skipping SQL generation due to previous error: {state['error']}")
+        # Check if there was a critical error in previous steps
+        if state.get("error") and "Intent" in state.get("error", ""):
+            # Only skip if there was an intent parsing error (critical)
+            logger.warning(f"Skipping SQL generation due to critical error: {state['error']}")
             return state
 
         resolved_steps = state["resolved_steps"]
@@ -343,7 +410,6 @@ async def sql_query_builder_node(state: GenericText2SQLState) -> GenericText2SQL
         chain = SQL_QUERY_BUILDER_PROMPT | llm
 
         response = await chain.ainvoke({
-            "column_metadata": COLUMN_METADATA_SHORT,
             "resolved_steps": steps_json
         })
 
