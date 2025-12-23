@@ -157,7 +157,7 @@ class ValueResolverService:
         return None
     
     async def _resolve_from_cache(self, user_input: str, column: str, threshold: int) -> Optional[Dict]:
-        """Cache'den fuzzy match ile çöz - Türkçe karakter desteği ile"""
+        """Cache'den fuzzy match ile çöz - Türkçe karakter desteği ve exact match priority ile"""
 
         # Cache'i kontrol et, gerekirse yenile
         await self._ensure_cache_fresh(column)
@@ -175,30 +175,61 @@ class ValueResolverService:
         normalized_choices = {self._normalize_turkish(val): val for val in values}
         normalized_list = list(normalized_choices.keys())
 
-        # Birden fazla scorer ile dene (en iyisini al)
+        # 1. EXACT MATCH kontrolü (öncelikli!)
+        for normalized_val, original_val in normalized_choices.items():
+            if normalized_input == normalized_val:
+                return {
+                    "original": user_input,
+                    "resolved": original_val,
+                    "confidence": 100,
+                    "column": column
+                }
+
+        # 2. Kelime sayısını hesapla (penalty için)
+        input_word_count = len(normalized_input.split())
+
+        # 3. Birden fazla scorer ile fuzzy match (öncelik sırası önemli!)
         scorers = [
-            fuzz.token_sort_ratio,  # Kelime sırası önemsiz
-            fuzz.token_set_ratio,   # Kısmi eşleşme
-            fuzz.partial_ratio,     # Substring match
-            fuzz.ratio,             # Tam eşleşme
+            (fuzz.ratio, 1.0),              # Tam eşleşme (en yüksek öncelik)
+            (fuzz.token_sort_ratio, 0.95),  # Kelime sırası önemsiz
+            (fuzz.token_set_ratio, 0.90),   # Kısmi eşleşme
+            (fuzz.partial_ratio, 0.80),     # Substring match (en düşük öncelik)
         ]
 
         best_result = None
-        best_score = 0
+        best_weighted_score = 0
 
-        for scorer in scorers:
+        for scorer, weight in scorers:
             result = process.extractOne(
                 normalized_input,
                 normalized_list,
                 scorer=scorer,
-                score_cutoff=max(threshold - 15, 60)  # Daha düşük threshold
+                score_cutoff=max(threshold - 15, 60)
             )
 
-            if result and result[1] > best_score:
-                best_score = result[1]
-                # Normalize edilmiş değerden orijinal değeri bul
-                original_value = normalized_choices[result[0]]
-                best_result = (original_value, result[1])
+            if result:
+                normalized_match = result[0]
+                score = result[1]
+
+                # Kelime sayısı farkını penalize et
+                match_word_count = len(normalized_match.split())
+                word_count_diff = abs(input_word_count - match_word_count)
+
+                # Kelime sayısı farkı 2'den fazlaysa penalty uygula
+                if word_count_diff > 2:
+                    score *= 0.85
+                elif word_count_diff > 1:
+                    score *= 0.92
+                elif word_count_diff > 0:
+                    score *= 0.97
+
+                # Weighted score hesapla
+                weighted_score = score * weight
+
+                if weighted_score > best_weighted_score:
+                    best_weighted_score = weighted_score
+                    original_value = normalized_choices[normalized_match]
+                    best_result = (original_value, int(score))
 
         if best_result:
             return {
@@ -211,7 +242,7 @@ class ValueResolverService:
         return None
     
     async def _resolve_from_db(self, user_input: str, column: str, threshold: int) -> Optional[Dict]:
-        """DB'de LIKE ile arayıp fuzzy match ile seç - Türkçe karakter desteği ile"""
+        """DB'de LIKE ile arayıp fuzzy match ile seç - Türkçe karakter desteği ve exact match priority ile"""
 
         config = self.column_config[column]
         search_term = user_input.replace("'", "''")  # SQL injection koruması
@@ -243,12 +274,31 @@ class ValueResolverService:
         normalized_choices = {self._normalize_turkish(val): val for val in candidates}
         normalized_list = list(normalized_choices.keys())
 
-        scorers = [fuzz.token_sort_ratio, fuzz.token_set_ratio, fuzz.partial_ratio, fuzz.ratio]
+        # 1. EXACT MATCH kontrolü
+        for normalized_val, original_val in normalized_choices.items():
+            if normalized_input == normalized_val:
+                return {
+                    "original": user_input,
+                    "resolved": original_val,
+                    "confidence": 100,
+                    "column": column
+                }
+
+        # 2. Kelime sayısı hesapla
+        input_word_count = len(normalized_input.split())
+
+        # 3. Weighted fuzzy match
+        scorers = [
+            (fuzz.ratio, 1.0),
+            (fuzz.token_sort_ratio, 0.95),
+            (fuzz.token_set_ratio, 0.90),
+            (fuzz.partial_ratio, 0.80),
+        ]
 
         best_result = None
-        best_score = 0
+        best_weighted_score = 0
 
-        for scorer in scorers:
+        for scorer, weight in scorers:
             result = process.extractOne(
                 normalized_input,
                 normalized_list,
@@ -256,10 +306,27 @@ class ValueResolverService:
                 score_cutoff=max(threshold - 15, 60)
             )
 
-            if result and result[1] > best_score:
-                best_score = result[1]
-                original_value = normalized_choices[result[0]]
-                best_result = (original_value, result[1])
+            if result:
+                normalized_match = result[0]
+                score = result[1]
+
+                # Kelime sayısı penalty
+                match_word_count = len(normalized_match.split())
+                word_count_diff = abs(input_word_count - match_word_count)
+
+                if word_count_diff > 2:
+                    score *= 0.85
+                elif word_count_diff > 1:
+                    score *= 0.92
+                elif word_count_diff > 0:
+                    score *= 0.97
+
+                weighted_score = score * weight
+
+                if weighted_score > best_weighted_score:
+                    best_weighted_score = weighted_score
+                    original_value = normalized_choices[normalized_match]
+                    best_result = (original_value, int(score))
 
         if best_result:
             return {
