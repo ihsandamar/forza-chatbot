@@ -97,10 +97,10 @@ def intent_parser_to_json(response_text: str) -> ParsedIntent:
 
 async def intent_parser_node(state: GenericText2SQLState) -> GenericText2SQLState:
     """
-    Parse user query into generic structured intent (no business logic).
+    Parse user query into generic structured intent (no business logic, no dates).
 
-    Generic parser that understands query structure and resolves dates,
-    but doesn't know about specific database schema.
+    Generic parser that understands query structure but doesn't know about
+    specific database schema or date resolution (those are in intent_matcher).
 
     Args:
         state: Current generic text2sql state with user_query
@@ -111,31 +111,12 @@ async def intent_parser_node(state: GenericText2SQLState) -> GenericText2SQLStat
     try:
         logger.debug(f"Parsing user intent for query: {state['user_query'][:50]}...")
 
-        # Get current date/time info using tools
-        from src.graphs.generic_text2sql.tools import (
-            get_today_date,
-            get_current_datetime,
-            get_current_year,
-            get_current_month
-        )
-
-        today_date = get_today_date.invoke({})
-        current_datetime = get_current_datetime.invoke({})
-        current_year = get_current_year.invoke({})
-        current_month = get_current_month.invoke({})
-
-        logger.debug(f"Date context: {today_date}, year={current_year}, month={current_month}")
-
-        # Get LLM response with date context (generic parsing)
+        # Get LLM response (generic parsing, no date context)
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         chain = INTENT_PARSER_PROMPT | llm
 
         response = await chain.ainvoke({
-            "user_query": state["user_query"],
-            "today_date": today_date,
-            "current_datetime": current_datetime,
-            "current_year": current_year,
-            "current_month": current_month
+            "user_query": state["user_query"]
         })
 
         # Convert response to ParsedIntent model
@@ -169,6 +150,7 @@ async def intent_matching_node(state: GenericText2SQLState) -> GenericText2SQLSt
     Takes generic field_hint values (tarih, şube, ürün, etc.) and maps them
     to actual database column names (DocumentDate, BranchName, ProductName, etc.)
     based on business rules defined in INTENT_MATCHER_PROMPT.
+    Also resolves date expressions to SQL date functions.
 
     Args:
         state: Current generic text2sql state with parsed_intent (generic)
@@ -185,17 +167,36 @@ async def intent_matching_node(state: GenericText2SQLState) -> GenericText2SQLSt
             state["error"] = "Intent matching için parsed_intent gerekli"
             return state
 
+        # Get current date/time info using tools
+        from src.graphs.generic_text2sql.tools import (
+            get_today_date,
+            get_current_datetime,
+            get_current_year,
+            get_current_month
+        )
+
+        today_date = get_today_date.invoke({})
+        current_datetime = get_current_datetime.invoke({})
+        current_year = get_current_year.invoke({})
+        current_month = get_current_month.invoke({})
+
+        logger.debug(f"Date context: {today_date}, year={current_year}, month={current_month}")
+
         # Convert parsed_intent to JSON for prompt
         parsed_intent_json = json.dumps(state["parsed_intent"], indent=2, ensure_ascii=False)
 
         logger.debug(f"Matching intent with {len(state['parsed_intent']['steps'])} step(s)")
 
-        # Get LLM response with business logic mapping
+        # Get LLM response with business logic mapping and date resolution
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         chain = INTENT_MATCHER_PROMPT | llm
 
         response = await chain.ainvoke({
-            "parsed_intent": parsed_intent_json
+            "parsed_intent": parsed_intent_json,
+            "today_date": today_date,
+            "current_datetime": current_datetime,
+            "current_year": current_year,
+            "current_month": current_month
         })
 
         # Convert response to ParsedIntent model
@@ -224,7 +225,7 @@ async def metadata_enrichment_node(state: GenericText2SQLState) -> GenericText2S
     """
     Extract metadata for only the columns used in the query (token optimization).
 
-    Collects all field_hint values from parsed_intent (filters, aggregations, group_by, order_by)
+    Collects all field_hint values from parsed_intent (select, filters, aggregations, group_by, order_by)
     and retrieves detailed metadata only for those columns.
 
     Args:
@@ -247,6 +248,11 @@ async def metadata_enrichment_node(state: GenericText2SQLState) -> GenericText2S
 
         # Collect all field_hints from all steps
         for step in parsed_intent["steps"]:
+            # From select
+            if "select" in step and step["select"]:
+                for field in step["select"]:
+                    used_columns.add(field)
+
             # From filters
             if "filters" in step:
                 for filter_def in step["filters"]:

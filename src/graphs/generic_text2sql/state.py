@@ -4,10 +4,11 @@ from typing import TypedDict, List, Optional, Literal
 class Filter(TypedDict, total=False):
     """Filter definition for SQL query"""
     field_hint: str
-    operator: Literal["=", ">", "<", "LIKE", "IN", "BETWEEN"]
+    operator: Literal["=", ">", "<", ">=", "<=", "!=", "LIKE", "IN", "BETWEEN", "IS", "IS NOT"]
     value_hint: str
     resolved_value: Optional[str]  # Değer resolver tarafından bulunan gerçek değer
     resolution_confidence: Optional[float]  # Çözümleme güven skoru (0-100)
+    logical_operator: Optional[Literal["AND", "OR"]]  # Mantıksal operatör (default: AND)
 
 
 class Aggregation(TypedDict, total=False):
@@ -27,6 +28,7 @@ class QueryStep(TypedDict, total=False):
     """Individual query step definition"""
     step_number: int
     description: str
+    select: Optional[List[str]]  # Kullanıcının görmek istediği alanlar (opsiyonel)
     filters: List[Filter]
     aggregations: List[Aggregation]
     group_by: List[str]

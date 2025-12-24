@@ -1,80 +1,85 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 
-# Generic Intent Parser - No business logic, just structure and dates
-INTENT_PARSER_PROMPT_TEXT = """Sen bir doğal dil analiz uzmanısın. Kullanıcının sorusunu DİKKATLİCE analiz edip genel bir yapıya çevir.
-
-## BUGÜNÜN TARİHİ
-Bugün: {today_date}
-Şu an: {current_datetime}
-Yıl: {current_year}
-Ay: {current_month}
+# Generic Intent Parser - No business logic, just structure
+INTENT_PARSER_PROMPT_TEXT = """Sen bir doğal dil analiz uzmanısın. Kullanıcının sorusunu parse edip yapılandırılmış bir formata çevir.
 
 ## KULLANICI SORUSU
 {user_query}
 
 ## GÖREV
-Kullanıcının sorusunu DİKKATLE analiz et:
-1. Sorudaki TÜM koşulları ve filtreleri belirle
-2. "en çok", "en az", "ilk", "son" gibi sıralama ifadelerini tespit et
-3. Her bir bağımlı adımı AYRI AYRI belirle
-4. Tarih ifadelerini çözümle
-5. "aylar bazında", "günlük", "yıllık" gibi grouping ifadelerini tespit et
+Kullanıcının sorusunu analiz edip aşağıdaki yapıya göre parse et:
+1. Kullanıcının hangi bilgileri görmek istediğini belirle (select)
+2. Hangi koşulları uygulamak istediğini tespit et (filters)
+3. Hesaplama yapmak istiyorsa belirle (aggregations)
+4. Gruplamalar varsa tespit et (group_by)
+5. Sıralama istiyorsa belirle (order_by)
+6. Bağımlı adımları ayır (depends_on)
 
-## ÖNEMLİ: BASİT vs KARMAŞIK SORGULAR
+## JSON ÇIKTI YAPISI
 
-### Basit Sorgular (TEK ADIM yeterli):
-- "hangi X ne kadar" → Basit liste, GROUP BY kullan
-- "X'lerin listesi" → Basit liste
-- "Y bazında X" → GROUP BY ile basit sorgu
-- Kullanıcı "en çok/en az" DEMİYORSA → Tek adım!
+### Alan Açıklamaları:
+- **select**: Kullanıcının görmek istediği alanlar. Örnek: ["ürün", "tutar", "miktar"]
+  * Aggregation kullanıldığında genelde boş olur (aggregation sonuçları döner)
+  * Liste sorguları için kullanıcının görmek istediği kolonlar
 
-### Karmaşık Sorgular (ÇOK ADIM gerekli):
-- Her "en çok/en az" ifadesi genellikle AYRI bir adımdır
-- Örnek: "en çok satan kategorideki en az satan ürün" → 2 adım:
-  1. En çok satan kategoriyi bul
-  2. O kategorideki en az satan ürünü bul
+- **filters**: Sorgu koşulları. Her filter:
+  * field_hint: Hangi alan (tarih, şube, ürün, kategori, tutar, miktar, vb.)
+  * operator: Karşılaştırma operatörü (=, >, <, >=, <=, !=, LIKE, IN, IS, IS NOT)
+  * value_hint: Kullanıcının verdiği değer (aynen koru)
+  * logical_operator: Filtreler arası bağlantı ("AND" veya "OR", default: "AND")
 
-**KURAL**: Kullanıcı açıkça "en çok", "en az", "ilk", "son" demiyorsa, basit liste yap!
+- **aggregations**: Hesaplamalar. Her aggregation:
+  * function: SUM, COUNT, AVG, MAX, MIN
+  * field_hint: Hangi alan üzerinde
+  * alias: Sonuç kolonu adı
 
-## ÇIKTI FORMATI (Sadece JSON)
+- **group_by**: Gruplama alanları. Örnek: ["kategori"], ["şube", "yıl", "ay"]
 
-### Basit Sorgu Örnek 1 (toplam):
+- **order_by**: Sıralama. Örnek: {{"field_hint": "tutar", "direction": "DESC"}}
+
+- **limit**: Sonuç sayısı kısıtlaması. Örnek: 1, 10, 100
+
+- **depends_on**: Bağımlı adımlar için önceki adım numarası
+
+- **complexity**: "simple" (tek adım) veya "compound" (çok adımlı)
+
+## ÖRNEKLER
+
+### Örnek 1 - Basit Liste (Select ile):
+Soru: "Tunalı şubesinin ürünlerini göster"
 {{
   "complexity": "simple",
   "steps": [
     {{
       "step_number": 1,
-      "description": "Bugün belirli şubenin toplam satışları",
+      "description": "Tunalı şubesinin ürün listesi",
+      "select": ["ürün"],
       "filters": [
-        {{"field_hint": "tarih", "operator": "=", "value_hint": "{today_date}"}},
         {{"field_hint": "şube", "operator": "=", "value_hint": "tunalı"}}
       ],
-      "aggregations": [
-        {{"function": "SUM", "field_hint": "tutar", "alias": "TotalAmount"}}
-      ],
-      "group_by": [],
+      "aggregations": [],
+      "group_by": ["ürün"],
       "order_by": null,
       "limit": null,
       "depends_on": null
     }}
   ],
-  "final_output": "Şubenin bugünkü toplam satış tutarı"
+  "final_output": "Tunalı şubesinin ürünleri"
 }}
 
-### Basit Liste Örneği ("hangi X ne kadar"):
+### Örnek 2 - Aggregation ile:
+Soru: "Hangi ürün ne kadar satıldı?"
 {{
   "complexity": "simple",
   "steps": [
     {{
       "step_number": 1,
-      "description": "Son 1 yılda ikram edilen ürünlerin listesi ve tutarları",
-      "filters": [
-        {{"field_hint": "tarih", "operator": ">=", "value_hint": "DATEADD(YEAR, -1, '{today_date}')"}},
-        {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "1"}}
-      ],
+      "description": "Ürünlerin toplam satış miktarları",
+      "select": null,
+      "filters": [],
       "aggregations": [
-        {{"function": "SUM", "field_hint": "tutar", "alias": "TotalAmount"}}
+        {{"function": "SUM", "field_hint": "miktar", "alias": "ToplamMiktar"}}
       ],
       "group_by": ["ürün"],
       "order_by": null,
@@ -82,129 +87,142 @@ Kullanıcının sorusunu DİKKATLE analiz et:
       "depends_on": null
     }}
   ],
-  "final_output": "Her ürün için ikram tutarları"
+  "final_output": "Her ürünün toplam satış miktarı"
 }}
 
-### Özel Durum Örneği (ikram, açık masa):
+### Örnek 3 - Mantıksal Filtreler (OR):
+Soru: "İstanbul veya Ankara'daki satışlar"
 {{
   "complexity": "simple",
   "steps": [
     {{
       "step_number": 1,
-      "description": "Açık masalarda ikram edilen ürünlerin toplam tutarı",
+      "description": "İstanbul veya Ankara satışları",
+      "select": ["şehir", "tutar"],
       "filters": [
-        {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "True"}},
-        {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "1"}}
+        {{"field_hint": "şehir", "operator": "=", "value_hint": "istanbul", "logical_operator": "OR"}},
+        {{"field_hint": "şehir", "operator": "=", "value_hint": "ankara"}}
       ],
-      "aggregations": [
-        {{"function": "SUM", "field_hint": "tutar", "alias": "TotalAmount"}}
-      ],
+      "aggregations": [],
       "group_by": [],
       "order_by": null,
       "limit": null,
       "depends_on": null
     }}
   ],
-  "final_output": "Açık masalardaki ikram tutarı"
+  "final_output": "İstanbul veya Ankara'daki satışlar"
 }}
 
-### Çok Adımlı Bağımlı Sorgu:
+### Örnek 4 - Bağımlı Adımlar + Tarih (Doğal Dil):
+Soru: "6 kasımda en çok satan kategorideki, tüm tarihlerde en az satan ürünün son 5 yıldaki aylık performansı"
 {{
   "complexity": "compound",
   "steps": [
     {{
       "step_number": 1,
-      "description": "Belirli tarihteki en çok satan kategoriyi bul",
+      "description": "6 kasımda en çok satan kategori",
+      "select": null,
       "filters": [
-        {{"field_hint": "tarih", "operator": "=", "value_hint": "2025-11-06"}}
+        {{"field_hint": "tarih", "operator": "=", "value_hint": "6 kasım"}}
       ],
       "aggregations": [
-        {{"function": "SUM", "field_hint": "miktar", "alias": "TotalQty"}}
+        {{"function": "SUM", "field_hint": "miktar", "alias": "ToplamMiktar"}}
       ],
       "group_by": ["kategori"],
-      "order_by": {{"field_hint": "TotalQty", "direction": "DESC"}},
+      "order_by": {{"field_hint": "ToplamMiktar", "direction": "DESC"}},
       "limit": 1,
       "depends_on": null
     }},
     {{
       "step_number": 2,
-      "description": "O kategorideki tüm tarihlerde en az adet satan ürünü bul",
+      "description": "O kategorideki tüm tarihlerde en az satan ürün",
+      "select": null,
       "filters": [
         {{"field_hint": "kategori", "operator": "=", "value_hint": "step_1.kategori"}}
       ],
       "aggregations": [
-        {{"function": "SUM", "field_hint": "miktar", "alias": "TotalQty"}}
+        {{"function": "SUM", "field_hint": "miktar", "alias": "ToplamMiktar"}}
       ],
       "group_by": ["ürün"],
-      "order_by": {{"field_hint": "TotalQty", "direction": "ASC"}},
+      "order_by": {{"field_hint": "ToplamMiktar", "direction": "ASC"}},
       "limit": 1,
       "depends_on": 1
     }},
     {{
       "step_number": 3,
-      "description": "O ürünün son 5 yıl içindeki cirosunu aylar bazında şubeler için göster",
+      "description": "O ürünün son 5 yıldaki aylık performansı",
+      "select": null,
       "filters": [
         {{"field_hint": "ürün", "operator": "=", "value_hint": "step_2.ürün"}},
-        {{"field_hint": "tarih", "operator": ">=", "value_hint": "DATEADD(YEAR, -5, '{today_date}')"}}
+        {{"field_hint": "tarih", "operator": ">=", "value_hint": "son 5 yıl"}}
       ],
       "aggregations": [
-        {{"function": "SUM", "field_hint": "tutar", "alias": "Revenue"}}
+        {{"function": "SUM", "field_hint": "tutar", "alias": "Ciro"}}
       ],
-      "group_by": ["şube", "yıl", "ay"],
+      "group_by": ["yıl", "ay"],
       "order_by": null,
       "limit": null,
       "depends_on": 2
     }}
   ],
-  "final_output": "En çok satan kategorideki en az satan ürünün son 5 yıldaki aylık şube performansı"
+  "final_output": "6 kasımda en çok satan kategorideki en az satan ürünün son 5 yıldaki aylık cirosu"
 }}
 
-## KURALLAR
+NOT: Dikkat et - "6 kasım" ve "son 5 yıl" doğal dil olarak kaldı, tarih çözümlemesi yapılmadı!
 
-### Tarih Çözümleme:
-- "bugün" → value_hint: "{today_date}"
-- "dün" → value_hint: "DATEADD(DAY, -1, '{today_date}')"
-- "son 7 gün" → value_hint: "DATEADD(DAY, -7, '{today_date}')", operator: ">="
-- "bu ay" → value_hint: "{current_year}-{current_month}"
-- "son 5 yıl" → value_hint: "DATEADD(YEAR, -5, '{today_date}')", operator: ">="
-- "6 kasım" → value_hint: "{current_year}-11-06" (current year if not specified)
+## ÖNEMLİ KURALLAR
 
-### Sıralama Kuralları:
-- "en çok" → ORDER BY DESC + LIMIT 1
-- "en az" → ORDER BY ASC + LIMIT 1
-- "ilk" → ORDER BY ASC + LIMIT N
-- "son" → ORDER BY DESC + LIMIT N
+1. **Select Kullanımı**:
+   - Aggregation YOKSA ve kullanıcı belirli alanlar görmek istiyorsa select kullan
+   - Aggregation VARSA genelde select null olur
+   - "göster", "listele", "hangileri" gibi ifadelerde select kullan
 
-### Gruplama Kuralları:
-- "aylar bazında" → group_by: ["yıl", "ay"]
-- "günlük" → group_by: ["tarih"]
-- "yıllık" → group_by: ["yıl"]
-- "şubeler için" → group_by'e "şube" ekle
-- "ürünler için" → group_by'e "ürün" ekle
+2. **Mantıksal Operatörler**:
+   - Default davranış: AND (belirtilmediğinde)
+   - "veya", "ya da" → OR kullan
+   - "ve", "hem", "aynı zamanda" → AND kullan
+   - logical_operator sadece iki filter arasındaki bağlantı için kullanılır
 
-### Özel Durumlar (Kritik!):
-- "ikram" sözcüğü → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "1"}}
-- "zayi" veya "fire" → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "2"}}
-- "iptal" sözcüğü → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "3"}}
-- "açık masa" veya "ödemesi alınmamış" → filter ekle: {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "True"}}
-- "kapalı masa" veya "ödemesi alınan" → filter ekle: {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "False"}}
-- "menü ürünü" veya "yan ürün" → filter ekle: {{"field_hint": "menü_id", "operator": "IS NOT", "value_hint": "NULL"}}
-- "ana ürün" veya "menü dışı" → filter ekle: {{"field_hint": "menü_id", "operator": "IS", "value_hint": "NULL"}}
-- "adisyon", "masa tutarı/toplamı" veya "sepet tutarı" → aggregation ve group_by'a "adisyon_id" ekle (her adisyon için ayrı)
+3. **Bağımlı Adımlar**:
+   - "en çok/en az" her kullanımda genelde yeni adım
+   - Önceki adımdan değer almak için: "step_X.alanAdı"
+   - depends_on ile bağımlılığı belirt
 
-### Genel Kurallar:
-- field_hint: Genel alan adı kullan (tarih, şube, ürün, kategori, tutar, miktar, yıl, ay, gün, işlem_tipi, masa_durumu, menü_id, adisyon_id vb.)
-- value_hint: Kullanıcının verdiği değeri olduğu gibi yaz
-- Bağımlı adımlar: "step_X.alanAdı" formatı kullan
-- Her "en çok/en az" ifadesi için AYRI adım oluştur
-- Emin olmadığın değerleri "?" ile işaretle
+4. **Field Hint İsimleri** (Genel adlar, veritabanı bağımsız):
+   - tarih, şube, ürün, kategori, tutar, miktar, müşteri, kasiyer
+   - yıl, ay, gün, saat, şehir, ilçe
+   - işlem_tipi, masa_durumu, menü_id, adisyon_id
+
+5. **Value Hint**:
+   - Kullanıcının verdiği değeri AYNEN yaz, ÇÖZÜMLEME YAPMA!
+   - Emin olmadığın değerleri "?" ile işaretle
+   - **ÇOK ÖNEMLİ - TARİH İFADELERİ**: Tarih ifadelerini doğal dil olarak AYNEN kullanıcının söylediği gibi yaz
+     * "bugün" → value_hint: "bugün"
+     * "6 kasım" → value_hint: "6 kasım"
+     * "son 7 gün" → value_hint: "son 7 gün"
+     * TARİH ÇÖZÜMLEMESÎ YAPMA! (Bu sonraki adımda yapılacak)
+
+6. **Özel Durumlar** (Kritik!):
+   - "ikram" → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "1"}}
+   - "zayi" veya "fire" → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "2"}}
+   - "iptal" → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "3"}}
+   - "açık masa" → filter ekle: {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "1"}}
+   - "kapalı masa" → filter ekle: {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "0"}}
+
+Sadece JSON döndür, başka açıklama yapma.
 """
 
 INTENT_PARSER_PROMPT = ChatPromptTemplate.from_template(INTENT_PARSER_PROMPT_TEXT)
 
 
 # Business Logic Matcher - Maps generic intent to specific DB schema
-INTENT_MATCHER_PROMPT_TEXT = """Sen bir veritabanı şema uzmanısın. Generic intent yapısını gerçek tablo kolonlarına eşleştir.
+INTENT_MATCHER_PROMPT_TEXT = """Sen bir veritabanı şema uzmanısın. Generic intent yapısını gerçek tablo kolonlarına eşleştir ve tarih ifadelerini çözümle.
+
+## BUGÜNÜN TARİHİ
+Bugün: {today_date}
+Şu an: {current_datetime}
+Yıl: {current_year}
+Ay: {current_month}
 
 ## TABLO BİLGİSİ
 Tablo adı: MasterReportDocumentTable
@@ -228,7 +246,8 @@ Kolonlar:
 {parsed_intent}
 
 ## GÖREV
-Generic field_hint'leri gerçek kolon adlarına eşleştir.
+1. Generic field_hint'leri gerçek kolon adlarına eşleştir
+2. Tarih ifadelerini (value_hint) SQL tarih fonksiyonlarına çevir
 
 ## EŞLEŞTİRME KURALLARI
 - "tarih" → "DocumentDate"
@@ -249,17 +268,65 @@ Generic field_hint'leri gerçek kolon adlarına eşleştir.
 - "menü_id" → "MenuId"
 - "adisyon_id" → "DocumentId"
 
-## ÇIKTI FORMATI
-Aynı JSON yapısını döndür, sadece field_hint değerlerini güncelle:
+## TARİH ÇÖZÜMLEMESİ (value_hint dönüşümleri)
+Doğal dil tarih ifadelerini SQL formatına çevir:
 
+### Mutlak Tarihler:
+- "bugün" → "{today_date}"
+- "dün" → "DATEADD(DAY, -1, '{today_date}')"
+- "yarın" → "DATEADD(DAY, 1, '{today_date}')"
+
+### Göreceli Tarihler:
+- "son 7 gün", "son 7 günde" → "DATEADD(DAY, -7, '{today_date}')" (operator: ">=")
+- "son 30 gün" → "DATEADD(DAY, -30, '{today_date}')" (operator: ">=")
+- "son 5 yıl", "son 5 yılda" → "DATEADD(YEAR, -5, '{today_date}')" (operator: ">=")
+- "son 3 ay" → "DATEADD(MONTH, -3, '{today_date}')" (operator: ">=")
+
+### Periyot Tarihleri:
+- "bu ay" → "{current_year}-{current_month}" (LIKE kullan: "{current_year}-{current_month}-%")
+- "bu yıl" → "{current_year}" (LIKE kullan: "{current_year}-%")
+- "geçen ay" → "DATEADD(MONTH, -1, '{today_date}')"
+
+### Spesifik Tarihler (Gün-Ay formatı):
+- "6 kasım", "kasım 6", "6 kas" → "{current_year}-11-06"
+- "15 ocak" → "{current_year}-01-15"
+- "3 mart" → "{current_year}-03-03"
+- **NOT**: Yıl belirtilmemişse current_year kullan!
+- **NOT**: Ay isimlerini sayıya çevir (ocak=01, şubat=02, mart=03, nisan=04, mayıs=05, haziran=06, temmuz=07, ağustos=08, eylül=09, ekim=10, kasım=11, aralık=12)
+
+### Tam Tarihler:
+- "2023-11-06" → Olduğu gibi bırak
+- "6.11.2023" → "2023-11-06" formatına çevir
+
+ÖNEMLİ: Tarih alanı (DocumentDate) için value_hint'i bu kurallara göre dönüştür!
+
+## ÇIKTI FORMATI
+Aynı JSON yapısını döndür, field_hint ve tarih value_hint değerlerini güncelle:
+
+### Örnek - Tarih Çözümleme:
+Input (INTENT_PARSER'dan gelen):
+{{
+  "complexity": "simple",
+  "steps": [
+    {{
+      "filters": [
+        {{"field_hint": "tarih", "operator": "=", "value_hint": "6 kasım"}},
+        {{"field_hint": "şube", "operator": "=", "value_hint": "tunalı"}}
+      ]
+    }}
+  ]
+}}
+
+Output (TARİH ÇÖZÜMLEME YAPILMIŞ):
 {{
   "complexity": "simple",
   "steps": [
     {{
       "step_number": 1,
-      "description": "Bugün TUNALI şubesinin toplam satışları",
+      "description": "6 kasımda TUNALI şubesinin satışları",
+      "select": null,
       "filters": [
-        {{"field_hint": "DocumentDate", "operator": "=", "value_hint": "2024-12-19"}},
+        {{"field_hint": "DocumentDate", "operator": "=", "value_hint": "{current_year}-11-06"}},
         {{"field_hint": "BranchName", "operator": "=", "value_hint": "tunalı"}}
       ],
       "aggregations": [
@@ -271,13 +338,17 @@ Aynı JSON yapısını döndür, sadece field_hint değerlerini güncelle:
       "depends_on": null
     }}
   ],
-  "final_output": "TUNALI şubesinin bugünkü toplam satış tutarı"
+  "final_output": "TUNALI şubesinin 6 kasımdaki toplam satış tutarı"
 }}
+
+Dikkat: "6 kasım" → "{current_year}-11-06" olarak çözümlendi!
 
 NOT:
 - Sadece JSON döndür, başka bir şey yazma
-- value_hint değerlerini AYNEN KORU (kullanıcının girdiği değerler önemli)
-- Sadece field_hint değerlerini güncelle
+- Tarih olmayan value_hint değerlerini AYNEN KORU
+- Tarih ifadeleri için yukarıdaki kuralları uygula
+- field_hint'leri eşleştir
+- select, logical_operator gibi yeni alanları AYNEN KORU
 """
 
 INTENT_MATCHER_PROMPT = ChatPromptTemplate.from_template(INTENT_MATCHER_PROMPT_TEXT)
@@ -294,7 +365,7 @@ COLUMN_METADATA_DETAILED = {
 
     # Adisyon
     "DocumentId": "Adisyon ID (guid). ÖNEMLİ: Adisyon toplam tutarı hesaplanırken GROUP BY DocumentId kullan!",
-    "IsTableActive": "Masa durumu. True: Açık masalar (ödemesi alınmamış, hala masada), False: Kapalı masalar (ödemesi alınan)",
+    "IsTableActive": "Masa durumu. 1: Açık masalar (ödemesi alınmamış, hala masada), 0: Kapalı masalar (ödemesi alınan)",
 
     # Ürün
     "ProductName": "Ürün adı",
@@ -388,33 +459,100 @@ Her filter için değer seçimi SIRASI:
 **NOT**: resolved_value zaten veritabanından çözülmüş gerçek değerdir, MUTLAKA kullanılmalıdır!
 
 ## KURALLAR
-1. Her adım için ayrı SQL oluştur (çok adımlıysa CTE kullan)
-2. depends_on varsa önceki adımın sonucunu kullan
-3. field_hint: Zaten gerçek kolon adı
-4. MSSQL syntax: TOP, DATEADD, CAST vb.
-5. Tarih filtreleri: CAST(DocumentDate AS DATE)
-6. **CTE içinde ORDER BY KULLANMA** (sadece TOP ile birlikte)
-   - ORDER BY'ı final SELECT'te kullan
-7. limit varsa TOP kullan
-8. Sadece SQL sorgusu döndür (markdown yok)
 
-## ÖRNEK 1 - resolved_value kullanımı:
+1. **SELECT Clause**:
+   - Eğer "select" alanı varsa ve boş değilse: SELECT ile belirtilen kolonları kullan
+   - Eğer "select" null/boş ve aggregation varsa: Aggregation sonuçlarını + group_by alanlarını kullan
+   - Eğer ikisi de yoksa: SELECT * kullan
+
+2. **WHERE Clause (Filtreler)**:
+   - Her filter'ı WHERE clause'a ekle
+   - **logical_operator** alanına dikkat et:
+     * Eğer filter'da "logical_operator": "OR" varsa → önceki filter ile OR ile bağla
+     * Eğer logical_operator yoksa veya "AND" ise → önceki filter ile AND ile bağla
+   - Örnek:
+     * Filter 1: şehir = "istanbul", logical_operator: "OR"
+     * Filter 2: şehir = "ankara"
+     * WHERE: şehir = 'İSTANBUL' OR şehir = 'ANKARA'
+
+3. **CTE ve Bağımlılıklar**:
+   - Her adım için ayrı SQL oluştur (çok adımlıysa CTE kullan)
+   - depends_on varsa önceki adımın sonucunu kullan
+   - field_hint: Zaten gerçek kolon adı
+
+4. **MSSQL Syntax**:
+   - TOP kullan (limit için)
+   - DATEADD, CAST kullan
+   - Tarih filtreleri: CAST(DocumentDate AS DATE)
+   - **CTE içinde ORDER BY KULLANMA** (sadece TOP ile birlikte)
+   - ORDER BY'ı final SELECT'te kullan
+
+5. **Sadece SQL sorgusu döndür** (markdown yok)
+
+## ÖRNEK 1 - SELECT alanı ile basit liste:
 Input:
 {{
   "steps": [
     {{
+      "select": ["ProductName", "RowAmount"],
+      "filters": [
+        {{"field_hint": "BranchName", "value_hint": "tunalı", "resolved_value": "TUNALI MERKEZ"}}
+      ],
+      "aggregations": [],
+      "group_by": []
+    }}
+  ]
+}}
+
+Output:
+```sql
+SELECT ProductName, RowAmount
+FROM MasterReportDocumentTable
+WHERE BranchName = 'TUNALI MERKEZ'
+```
+
+## ÖRNEK 2 - Mantıksal Operatörler (OR):
+Input:
+{{
+  "steps": [
+    {{
+      "select": ["BranchCityName", "RowAmount"],
+      "filters": [
+        {{"field_hint": "BranchCityName", "value_hint": "istanbul", "resolved_value": "İSTANBUL", "logical_operator": "OR"}},
+        {{"field_hint": "BranchCityName", "value_hint": "ankara", "resolved_value": "ANKARA"}}
+      ],
+      "aggregations": [],
+      "group_by": []
+    }}
+  ]
+}}
+
+Output:
+```sql
+SELECT BranchCityName, RowAmount
+FROM MasterReportDocumentTable
+WHERE BranchCityName = 'İSTANBUL' OR BranchCityName = 'ANKARA'
+```
+
+## ÖRNEK 3 - Aggregation (SELECT null):
+Input:
+{{
+  "steps": [
+    {{
+      "select": null,
       "filters": [
         {{"field_hint": "BranchName", "value_hint": "tunalı", "resolved_value": "TUNALI MERKEZ"}},
         {{"field_hint": "DocumentDate", "value_hint": "2024-12-23"}}
       ],
       "aggregations": [
         {{"function": "SUM", "field_hint": "RowAmount", "alias": "TotalAmount"}}
-      ]
+      ],
+      "group_by": []
     }}
   ]
 }}
 
-Output (DİKKAT: resolved_value kullanıldı!):
+Output:
 ```sql
 SELECT SUM(RowAmount) AS TotalAmount
 FROM MasterReportDocumentTable
