@@ -54,6 +54,7 @@ class GenericText2SQLState(TypedDict):
     """State for generic text2sql graph"""
     user_query: str
     parsed_intent: Optional[ParsedIntent]
+    enriched_metadata: Optional[dict]  # Column-specific metadata (token optimization)
     resolved_steps: Optional[List[QueryStep]]
     resolution_metadata: Optional[ResolutionMetadata]
     sql_queries: Optional[List[str]]

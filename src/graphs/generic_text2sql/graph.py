@@ -21,6 +21,7 @@ from .state import GenericText2SQLState
 from .nodes import (
     intent_parser_node,
     intent_matching_node,
+    metadata_enrichment_node,
     value_resolver_node,
     sql_query_builder_node,
     sql_executor_node
@@ -99,7 +100,7 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         Build and return the compiled StateGraph.
 
         Architecture:
-        START → intent_parser → intent_matching → value_resolver → sql_query_builder → sql_executor → END
+        START → intent_parser → intent_matching → metadata_enrichment → value_resolver → sql_query_builder → sql_executor → END
 
         Returns:
             Compiled StateGraph instance
@@ -109,6 +110,7 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         # Add nodes
         builder.add_node("intent_parser", intent_parser_node)
         builder.add_node("intent_matching", intent_matching_node)
+        builder.add_node("metadata_enrichment", metadata_enrichment_node)
         builder.add_node("value_resolver", value_resolver_node)
         builder.add_node("sql_query_builder", sql_query_builder_node)
         builder.add_node("sql_executor", sql_executor_node)
@@ -116,7 +118,8 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         # Add edges
         builder.add_edge(START, "intent_parser")
         builder.add_edge("intent_parser", "intent_matching")
-        builder.add_edge("intent_matching", "value_resolver")
+        builder.add_edge("intent_matching", "metadata_enrichment")
+        builder.add_edge("metadata_enrichment", "value_resolver")
         builder.add_edge("value_resolver", "sql_query_builder")
         builder.add_edge("sql_query_builder", "sql_executor")
         builder.add_edge("sql_executor", END)

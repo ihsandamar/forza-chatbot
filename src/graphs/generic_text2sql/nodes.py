@@ -11,7 +11,8 @@ from langchain_openai import ChatOpenAI
 from src.graphs.generic_text2sql.prompts import (
     INTENT_PARSER_PROMPT,
     INTENT_MATCHER_PROMPT,
-    SQL_QUERY_BUILDER_PROMPT
+    SQL_QUERY_BUILDER_PROMPT,
+    COLUMN_METADATA_DETAILED
 )
 from src.graphs.generic_text2sql.tools import GENERIC_TEXT2SQL_TOOLS
 from src.graphs.generic_text2sql.state import (
@@ -218,6 +219,87 @@ async def intent_matching_node(state: GenericText2SQLState) -> GenericText2SQLSt
 
     return state
 
+
+async def metadata_enrichment_node(state: GenericText2SQLState) -> GenericText2SQLState:
+    """
+    Extract metadata for only the columns used in the query (token optimization).
+
+    Collects all field_hint values from parsed_intent (filters, aggregations, group_by, order_by)
+    and retrieves detailed metadata only for those columns.
+
+    Args:
+        state: Current generic text2sql state with parsed_intent
+
+    Returns:
+        Updated state with enriched_metadata (dict of column -> description)
+    """
+    try:
+        logger.debug("Enriching metadata for used columns...")
+
+        # Check if parsed_intent exists
+        if not state.get("parsed_intent"):
+            logger.error("No parsed_intent found in state")
+            state["error"] = "Metadata enrichment için parsed_intent gerekli"
+            return state
+
+        parsed_intent = state["parsed_intent"]
+        used_columns = set()
+
+        # Collect all field_hints from all steps
+        for step in parsed_intent["steps"]:
+            # From filters
+            if "filters" in step:
+                for filter_def in step["filters"]:
+                    field_hint = filter_def.get("field_hint")
+                    if field_hint:
+                        used_columns.add(field_hint)
+
+            # From aggregations
+            if "aggregations" in step:
+                for agg in step["aggregations"]:
+                    field_hint = agg.get("field_hint")
+                    if field_hint and field_hint != "*":
+                        used_columns.add(field_hint)
+
+            # From group_by
+            if "group_by" in step and step["group_by"]:
+                for field in step["group_by"]:
+                    used_columns.add(field)
+
+            # From order_by
+            if "order_by" in step and step["order_by"]:
+                field_hint = step["order_by"].get("field_hint")
+                if field_hint:
+                    used_columns.add(field_hint)
+
+        # Get metadata only for used columns
+        enriched_metadata = {}
+        for column in used_columns:
+            if column in COLUMN_METADATA_DETAILED:
+                enriched_metadata[column] = COLUMN_METADATA_DETAILED[column]
+            else:
+                # Column not in metadata dictionary, skip
+                logger.debug(f"No metadata found for column: {column}")
+
+        # Store in state
+        state["enriched_metadata"] = enriched_metadata
+
+        logger.info(
+            f"Metadata enriched: {len(enriched_metadata)} columns with details "
+            f"(out of {len(used_columns)} used columns)"
+        )
+
+        # Log which columns got metadata
+        if enriched_metadata:
+            logger.debug(f"Columns with metadata: {', '.join(enriched_metadata.keys())}")
+
+    except Exception as e:
+        logger.error(f"Unexpected error in metadata_enrichment_node: {e}", exc_info=True)
+        state["error"] = f"Metadata enrichment hatası: {str(e)}"
+
+    return state
+
+
 async def get_value_resolver(db_connection_string: str) -> ValueResolverService:
     """
     Get or create ValueResolverService instance (singleton pattern).
@@ -403,14 +485,24 @@ async def sql_query_builder_node(state: GenericText2SQLState) -> GenericText2SQL
         # Prepare resolved steps JSON for prompt
         steps_json = json.dumps(resolved_steps, indent=2, ensure_ascii=False)
 
-        logger.debug(f"Building SQL query for {len(resolved_steps)} step(s)")
+        # Prepare enriched metadata (only for used columns)
+        enriched_metadata = state.get("enriched_metadata", {})
+        if enriched_metadata:
+            metadata_text = "\n".join(
+                f"- {col}: {desc}" for col, desc in enriched_metadata.items()
+            )
+        else:
+            metadata_text = "(No additional metadata available)"
+
+        logger.debug(f"Building SQL query for {len(resolved_steps)} step(s) with {len(enriched_metadata)} column metadata")
 
         # Get LLM response
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         chain = SQL_QUERY_BUILDER_PROMPT | llm
 
         response = await chain.ainvoke({
-            "resolved_steps": steps_json
+            "resolved_steps": steps_json,
+            "enriched_metadata": metadata_text
         })
 
         # Extract SQL from response (remove markdown if present)

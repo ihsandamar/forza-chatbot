@@ -21,15 +21,25 @@ Kullanıcının sorusunu DİKKATLE analiz et:
 4. Tarih ifadelerini çözümle
 5. "aylar bazında", "günlük", "yıllık" gibi grouping ifadelerini tespit et
 
-## ÖNEMLİ: KARMAŞIK SORGULAR İÇİN
+## ÖNEMLİ: BASİT vs KARMAŞIK SORGULAR
+
+### Basit Sorgular (TEK ADIM yeterli):
+- "hangi X ne kadar" → Basit liste, GROUP BY kullan
+- "X'lerin listesi" → Basit liste
+- "Y bazında X" → GROUP BY ile basit sorgu
+- Kullanıcı "en çok/en az" DEMİYORSA → Tek adım!
+
+### Karmaşık Sorgular (ÇOK ADIM gerekli):
 - Her "en çok/en az" ifadesi genellikle AYRI bir adımdır
 - Örnek: "en çok satan kategorideki en az satan ürün" → 2 adım:
   1. En çok satan kategoriyi bul
   2. O kategorideki en az satan ürünü bul
 
+**KURAL**: Kullanıcı açıkça "en çok", "en az", "ilk", "son" demiyorsa, basit liste yap!
+
 ## ÇIKTI FORMATI (Sadece JSON)
 
-### Basit Sorgu:
+### Basit Sorgu Örnek 1 (toplam):
 {{
   "complexity": "simple",
   "steps": [
@@ -50,6 +60,52 @@ Kullanıcının sorusunu DİKKATLE analiz et:
     }}
   ],
   "final_output": "Şubenin bugünkü toplam satış tutarı"
+}}
+
+### Basit Liste Örneği ("hangi X ne kadar"):
+{{
+  "complexity": "simple",
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "Son 1 yılda ikram edilen ürünlerin listesi ve tutarları",
+      "filters": [
+        {{"field_hint": "tarih", "operator": ">=", "value_hint": "DATEADD(YEAR, -1, '{today_date}')"}},
+        {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "1"}}
+      ],
+      "aggregations": [
+        {{"function": "SUM", "field_hint": "tutar", "alias": "TotalAmount"}}
+      ],
+      "group_by": ["ürün"],
+      "order_by": null,
+      "limit": null,
+      "depends_on": null
+    }}
+  ],
+  "final_output": "Her ürün için ikram tutarları"
+}}
+
+### Özel Durum Örneği (ikram, açık masa):
+{{
+  "complexity": "simple",
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "Açık masalarda ikram edilen ürünlerin toplam tutarı",
+      "filters": [
+        {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "True"}},
+        {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "1"}}
+      ],
+      "aggregations": [
+        {{"function": "SUM", "field_hint": "tutar", "alias": "TotalAmount"}}
+      ],
+      "group_by": [],
+      "order_by": null,
+      "limit": null,
+      "depends_on": null
+    }}
+  ],
+  "final_output": "Açık masalardaki ikram tutarı"
 }}
 
 ### Çok Adımlı Bağımlı Sorgu:
@@ -126,8 +182,18 @@ Kullanıcının sorusunu DİKKATLE analiz et:
 - "şubeler için" → group_by'e "şube" ekle
 - "ürünler için" → group_by'e "ürün" ekle
 
+### Özel Durumlar (Kritik!):
+- "ikram" sözcüğü → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "1"}}
+- "zayi" veya "fire" → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "2"}}
+- "iptal" sözcüğü → filter ekle: {{"field_hint": "işlem_tipi", "operator": "=", "value_hint": "3"}}
+- "açık masa" veya "ödemesi alınmamış" → filter ekle: {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "True"}}
+- "kapalı masa" veya "ödemesi alınan" → filter ekle: {{"field_hint": "masa_durumu", "operator": "=", "value_hint": "False"}}
+- "menü ürünü" veya "yan ürün" → filter ekle: {{"field_hint": "menü_id", "operator": "IS NOT", "value_hint": "NULL"}}
+- "ana ürün" veya "menü dışı" → filter ekle: {{"field_hint": "menü_id", "operator": "IS", "value_hint": "NULL"}}
+- "adisyon", "masa tutarı/toplamı" veya "sepet tutarı" → aggregation ve group_by'a "adisyon_id" ekle (her adisyon için ayrı)
+
 ### Genel Kurallar:
-- field_hint: Genel alan adı kullan (tarih, şube, ürün, kategori, tutar, miktar, yıl, ay, gün vb.)
+- field_hint: Genel alan adı kullan (tarih, şube, ürün, kategori, tutar, miktar, yıl, ay, gün, işlem_tipi, masa_durumu, menü_id, adisyon_id vb.)
 - value_hint: Kullanıcının verdiği değeri olduğu gibi yaz
 - Bağımlı adımlar: "step_X.alanAdı" formatı kullan
 - Her "en çok/en az" ifadesi için AYRI adım oluştur
@@ -141,7 +207,7 @@ INTENT_PARSER_PROMPT = ChatPromptTemplate.from_template(INTENT_PARSER_PROMPT_TEX
 INTENT_MATCHER_PROMPT_TEXT = """Sen bir veritabanı şema uzmanısın. Generic intent yapısını gerçek tablo kolonlarına eşleştir.
 
 ## TABLO BİLGİSİ
-Tablo adı: SalesDetailView
+Tablo adı: MasterReportDocumentTable
 
 Kolonlar:
 - DocumentId: Adisyon ID (guid)
@@ -156,6 +222,7 @@ Kolonlar:
 - CustomerName: Müşteri adı (text)
 - CashierName: Kasiyer adı (text)
 - BranchCityName: Şehir (text)
+- TableNo: Masa Numarası/Adı (text)
 
 ## GENERIC INTENT
 {parsed_intent}
@@ -177,6 +244,10 @@ Generic field_hint'leri gerçek kolon adlarına eşleştir.
 - "saat" → "Hour"
 - "yıl" → "YEAR(DocumentDate)" (calculated field)
 - "ay" → "MONTH(DocumentDate)" (calculated field)
+- "işlem_tipi" → "DocumentDetailIsTreatWasteCancel"
+- "masa_durumu" → "IsTableActive"
+- "menü_id" → "MenuId"
+- "adisyon_id" → "DocumentId"
 
 ## ÇIKTI FORMATI
 Aynı JSON yapısını döndür, sadece field_hint değerlerini güncelle:
@@ -212,6 +283,50 @@ NOT:
 INTENT_MATCHER_PROMPT = ChatPromptTemplate.from_template(INTENT_MATCHER_PROMPT_TEXT)
 
 
+# Detaylı kolon metadata - Sadece gerekli olanlar kullanılacak (token tasarrufu)
+COLUMN_METADATA_DETAILED = {
+    # Tarih/Zaman
+    "DocumentDate": "Satış tarihi (datetime)",
+    "DayOfWeek": "Gün (1=Pazartesi...7=Pazar)",
+    "Hour": "Saat (0-23)",
+    "YEAR(DocumentDate)": "Yıl (calculated field)",
+    "MONTH(DocumentDate)": "Ay (calculated field)",
+
+    # Adisyon
+    "DocumentId": "Adisyon ID (guid). ÖNEMLİ: Adisyon toplam tutarı hesaplanırken GROUP BY DocumentId kullan!",
+    "IsTableActive": "Masa durumu. True: Açık masalar (ödemesi alınmamış, hala masada), False: Kapalı masalar (ödemesi alınan)",
+
+    # Ürün
+    "ProductName": "Ürün adı",
+    "CategoryName": "Kategori adı",
+    "MenuId": "Menü ürünü ID. NULL veya Empty Guid ise ana ürün, değer varsa menü içi seçenek (yan ürün)",
+
+    # Satış
+    "Quantity": "Satış miktarı (adet)",
+    "RowAmount": "Satış tutarı (TL)",
+    "DiscountAmountTotal": "İndirim tutarı (TL)",
+    "DocumentDetailIsTreatWasteCancel": "İşlem tipi. Null: Default Normal satış, 1: İkram, 2: Zayi (fire), 3: İptal",
+
+    # Lokasyon
+    "BranchName": "Şube adı",
+    "BranchCityName": "Şehir",
+    "BranchTownName": "İlçe",
+
+    # Satış Tipi
+    "DocumentTypeName": "İşlem tipi (Stok Çıkış, Fatura, vb.)",
+    "DocumentKindName": "Satış kanalı (Paket Servis, Masa, vb.)",
+    "DocumentTypeIsReturn": "İade mi? (0: Normal, 1: İade)",
+
+    # Personel
+    "CashierName": "Kasiyer adı",
+    "DeliveryUserName": "Kurye adı",
+
+    # Müşteri
+    "CustomerName": "Müşteri adı",
+    "TableNo": "Masa numarası",
+}
+
+# Kısa metadata (backward compatibility)
 COLUMN_METADATA_SHORT = """
 ## Kolonlar
 
@@ -253,6 +368,9 @@ SQL_QUERY_BUILDER_PROMPT_TEXT = """Sen bir MSSQL sorgu oluşturma uzmanısın.
 
 ## TABLO BİLGİSİ
 Tablo: MasterReportDocumentTable
+
+## KULLANILAN KOLONLAR VE DETAYLARI
+{enriched_metadata}
 
 ## RESOLVED STEPS
 {resolved_steps}
