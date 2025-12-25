@@ -1,9 +1,11 @@
 import asyncio
 from src.graphs.base_graph import BaseGraph
+from src.graphs.data_visualization.graph import build_visualization_graph
 from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
 from src.graphs.graph_repository import GraphRepository
 from src.graphs.routing.graph import RoutingGraph
 from src.graphs.supervisor.graph import create_supervisor_graph
+from src.graphs.report.graph import build_report_graph
 from src.models.llm import LLM
 from src.services.config_loader import ConfigLoader
 
@@ -95,3 +97,39 @@ def generic_text2sql_graph() -> BaseGraph:
     llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
     graph = GenericText2SQLGraph(llm=llm)
     return graph.build_graph()
+
+
+def data_visualization_graph() -> BaseGraph:
+    """
+    Create and return the data visualization graph.
+
+    Note: Configuration is pre-loaded by API startup event to avoid
+    blocking I/O in async contexts (LangGraph detection).
+    """
+    config = _get_config()
+    llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+
+    return build_visualization_graph(llm=llm)
+
+
+def report_graph():
+    """
+    Create and return the report graph.
+
+    This graph orchestrates text2sql and visualization graphs to generate
+    complete reports from user messages.
+
+    Note: Configuration is pre-loaded by API startup event to avoid
+    blocking I/O in async contexts (LangGraph detection).
+    """
+    config = _get_config()
+    llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+
+    # Build text2sql graph
+    text2sql = GenericText2SQLGraph(llm=llm).build_graph()
+
+    # Build visualization graph
+    visualization = build_visualization_graph(llm=llm)
+
+    # Build and return report graph
+    return build_report_graph(text2sql_graph=text2sql, visualization_graph=visualization)
