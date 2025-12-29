@@ -435,132 +435,47 @@ COLUMN_METADATA_SHORT = """
 """
 
 
-SQL_QUERY_BUILDER_PROMPT_TEXT = """Sen bir MSSQL sorgu oluşturma uzmanısın.
+SQL_QUERY_BUILDER_PROMPT_TEXT = """Sen bir MSSQL sorgu oluşturma uzmanısın. Yukarıdaki adımları MSSQL sorgusuna çevir.
 
-## TABLO BİLGİSİ
 Tablo: MasterReportDocumentTable
 
-## KULLANILAN KOLONLAR VE DETAYLARI
+## KULLANILAN KOLONLAR
 {enriched_metadata}
 
 ## RESOLVED STEPS
 {resolved_steps}
 
-## GÖREV
-Yukarıdaki adımları MSSQL sorgusuna çevir.
+## KRİTİK KURALLAR
 
-## ÖNEMLİ: DEĞER KULLANIMI
-Her filter için değer seçimi SIRASI:
-1. **resolved_value** VARSA → ONU KULLAN (kesinlikle öncelikli!)
-2. resolved_value YOKSA → value_hint kullan
-3. value_hint'te "step_X.AlanAdı" varsa → önceki CTE'den al
-4. value_hint'te DATEADD varsa → direkt SQL'e kopyala
+**1. Değer Kullanımı**:
+- resolved_value varsa → MUTLAKA onu kullan (veritabanından çözülmüş)
+- Yoksa value_hint kullan
+- "step_X.Alan" → önceki CTE'den al
+- DATEADD → direkt SQL'e kopyala
 
-**NOT**: resolved_value zaten veritabanından çözülmüş gerçek değerdir, MUTLAKA kullanılmalıdır!
+**2. SELECT Clause**:
+- **ÇOK ÖNEMLİ**: GROUP BY'daki TÜM alanlar SELECT'te olmalı (grafik için zorunlu!)
+- Aggregation varsa: Aggregation + group_by alanları
+- Aggregation yoksa: "select" alanındaki kolonlar veya SELECT *
 
-## KURALLAR
+**3. WHERE Clause**:
+- logical_operator = "OR" → önceki filter ile OR
+- logical_operator yok/AND → AND ile bağla
 
-1. **SELECT Clause**:
-   - Eğer "select" alanı varsa ve boş değilse: SELECT ile belirtilen kolonları kullan
-   - Eğer "select" null/boş ve aggregation varsa: Aggregation sonuçlarını + group_by alanlarını kullan
-   - Eğer ikisi de yoksa: SELECT * kullan
+**4. ORDER BY (Zaman Serisi için KRİTİK!)**:
+- GROUP BY'da zaman ifadesi varsa → ORDER BY'a MUTLAKA ekle!
+- Örnek: `GROUP BY YEAR(DocumentDate), MONTH(DocumentDate)` → `ORDER BY YEAR(DocumentDate), MONTH(DocumentDate)`
+- Örnek: `GROUP BY CAST(DocumentDate AS DATE)` → `ORDER BY CAST(DocumentDate AS DATE)`
 
-2. **WHERE Clause (Filtreler)**:
-   - Her filter'ı WHERE clause'a ekle
-   - **logical_operator** alanına dikkat et:
-     * Eğer filter'da "logical_operator": "OR" varsa → önceki filter ile OR ile bağla
-     * Eğer logical_operator yoksa veya "AND" ise → önceki filter ile AND ile bağla
-   - Örnek:
-     * Filter 1: şehir = "istanbul", logical_operator: "OR"
-     * Filter 2: şehir = "ankara"
-     * WHERE: şehir = 'İSTANBUL' OR şehir = 'ANKARA'
+**5. MSSQL Syntax**:
+- Limit → TOP kullan
+- Tarih filtre → CAST(DocumentDate AS DATE)
+- CTE'de ORDER BY sadece TOP ile
+- Çok adım → CTE kullan
 
-3. **CTE ve Bağımlılıklar**:
-   - Her adım için ayrı SQL oluştur (çok adımlıysa CTE kullan)
-   - depends_on varsa önceki adımın sonucunu kullan
-   - field_hint: Zaten gerçek kolon adı
+**Çıktı**: Sadece SQL sorgusu (markdown yok)
 
-4. **MSSQL Syntax**:
-   - TOP kullan (limit için)
-   - DATEADD, CAST kullan
-   - Tarih filtreleri: CAST(DocumentDate AS DATE)
-   - **CTE içinde ORDER BY KULLANMA** (sadece TOP ile birlikte)
-   - ORDER BY'ı final SELECT'te kullan
-
-5. **Sadece SQL sorgusu döndür** (markdown yok)
-
-## ÖRNEK 1 - SELECT alanı ile basit liste:
-Input:
-{{
-  "steps": [
-    {{
-      "select": ["ProductName", "RowAmount"],
-      "filters": [
-        {{"field_hint": "BranchName", "value_hint": "tunalı", "resolved_value": "TUNALI MERKEZ"}}
-      ],
-      "aggregations": [],
-      "group_by": []
-    }}
-  ]
-}}
-
-Output:
-```sql
-SELECT ProductName, RowAmount
-FROM MasterReportDocumentTable
-WHERE BranchName = 'TUNALI MERKEZ'
-```
-
-## ÖRNEK 2 - Mantıksal Operatörler (OR):
-Input:
-{{
-  "steps": [
-    {{
-      "select": ["BranchCityName", "RowAmount"],
-      "filters": [
-        {{"field_hint": "BranchCityName", "value_hint": "istanbul", "resolved_value": "İSTANBUL", "logical_operator": "OR"}},
-        {{"field_hint": "BranchCityName", "value_hint": "ankara", "resolved_value": "ANKARA"}}
-      ],
-      "aggregations": [],
-      "group_by": []
-    }}
-  ]
-}}
-
-Output:
-```sql
-SELECT BranchCityName, RowAmount
-FROM MasterReportDocumentTable
-WHERE BranchCityName = 'İSTANBUL' OR BranchCityName = 'ANKARA'
-```
-
-## ÖRNEK 3 - Aggregation (SELECT null):
-Input:
-{{
-  "steps": [
-    {{
-      "select": null,
-      "filters": [
-        {{"field_hint": "BranchName", "value_hint": "tunalı", "resolved_value": "TUNALI MERKEZ"}},
-        {{"field_hint": "DocumentDate", "value_hint": "2024-12-23"}}
-      ],
-      "aggregations": [
-        {{"function": "SUM", "field_hint": "RowAmount", "alias": "TotalAmount"}}
-      ],
-      "group_by": []
-    }}
-  ]
-}}
-
-Output:
-```sql
-SELECT SUM(RowAmount) AS TotalAmount
-FROM MasterReportDocumentTable
-WHERE BranchName = 'TUNALI MERKEZ'
-  AND CAST(DocumentDate AS DATE) = '2024-12-23'
-```
-
-## ÖRNEK 2 - Bağımlı Adımlar:
+## ÖRNEK 1 - CTE + Bağımlı Adımlar:
 Input:
 {{
   "steps": [
@@ -602,32 +517,391 @@ GROUP BY ProductName
 ORDER BY Revenue DESC
 ```
 
-## ÖRNEK 3 - Tarih ve resolved_value birlikte:
+## ÖRNEK 2 - Zaman Serisi (GROUP BY → SELECT + ORDER BY):
 Input:
 {{
   "steps": [
     {{
       "filters": [
-        {{"field_hint": "BranchCityName", "value_hint": "istanbul", "resolved_value": "İSTANBUL"}},
-        {{"field_hint": "DocumentDate", "operator": ">=", "value_hint": "DATEADD(DAY, -7, '2024-12-23')"}}
+        {{"field_hint": "CategoryName", "value_hint": "DURUMLER", "resolved_value": "DURUMLER"}},
+        {{"field_hint": "DocumentDate", "operator": ">=", "value_hint": "DATEADD(YEAR, -1, '2025-12-29')"}}
       ],
       "aggregations": [
-        {{"function": "COUNT", "field_hint": "*", "alias": "TotalOrders"}},
-        {{"function": "SUM", "field_hint": "RowAmount", "alias": "TotalRevenue"}}
-      ]
+        {{"function": "AVG", "field_hint": "RowAmount", "alias": "AverageDailyAmount"}}
+      ],
+      "group_by": ["CAST(DocumentDate AS DATE)"]
     }}
   ]
 }}
 
-Output:
+Output (NOT: GROUP BY alanı → SELECT + ORDER BY):
 ```sql
-SELECT COUNT(*) AS TotalOrders, SUM(RowAmount) AS TotalRevenue
+SELECT AVG(RowAmount) AS AverageDailyAmount, CAST(DocumentDate AS DATE) AS Date
 FROM MasterReportDocumentTable
-WHERE BranchCityName = 'İSTANBUL'
-  AND CAST(DocumentDate AS DATE) >= DATEADD(DAY, -7, '2024-12-23')
+WHERE CategoryName = 'DURUMLER'
+  AND CAST(DocumentDate AS DATE) >= DATEADD(YEAR, -1, '2025-12-29')
+GROUP BY CAST(DocumentDate AS DATE)
+ORDER BY CAST(DocumentDate AS DATE) ASC
 ```
 
 Şimdi SQL oluştur (sadece sorgu):
 """
 
 SQL_QUERY_BUILDER_PROMPT = ChatPromptTemplate.from_template(SQL_QUERY_BUILDER_PROMPT_TEXT)
+
+
+# ============================================================================
+# OPTIMIZED: SQL ARCHITECT PROMPT (Collapsed Architecture)
+# ============================================================================
+# Combines intent_parser + intent_matching into a single LLM call
+# Uses Chain of Thought (CoT) for better reasoning
+# Injects business rules and schema metadata dynamically
+# ============================================================================
+
+SQL_ARCHITECT_PROMPT_TEXT = """Sen bir ERP veritabanı mimarı ve doğal dil işleme uzmanısın.
+
+Kullanıcının sorusunu analiz edip, veritabanı sorgulama için yapılandırılmış bir intent oluştur.
+
+## BİLGİLENDİRME
+
+### BUGÜNÜN TARİHİ
+Bugün: {today_date}
+Şu an: {current_datetime}
+Yıl: {current_year}
+Ay: {current_month}
+
+### VERİTABANI ŞEMASI
+Tablo: {table_name}
+
+Mevcut Kolonlar:
+{schema_metadata}
+
+### İŞ KURALLARI (DEĞİŞTİRİLEMEZ KANUNLAR)
+{business_rules}
+
+## KULLANICI SORUSU
+{user_query}
+
+## GÖREV
+
+**ADIM 1: SORGUYU ANLA (Chain of Thought - Düşünce Zinciri)**
+
+Önce kullanıcının sorusunu analiz et ve düşünce sürecini yaz:
+
+1. Kullanıcı hangi bilgileri görmek istiyor?
+2. Hangi filtreleme koşulları var?
+3. Hesaplama/toplama var mı?
+4. Gruplama gerekiyor mu?
+5. Bu sorgu için hangi İŞ KURALLARI geçerli? (ÇOK ÖNEMLİ!)
+6. Tarih ifadeleri var mı? Bunları nasıl çözeceğim?
+
+**ADIM 2: YAPIYA DÖNÜŞTÜR**
+
+Analiz sonucunda aşağıdaki JSON yapısını oluştur:
+
+{{
+  "complexity": "simple" | "compound",
+  "thinking": "Düşünce süreci (1-2 cümle özet)",
+  "applied_business_rules": ["rule_id_1", "rule_id_2"],  // Uygulanan iş kuralı ID'leri
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "Bu adımın açıklaması",
+      "select": ["KolonAdı1", "KolonAdı2"] | null,
+      "filters": [
+        {{
+          "field_hint": "GerçekKolonAdı",  // VERİTABANI KOLONUNA EŞLEŞTİRİLMİŞ
+          "operator": "=",
+          "value_hint": "kullanıcının değeri VEYA çözümlenmiş tarih",
+          "logical_operator": "AND" | "OR"
+        }}
+      ],
+      "aggregations": [
+        {{
+          "function": "SUM" | "COUNT" | "AVG" | "MAX" | "MIN",
+          "field_hint": "GerçekKolonAdı",
+          "alias": "SonuçKolonAdı"
+        }}
+      ],
+      "group_by": ["KolonAdı1"],
+      "order_by": {{"field_hint": "KolonAdı", "direction": "DESC"}},
+      "limit": 1,
+      "depends_on": null
+    }}
+  ],
+  "final_output": "Sonucun açıklaması"
+}}
+
+## KRİTİK KURALLAR
+
+### 1. KOLON EŞLEŞTİRMESİ (ŞEMA MAPPING)
+
+field_hint değerlerinde GERÇEK KOLON ADLARINI kullan:
+- "tarih" → "DocumentDate"
+- "şube" → "BranchName"
+- "ürün" → "ProductName"
+- "kategori" → "CategoryName"
+- "tutar" → "RowAmount"
+- "miktar" → "Quantity"
+- "müşteri" → "CustomerName"
+- "kasiyer" → "CashierName"
+- "şehir" → "BranchCityName"
+- "ilçe" → "BranchTownName"
+- "gün" → "DayOfWeek"
+- "saat" → "Hour"
+- "yıl" → "YEAR(DocumentDate)"  # Calculated field
+- "ay" → "MONTH(DocumentDate)"   # Calculated field
+- "masa" → "TableNo"
+- "adisyon" → "DocumentId"
+
+### 2. TARİH ÇÖZÜMLEMESİ (ÇOK ÖNEMLİ!)
+
+Kullanıcının verdiği tarih ifadelerini SQL formatına çevir:
+
+**Mutlak Tarihler:**
+- "bugün" → "{today_date}"
+- "dün" → "DATEADD(DAY, -1, '{today_date}')"
+- "yarın" → "DATEADD(DAY, 1, '{today_date}')"
+
+**Göreceli Tarihler:**
+- "son 7 gün" → "DATEADD(DAY, -7, '{today_date}')" (operator: ">=")
+- "son 30 gün" → "DATEADD(DAY, -30, '{today_date}')" (operator: ">=")
+- "son 5 yıl" → "DATEADD(YEAR, -5, '{today_date}')" (operator: ">=")
+- "son 3 ay" → "DATEADD(MONTH, -3, '{today_date}')" (operator: ">=")
+
+**Periyot Tarihleri:**
+- "bu ay" → "{current_year}-{current_month}" (LIKE kullan: "{current_year}-{current_month}-%")
+- "bu yıl" → "{current_year}" (LIKE kullan: "{current_year}-%")
+
+**Spesifik Tarihler:**
+- "6 kasım" → "{current_year}-11-06"
+- "15 ocak" → "{current_year}-01-15"
+- **NOT**: Ay isimlerini sayıya çevir (ocak=01, şubat=02, mart=03, nisan=04, mayıs=05, haziran=06, temmuz=07, ağustos=08, eylül=09, ekim=10, kasım=11, aralık=12)
+
+### 3. İŞ KURALLARI UYGULAMASI (ZORUNLUDİR!)
+
+Yukarıda verilen İŞ KURALLARI'nı (business_rules) OKU ve UYGULA:
+
+**Örnek: Ciro Hesaplama**
+- Kullanıcı "ciro", "gelir", "hasılat" diyorsa:
+  - İptal filtresi ekle: {{"field_hint": "DocumentDetailIsTreatWasteCancel", "operator": "IS NULL"}}
+  - İade filtresi ekle: {{"field_hint": "DocumentTypeIsReturn", "operator": "=", "value_hint": "0"}}
+
+**Örnek: Açık Masa**
+- Kullanıcı "açık masa" diyorsa:
+  - {{"field_hint": "IsTableActive", "operator": "=", "value_hint": "1"}}
+
+**Örnek: İkram**
+- Kullanıcı "ikram" diyorsa:
+  - {{"field_hint": "DocumentDetailIsTreatWasteCancel", "operator": "=", "value_hint": "1"}}
+
+**Örnek: Adisyon Tutarı**
+- Kullanıcı "adisyon tutarı", "masa tutarı" diyorsa:
+  - GROUP BY DocumentId kullan!
+
+### 4. SELECT VE AGGREGATION KULLANIMI
+
+- **Aggregation YOKSA**: select alanını kullan (kullanıcının görmek istediği kolonlar)
+- **Aggregation VARSA**: select genelde null olur (aggregation sonuçları döner)
+
+**KRİTİK KURAL - PERİYODİK GRUPLAMA (MUTLAKA UYGULA!):**
+
+Kullanıcı periyodik ifade kullanırsa + aggregation varsa → MUTLAKA group_by ekle!
+
+**Periyodik İfadeler ve Karşılıkları:**
+- "günlük", "her gün", "gün gün", "günlere göre", "gün bazında"
+  → group_by: ["CAST(DocumentDate AS DATE)"]
+
+- "aylık", "her ay", "ay ay", "aylara göre", "ay bazında", "aylar bazında"
+  → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+  * NOT: Birden fazla yıl olabilir, hem yıl hem ay gerekli
+
+- "yıllık", "her yıl", "yıl yıl", "yıllara göre", "yıl bazında"
+  → group_by: ["YEAR(DocumentDate)"]
+
+- "saatlik", "her saat", "saat saat", "saatlere göre", "saat bazında"
+  → group_by: ["CAST(DocumentDate AS DATE)", "Hour"]
+
+**ÖRNEK - YANLIŞ VE DOĞRU:**
+
+❌ YANLIŞ: "günlük ortalama" → aggregation: AVG, group_by: [] (TOPLAM DÖNER!)
+✅ DOĞRU: "günlük ortalama" → aggregation: AVG, group_by: ["CAST(DocumentDate AS DATE)"] (HER GÜN AYRI!)
+
+❌ YANLIŞ: "aylık satışlar" → aggregation: SUM, group_by: [] (TOPLAM DÖNER!)
+✅ DOĞRU: "aylık satışlar" → aggregation: SUM, group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"] (HER AY AYRI!)
+
+### 5. MANTIKSAL OPERATÖRLER
+
+- "veya", "ya da" → logical_operator: "OR"
+- "ve", "hem" → logical_operator: "AND"
+- Default: "AND"
+
+### 6. BAĞIMLI ADIMLAR
+
+- "en çok", "en az" gibi sorgulamalar genelde yeni adım gerektirir
+- Önceki adımdan değer almak için: "step_X.KolonAdı"
+- depends_on ile bağımlılığı belirt
+
+## ÇIKTI FORMATI
+
+**ÇOK ÖNEMLİ**: Sadece JSON döndür, başka bir şey yazma!
+
+Çıktı JSON olmalı ve yukarıdaki yapıya uymalıdır.
+
+## ÖRNEKLER
+
+### Örnek 1: Basit Ciro Sorgusu
+
+Kullanıcı: "Tunalı şubesinin bugünkü cirosu ne kadar?"
+
+Düşünce Zinciri:
+1. Kullanıcı "ciro" istiyor → SUM(RowAmount) aggregation
+2. "Tunalı" şubesi → BranchName filtresi
+3. "bugünkü" → DocumentDate = bugün
+4. Ciro hesaplama → İş kuralı: İptal/iade hariç!
+
+Çıktı:
+{{
+  "complexity": "simple",
+  "thinking": "Ciro hesaplama için iptal ve iade işlemleri hariç tutulmalı, Tunalı şubesi ve bugün filtresi uygulanmalı",
+  "applied_business_rules": ["revenue_calculation"],
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "Tunalı şubesinin bugünkü cirosu (iptal/iade hariç)",
+      "select": null,
+      "filters": [
+        {{"field_hint": "BranchName", "operator": "=", "value_hint": "tunalı"}},
+        {{"field_hint": "DocumentDate", "operator": "=", "value_hint": "{today_date}"}},
+        {{"field_hint": "DocumentDetailIsTreatWasteCancel", "operator": "IS NULL"}},
+        {{"field_hint": "DocumentTypeIsReturn", "operator": "=", "value_hint": "0"}}
+      ],
+      "aggregations": [
+        {{"function": "SUM", "field_hint": "RowAmount", "alias": "TotalRevenue"}}
+      ],
+      "group_by": [],
+      "order_by": null,
+      "limit": null,
+      "depends_on": null
+    }}
+  ],
+  "final_output": "Tunalı şubesinin bugünkü toplam cirosu (iptal/iade hariç)"
+}}
+
+### Örnek 2: Günlük Ortalama (PERİYODİK GRUPLAMA)
+
+Kullanıcı: "Son bir senede dürümler kategorisindeki günlük tutar ortalaması"
+
+Düşünce Zinciri:
+1. "günlük" kelimesi var → PERİYODİK GRUPLAMA gerekli!
+2. "ortalama" → AVG(RowAmount) aggregation
+3. "dürümler kategorisi" → CategoryName filtresi
+4. "son bir senede" → DocumentDate >= DATEADD(YEAR, -1, bugün)
+5. **KRİTİK**: "günlük" + aggregation → MUTLAKA group_by: ["CAST(DocumentDate AS DATE)"]
+
+Çıktı:
+{{
+  "complexity": "simple",
+  "thinking": "Günlük periyodik ifade kullanıldı, aggregation var, bu yüzden MUTLAKA günlük gruplama gerekli. Aksi halde TOPLAM ortalama döner (HATA!)",
+  "applied_business_rules": [],
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "Dürümler kategorisinin günlük tutar ortalaması (son 1 yıl)",
+      "select": null,
+      "filters": [
+        {{"field_hint": "CategoryName", "operator": "=", "value_hint": "dürümler"}},
+        {{"field_hint": "DocumentDate", "operator": ">=", "value_hint": "DATEADD(YEAR, -1, '{today_date}')"}}
+      ],
+      "aggregations": [
+        {{"function": "AVG", "field_hint": "RowAmount", "alias": "DailyAverage"}}
+      ],
+      "group_by": ["CAST(DocumentDate AS DATE)"],
+      "order_by": {{"field_hint": "CAST(DocumentDate AS DATE)", "direction": "ASC"}},
+      "limit": null,
+      "depends_on": null
+    }}
+  ],
+  "final_output": "Dürümler kategorisinin her gün için ortalama tutar (365 satır beklenir)"
+}}
+
+### Örnek 3: Bağımlı Adımlar + Tarih
+
+Kullanıcı: "6 kasımda en çok satan kategorideki, son 5 yıldaki en az satan ürünün aylık performansı"
+
+Düşünce Zinciri:
+1. "6 kasım" → 2025-11-06 (current_year kullan)
+2. "en çok satan kategori" → Adım 1: TOP 1 kategori
+3. "o kategorideki en az satan ürün" → Adım 2: depends_on: 1
+4. "son 5 yıl" → DATEADD(YEAR, -5, ...)
+5. "aylık performans" → GROUP BY YEAR, MONTH
+
+Çıktı:
+{{
+  "complexity": "compound",
+  "thinking": "Üç adımlı bağımlı sorgu: 1) 6 kasımda en çok satan kategori, 2) O kategoride tüm zamanlarda en az satan ürün, 3) O ürünün son 5 yıldaki aylık satışları",
+  "applied_business_rules": [],
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "6 kasımda en çok satan kategori",
+      "select": null,
+      "filters": [
+        {{"field_hint": "DocumentDate", "operator": "=", "value_hint": "{current_year}-11-06"}}
+      ],
+      "aggregations": [
+        {{"function": "SUM", "field_hint": "Quantity", "alias": "TotalQty"}}
+      ],
+      "group_by": ["CategoryName"],
+      "order_by": {{"field_hint": "TotalQty", "direction": "DESC"}},
+      "limit": 1,
+      "depends_on": null
+    }},
+    {{
+      "step_number": 2,
+      "description": "O kategorideki tüm tarihlerde en az satan ürün",
+      "select": null,
+      "filters": [
+        {{"field_hint": "CategoryName", "operator": "=", "value_hint": "step_1.CategoryName"}}
+      ],
+      "aggregations": [
+        {{"function": "SUM", "field_hint": "Quantity", "alias": "TotalQty"}}
+      ],
+      "group_by": ["ProductName"],
+      "order_by": {{"field_hint": "TotalQty", "direction": "ASC"}},
+      "limit": 1,
+      "depends_on": 1
+    }},
+    {{
+      "step_number": 3,
+      "description": "O ürünün son 5 yıldaki aylık satışları",
+      "select": null,
+      "filters": [
+        {{"field_hint": "ProductName", "operator": "=", "value_hint": "step_2.ProductName"}},
+        {{"field_hint": "DocumentDate", "operator": ">=", "value_hint": "DATEADD(YEAR, -5, '{today_date}')"}}
+      ],
+      "aggregations": [
+        {{"function": "SUM", "field_hint": "RowAmount", "alias": "MonthlyRevenue"}},
+        {{"function": "SUM", "field_hint": "Quantity", "alias": "MonthlyQty"}}
+      ],
+      "group_by": ["YEAR(DocumentDate)", "MONTH(DocumentDate)"],
+      "order_by": {{"field_hint": "YEAR(DocumentDate), MONTH(DocumentDate)", "direction": "ASC"}},
+      "limit": null,
+      "depends_on": 2
+    }}
+  ],
+  "final_output": "6 kasımda en çok satan kategorideki en az satan ürünün son 5 yıldaki aylık performansı"
+}}
+
+## SON HATIRLATMA
+
+1. **Field hint'ler gerçek kolon adları olmalı** (DocumentDate, BranchName, vb.)
+2. **Tarih ifadelerini çözümle** (SQL formatına çevir)
+3. **İş kurallarını uygula** (mandatory_filters)
+4. **applied_business_rules alanını doldur**
+5. **Sadece JSON döndür** (açıklama yazma)
+
+Şimdi kullanıcının sorusunu analiz et ve JSON çıktısı oluştur:
+"""
+
+SQL_ARCHITECT_PROMPT = ChatPromptTemplate.from_template(SQL_ARCHITECT_PROMPT_TEXT)

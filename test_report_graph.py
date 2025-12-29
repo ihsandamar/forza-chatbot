@@ -17,7 +17,8 @@ async def test_report():
     print("✅ Report graph initialized\n")
 
     # Create test input
-    test_query = "son 1 senedeki şubelerin satış performansını saat detayında çizgi grafiğini gösterir misin?"
+    # test_query = "Son bir senede dürümler kategorisindeki günlük tutar ortalamsını çizgi grafik oluşturur musunuz?"
+    test_query = "Toplamda en çok satan kategorideki, ürünlerin aylık satış cirosunu gösteren bir çubuk grafik oluşturur musunuz?"
     initial_state = {
         "messages": [HumanMessage(content=test_query)],
         "text2sql_output": None,
@@ -47,8 +48,10 @@ async def test_report():
         if text2sql_out:
             print("\n\n📊 Text2SQL Output:")
             print(f"  - Query: {text2sql_out.get('user_query', 'N/A')}")
-            print(f"  - SQL Generated: {len(text2sql_out.get('sql_queries', [])) > 0}")
-            print(f"  - Results: {len(text2sql_out.get('results', [])) if text2sql_out.get('results') else 0} rows")
+            sql_queries = text2sql_out.get('sql_queries') or []
+            results = text2sql_out.get('results') or []
+            print(f"  - SQL Generated: {len(sql_queries) > 0}")
+            print(f"  - Results: {len(results)} rows")
             print(f"  - Error: {text2sql_out.get('error', 'None')}")
 
         # Show visualization output summary

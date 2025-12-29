@@ -4,8 +4,11 @@ Generic Text2SQL Graph Implementation.
 Simple graph for parsing user queries into structured SQL intents.
 """
 
+import logging
 from typing import Optional
 from langgraph.graph import StateGraph, START, END
+
+logger = logging.getLogger(__name__)
 
 from src.models.llm import LLM
 from src.graphs.base.base_graph import BaseGraph
@@ -24,7 +27,10 @@ from .nodes import (
     metadata_enrichment_node,
     value_resolver_node,
     sql_query_builder_node,
-    sql_executor_node
+    sql_executor_node,
+    # Optimized nodes
+    sql_architect_node,
+    sql_executor_node_with_retry
 )
 
 
@@ -95,34 +101,64 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             ],
         )
 
-    def build_graph(self) -> StateGraph:
+    def build_graph(self, use_optimized: bool = True) -> StateGraph:
         """
         Build and return the compiled StateGraph.
 
-        Architecture:
+        Architecture (Optimized):
+        START → sql_architect → metadata_enrichment → value_resolver → sql_query_builder → sql_executor_with_retry → END
+
+        Architecture (Original):
         START → intent_parser → intent_matching → metadata_enrichment → value_resolver → sql_query_builder → sql_executor → END
+
+        Args:
+            use_optimized: If True, use collapsed architecture (default). If False, use original.
 
         Returns:
             Compiled StateGraph instance
         """
         builder = self.get_graph_builder()
 
-        # Add nodes
-        builder.add_node("intent_parser", intent_parser_node)
-        builder.add_node("intent_matching", intent_matching_node)
-        builder.add_node("metadata_enrichment", metadata_enrichment_node)
-        builder.add_node("value_resolver", value_resolver_node)
-        builder.add_node("sql_query_builder", sql_query_builder_node)
-        builder.add_node("sql_executor", sql_executor_node)
+        if use_optimized:
+            # OPTIMIZED ARCHITECTURE (Collapsed)
+            # Eliminates 1 LLM call by combining intent_parser + intent_matching
+            logger.info("Building OPTIMIZED graph (collapsed architecture)")
 
-        # Add edges
-        builder.add_edge(START, "intent_parser")
-        builder.add_edge("intent_parser", "intent_matching")
-        builder.add_edge("intent_matching", "metadata_enrichment")
-        builder.add_edge("metadata_enrichment", "value_resolver")
-        builder.add_edge("value_resolver", "sql_query_builder")
-        builder.add_edge("sql_query_builder", "sql_executor")
-        builder.add_edge("sql_executor", END)
+            # Add nodes
+            builder.add_node("sql_architect", sql_architect_node)
+            builder.add_node("metadata_enrichment", metadata_enrichment_node)
+            builder.add_node("value_resolver", value_resolver_node)
+            builder.add_node("sql_query_builder", sql_query_builder_node)
+            builder.add_node("sql_executor", sql_executor_node_with_retry)
+
+            # Add edges (Sequential)
+            builder.add_edge(START, "sql_architect")
+            builder.add_edge("sql_architect", "metadata_enrichment")
+            builder.add_edge("metadata_enrichment", "value_resolver")
+            builder.add_edge("value_resolver", "sql_query_builder")
+            builder.add_edge("sql_query_builder", "sql_executor")
+            builder.add_edge("sql_executor", END)
+
+        else:
+            # ORIGINAL ARCHITECTURE
+            logger.info("Building ORIGINAL graph (legacy architecture)")
+
+            # Add nodes
+            builder.add_node("intent_parser", intent_parser_node)
+            builder.add_node("intent_matching", intent_matching_node)
+            builder.add_node("metadata_enrichment", metadata_enrichment_node)
+            builder.add_node("value_resolver", value_resolver_node)
+            builder.add_node("sql_query_builder", sql_query_builder_node)
+            builder.add_node("sql_executor", sql_executor_node)
+
+            # Add edges
+            builder.add_edge(START, "intent_parser")
+            builder.add_edge("intent_parser", "intent_matching")
+            builder.add_edge("intent_matching", "metadata_enrichment")
+            builder.add_edge("metadata_enrichment", "value_resolver")
+            builder.add_edge("value_resolver", "sql_query_builder")
+            builder.add_edge("sql_query_builder", "sql_executor")
+            builder.add_edge("sql_executor", END)
 
         # Compile
         compiled = builder.compile(

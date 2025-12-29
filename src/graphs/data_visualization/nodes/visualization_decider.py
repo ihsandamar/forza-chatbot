@@ -33,7 +33,13 @@ class VisualizationDecider:
     SYSTEM_PROMPT = """Sen bir veri görselleştirme uzmanısın.
 Kullanıcı sorusu ve veri profiline göre en uygun görselleştirme tipini belirle.
 
-Kurallar:
+ÖNEMLİ KURAL: Kullanıcı grafik türünü açıkça belirtmişse (örn: "çubuk grafik", "pasta grafik", "çizgi grafik", "daire grafik"), MUTLAKA o türü kullan!
+- "çubuk grafik", "bar grafik", "bar chart" → bar_chart
+- "çizgi grafik", "line chart" → line_chart
+- "pasta grafik", "pie chart", "daire grafik" → pie_chart
+- "scatter", "dağılım grafik" → scatter_chart
+
+Kullanıcı grafik türü belirtmemişse veri profiline göre karar ver:
 - Tek sayı sonucu → single_value (grafik yok)
 - 1-2 kolonlu kısa liste → simple_list (grafik yok)
 - Zaman serisi trendi → line_chart
@@ -45,7 +51,7 @@ Kurallar:
 
 ÖNEMLİ: Yanıtın SADECE geçerli bir JSON objesi olmalı, başka hiçbir metin, açıklama veya markdown yazma.
 Sadece şu formattaki JSON'u döndür:
-{"needs_graph": true, "output_type": "line_chart", "reason": "kısa açıklama"}"""
+{"needs_graph": true, "output_type": "bar_chart", "reason": "kullanıcı çubuk grafik istedi"}"""
 
     def decide(self, state: DataVisualizationState) -> DataVisualizationState:
         """Main decision method"""
@@ -80,7 +86,9 @@ Sadece şu formattaki JSON'u döndür:
         profile_summary = self._create_profile_summary(data_profile)
         sample_data = raw_data[:3] if len(raw_data) >= 3 else raw_data
         
-        prompt = f"""Soru: {user_query}
+        prompt = f"""KULLANICI SORUSU: "{user_query}"
+
+ÖNEMLİ: Kullanıcı grafik türünü açıkça belirtmişse (çubuk, çizgi, pasta, vb.), MUTLAKA o grafik türünü kullan!
 
 Veri Profili:
 {profile_summary}
@@ -90,7 +98,7 @@ Veri Profili:
 
 Toplam Satır: {len(raw_data)}
 
-Bu veri için en uygun görselleştirmeyi belirle ve sadece JSON objesi döndür."""
+Kullanıcının isteğini ve veri profilini analiz et, en uygun görselleştirmeyi belirle ve sadece JSON objesi döndür."""
 
         try:
             # Use LangChain chat model

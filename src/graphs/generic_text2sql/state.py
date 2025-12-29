@@ -63,3 +63,9 @@ class GenericText2SQLState(TypedDict):
     results: Optional[List[dict]]
     final_response: Optional[str]
     error: Optional[str]
+
+    # Optimization fields
+    schema_metadata: Optional[dict]  # Runtime-discovered schema metadata
+    business_rules: Optional[dict]  # Loaded business rules from JSON
+    retry_count: Optional[int]  # Self-healing retry counter
+    sql_error_history: Optional[List[dict]]  # History of SQL errors for self-correction

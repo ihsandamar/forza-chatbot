@@ -1,0 +1,233 @@
+{
+  "version": "1.0.0",
+  "description": "ERP Business Logic Rules - Injected into SQL Architect prompt at runtime",
+  "last_updated": "2025-12-26",
+
+  "mandatory_filters": {
+    "description": "Filters that MUST be applied for specific calculation types",
+    "rules": [
+      {
+        "rule_id": "revenue_calculation",
+        "name": "Revenue/Ciro Calculation",
+        "triggers": ["ciro", "gelir", "hasılat", "revenue", "sales"],
+        "mandatory_conditions": [
+          {
+            "field": "DocumentDetailIsTreatWasteCancel",
+            "operator": "IS NULL",
+            "description": "Exclude cancelled/complimentary/waste transactions from revenue"
+          },
+          {
+            "field": "DocumentTypeIsReturn",
+            "operator": "=",
+            "value": "0",
+            "description": "Exclude returns from revenue"
+          }
+        ],
+        "explanation": "Ciro hesaplanırken iptal, iade, ikram ve fire işlemleri hariç tutulmalıdır"
+      },
+      {
+        "rule_id": "vat_excluded_amount",
+        "name": "KDV Hariç Tutar Calculation",
+        "triggers": ["kdv hariç", "vat excluded", "net tutar", "kdvsiz"],
+        "mandatory_conditions": [
+          {
+            "field": "RowAmount",
+            "formula": "RowAmount / 1.20",
+            "description": "Divide by 1.20 to get VAT-excluded amount (assuming 20% VAT)"
+          }
+        ],
+        "explanation": "KDV hariç tutar hesaplanırken toplam tutarı 1.20'ye bölün (20% KDV varsayımı)"
+      },
+      {
+        "rule_id": "open_tables",
+        "name": "Open/Active Tables",
+        "triggers": ["açık masa", "aktif masa", "open table", "active table"],
+        "mandatory_conditions": [
+          {
+            "field": "IsTableActive",
+            "operator": "=",
+            "value": "1",
+            "description": "Filter for open tables (payment not received)"
+          }
+        ],
+        "explanation": "Açık masa sorguları için IsTableActive=1 filtresi zorunludur"
+      },
+      {
+        "rule_id": "complimentary_transactions",
+        "name": "Complimentary/İkram Transactions",
+        "triggers": ["ikram", "complimentary", "ücretsiz"],
+        "mandatory_conditions": [
+          {
+            "field": "DocumentDetailIsTreatWasteCancel",
+            "operator": "=",
+            "value": "1",
+            "description": "Filter for complimentary transactions"
+          }
+        ],
+        "explanation": "İkram sorguları için DocumentDetailIsTreatWasteCancel=1 filtresi zorunludur"
+      },
+      {
+        "rule_id": "waste_transactions",
+        "name": "Waste/Fire Transactions",
+        "triggers": ["zayi", "fire", "waste"],
+        "mandatory_conditions": [
+          {
+            "field": "DocumentDetailIsTreatWasteCancel",
+            "operator": "=",
+            "value": "2",
+            "description": "Filter for waste/fire transactions"
+          }
+        ],
+        "explanation": "Fire/zayi sorguları için DocumentDetailIsTreatWasteCancel=2 filtresi zorunludur"
+      },
+      {
+        "rule_id": "cancelled_transactions",
+        "name": "Cancelled/İptal Transactions",
+        "triggers": ["iptal", "cancel", "cancelled"],
+        "mandatory_conditions": [
+          {
+            "field": "DocumentDetailIsTreatWasteCancel",
+            "operator": "=",
+            "value": "3",
+            "description": "Filter for cancelled transactions"
+          }
+        ],
+        "explanation": "İptal sorguları için DocumentDetailIsTreatWasteCancel=3 filtresi zorunludur"
+      }
+    ]
+  },
+
+  "column_transformations": {
+    "description": "Column-level transformation rules for specific calculations",
+    "rules": [
+      {
+        "rule_id": "vat_calculation",
+        "column": "RowAmount",
+        "transformations": [
+          {
+            "name": "KDV Hariç Tutar",
+            "formula": "RowAmount / 1.20",
+            "description": "Divide amount by 1.20 to exclude 20% VAT"
+          },
+          {
+            "name": "KDV Tutarı",
+            "formula": "RowAmount - (RowAmount / 1.20)",
+            "description": "Calculate VAT amount (total - net)"
+          }
+        ]
+      },
+      {
+        "rule_id": "date_parts",
+        "column": "DocumentDate",
+        "transformations": [
+          {
+            "name": "Year",
+            "formula": "YEAR(DocumentDate)",
+            "description": "Extract year from document date"
+          },
+          {
+            "name": "Month",
+            "formula": "MONTH(DocumentDate)",
+            "description": "Extract month from document date"
+          },
+          {
+            "name": "Day",
+            "formula": "DAY(DocumentDate)",
+            "description": "Extract day from document date"
+          }
+        ]
+      }
+    ]
+  },
+
+  "aggregation_rules": {
+    "description": "Rules for common aggregation patterns",
+    "rules": [
+      {
+        "rule_id": "invoice_total",
+        "name": "Adisyon Toplam Tutarı",
+        "triggers": ["adisyon tutarı", "fatura tutarı", "invoice total", "masa tutarı"],
+        "aggregation": {
+          "function": "SUM",
+          "field": "RowAmount",
+          "group_by": ["DocumentId"],
+          "description": "Group by DocumentId to get invoice/table total"
+        },
+        "explanation": "Adisyon toplam tutarı hesaplanırken GROUP BY DocumentId kullanılmalıdır"
+      },
+      {
+        "rule_id": "menu_items",
+        "name": "Menu vs Standalone Products",
+        "description": "MenuId NULL or Empty Guid = main product, otherwise menu option",
+        "filters": [
+          {
+            "name": "Main Products Only",
+            "condition": "(MenuId IS NULL OR MenuId = '00000000-0000-0000-0000-000000000000')"
+          },
+          {
+            "name": "Menu Options Only",
+            "condition": "(MenuId IS NOT NULL AND MenuId != '00000000-0000-0000-0000-000000000000')"
+          }
+        ]
+      }
+    ]
+  },
+
+  "semantic_mappings": {
+    "description": "Common user queries and their proper SQL interpretation",
+    "mappings": [
+      {
+        "user_query_pattern": "en çok satan",
+        "sql_interpretation": "ORDER BY SUM(Quantity) DESC LIMIT 1 or TOP 1"
+      },
+      {
+        "user_query_pattern": "en az satan",
+        "sql_interpretation": "ORDER BY SUM(Quantity) ASC LIMIT 1 or TOP 1"
+      },
+      {
+        "user_query_pattern": "en yüksek ciro",
+        "sql_interpretation": "ORDER BY SUM(RowAmount) DESC with revenue filters applied"
+      },
+      {
+        "user_query_pattern": "kaç adet",
+        "sql_interpretation": "SUM(Quantity) or COUNT(DISTINCT ...)"
+      },
+      {
+        "user_query_pattern": "ortalama",
+        "sql_interpretation": "AVG(...)"
+      }
+    ]
+  },
+
+  "validation_rules": {
+    "description": "Pre-execution validation rules to catch common errors",
+    "rules": [
+      {
+        "rule_id": "prevent_duplicate_aggregation",
+        "check": "If GROUP BY includes DocumentId, ensure SUM/COUNT is not applied to row-level fields without proper context",
+        "error_message": "Adisyon bazlı gruplama ile satır bazlı aggregation çakışması"
+      },
+      {
+        "rule_id": "date_filter_format",
+        "check": "Date filters should use CAST(DocumentDate AS DATE) for date-only comparisons",
+        "error_message": "Tarih filtreleri CAST(DocumentDate AS DATE) kullanmalıdır"
+      }
+    ]
+  },
+
+  "performance_hints": {
+    "description": "Query optimization hints for better performance",
+    "hints": [
+      {
+        "hint_id": "index_usage",
+        "description": "Always filter on DocumentDate first if date range is specified (indexed column)",
+        "example": "WHERE CAST(DocumentDate AS DATE) >= '2024-01-01' AND BranchName = 'X'"
+      },
+      {
+        "hint_id": "avoid_select_star",
+        "description": "Avoid SELECT * when only specific columns are needed",
+        "example": "SELECT ProductName, SUM(RowAmount) instead of SELECT *"
+      }
+    ]
+  }
+}
