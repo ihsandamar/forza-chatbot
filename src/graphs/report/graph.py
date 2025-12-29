@@ -3,8 +3,10 @@ Report Graph
 
 Orchestrates text2sql and visualization graphs to generate complete reports from user messages.
 
-Architecture:
+Architecture (OPTIMIZED FOR STREAMING):
     messages (user input)
+        ↓
+    immediate_ack (instant response - "İşleniyor...")
         ↓
     extract_query (validate messages)
         ↓
@@ -21,6 +23,7 @@ from langgraph.graph import StateGraph, START, END
 
 from .state import ReportState
 from .nodes import (
+    immediate_acknowledgment_node,
     extract_query_node,
     create_text2sql_node,
     create_visualization_node,
@@ -50,14 +53,16 @@ def build_report_graph(text2sql_graph, visualization_graph) -> StateGraph:
     text2sql_node = create_text2sql_node(text2sql_graph)
     visualization_node = create_visualization_node(visualization_graph)
 
-    # Add nodes
+    # Add nodes (OPTIMIZED: immediate_ack added for instant response)
+    graph.add_node("immediate_ack", immediate_acknowledgment_node)
     graph.add_node("extract_query", extract_query_node)
     graph.add_node("text2sql", text2sql_node)
     graph.add_node("visualization", visualization_node)
     graph.add_node("build_response", build_response_node)
 
-    # Define edges
-    graph.add_edge(START, "extract_query")
+    # Define edges (OPTIMIZED: immediate_ack runs first)
+    graph.add_edge(START, "immediate_ack")
+    graph.add_edge("immediate_ack", "extract_query")
     graph.add_edge("extract_query", "text2sql")
     graph.add_edge("text2sql", "visualization")
     graph.add_edge("visualization", "build_response")

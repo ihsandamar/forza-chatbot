@@ -13,6 +13,21 @@ from .state import ReportState
 logger = logging.getLogger(__name__)
 
 
+async def immediate_acknowledgment_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Immediately send acknowledgment message to user.
+
+    This node runs first to provide instant feedback while processing happens.
+    """
+    logger.info("Sending immediate acknowledgment...")
+
+    ack_msg = AIMessage(content="🔄 Sorgunuz işleniyor...")
+
+    return {
+        "messages": [ack_msg]
+    }
+
+
 async def extract_query_node(state: ReportState) -> Dict[str, Any]:
     """
     Extract user query from messages.

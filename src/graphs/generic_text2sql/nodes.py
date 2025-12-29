@@ -25,7 +25,7 @@ from src.graphs.generic_text2sql.state import (
 )
 from src.graphs.generic_text2sql.value_resolver_service import ValueResolverService
 from src.graphs.generic_text2sql.json_utils import parse_json_robust, extract_sql_from_text
-from src.graphs.generic_text2sql.schema_discovery import get_schema_discovery_service
+# REMOVED: schema_discovery import (optimized to use static metadata)
 
 
 logger = logging.getLogger(__name__)
@@ -808,27 +808,17 @@ async def sql_architect_node(state: GenericText2SQLState) -> GenericText2SQLStat
         current_year = get_current_year.invoke({})
         current_month = get_current_month.invoke({})
 
-        # Get schema discovery service
-        db_conn = "mssql+pyodbc://sa:Vega1234@DESKTOP-TIEAGO8/harbi?driver=ODBC+Driver+17+for+SQL+Server"
-        schema_service = await get_schema_discovery_service(db_conn)
+        # OPTIMIZED: Use static metadata instead of dynamic schema discovery
+        # This eliminates 4-5 second DB query delay before LLM call
+        from src.graphs.generic_text2sql.prompts import COLUMN_METADATA_DETAILED
 
-        # Get all columns with business context
-        all_metadata = schema_service.discover_schema()
-        column_descriptions = {
-            col_name: metadata.description or f"{col_name} ({metadata.data_type})"
-            for col_name, metadata in all_metadata.items()
-        }
-
-        # Enrich with business context
-        enriched_columns = schema_service.enrich_with_business_context(column_descriptions)
-
-        # Format schema metadata for prompt
+        # Format schema metadata for prompt (using static metadata)
         schema_text = "\n".join(
             f"- {col_name}: {desc}"
-            for col_name, desc in enriched_columns.items()
+            for col_name, desc in COLUMN_METADATA_DETAILED.items()
         )
 
-        state["schema_metadata"] = enriched_columns
+        state["schema_metadata"] = COLUMN_METADATA_DETAILED
 
         logger.debug(f"Architecting SQL for query: {state['user_query'][:100]}...")
 
