@@ -504,7 +504,14 @@ async def sql_query_builder_node(state: GenericText2SQLState) -> GenericText2SQL
         else:
             metadata_text = "(No additional metadata available)"
 
-        logger.debug(f"Building SQL query for {len(resolved_steps)} step(s) with {len(enriched_metadata)} column metadata")
+        # Get business rules context
+        business_rules_context = state.get("business_rules_context") or "(No business rules available)"
+
+        logger.debug(
+            f"Building SQL query for {len(resolved_steps)} step(s) "
+            f"with {len(enriched_metadata)} column metadata "
+            f"and business rules context ({len(business_rules_context)} chars)"
+        )
 
         # Get LLM response
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -512,7 +519,8 @@ async def sql_query_builder_node(state: GenericText2SQLState) -> GenericText2SQL
 
         response = await chain.ainvoke({
             "resolved_steps": steps_json,
-            "enriched_metadata": metadata_text
+            "enriched_metadata": metadata_text,
+            "business_rules_context": business_rules_context
         })
 
         # Extract SQL from response (remove markdown if present)
@@ -963,5 +971,170 @@ async def sql_executor_node_with_retry(state: GenericText2SQLState) -> GenericTe
     except Exception as e:
         logger.error(f"Unexpected error in sql_executor_node_with_retry: {e}", exc_info=True)
         state["error"] = f"SQL çalıştırma hatası: {str(e)}"
+
+    return state
+
+
+# ============================================================================
+# BUSINESS RULES VECTOR STORE NODE
+# ============================================================================
+
+# Module-level cache for vector store
+_business_rules_vector_store = None
+
+
+def get_business_rules_vector_store():
+    """
+    Get or create BusinessRulesVectorStore instance (singleton pattern).
+
+    Returns:
+        Initialized BusinessRulesVectorStore instance
+    """
+    global _business_rules_vector_store
+
+    if _business_rules_vector_store is None:
+        from src.graphs.generic_text2sql.business_rules_vector_store import BusinessRulesVectorStore
+
+        # Get paths
+        current_dir = Path(__file__).parent
+        rules_file = current_dir / "business_rules.json"
+        persist_dir = current_dir / "chroma_db"
+
+        logger.info("Initializing BusinessRulesVectorStore...")
+
+        _business_rules_vector_store = BusinessRulesVectorStore(
+            rules_file_path=str(rules_file),
+            persist_directory=str(persist_dir),
+            similarity_threshold=0.7
+        )
+
+        # Ensure collections exist
+        try:
+            collections = _business_rules_vector_store.client.list_collections()
+            collection_names = [c.name for c in collections]
+
+            if "business_rules" not in collection_names:
+                logger.warning("Business rules collections not found, rebuilding index...")
+                _business_rules_vector_store.rebuild_index()
+            else:
+                logger.info("Loading existing business rules collections...")
+                _business_rules_vector_store.rules_collection = _business_rules_vector_store.client.get_collection(
+                    "business_rules",
+                    embedding_function=_business_rules_vector_store.embedding_function
+                )
+                _business_rules_vector_store.default_rules_collection = _business_rules_vector_store.client.get_collection(
+                    "default_business_rules",
+                    embedding_function=_business_rules_vector_store.embedding_function
+                )
+        except Exception as e:
+            logger.error(f"Error checking collections: {e}, rebuilding...")
+            _business_rules_vector_store.rebuild_index()
+
+        logger.info("BusinessRulesVectorStore initialized successfully")
+
+    return _business_rules_vector_store
+
+
+async def retrieve_business_rules_node(state: GenericText2SQLState) -> GenericText2SQLState:
+    """
+    Retrieve relevant business rules for the user query using vector store.
+
+    Uses semantic search to find the most relevant business rules based on:
+    - User query
+    - Parsed intent (if available)
+    - Detected tables (if available)
+
+    Stores results in state for use in SQL generation.
+
+    Args:
+        state: Current generic text2sql state with user_query
+
+    Returns:
+        Updated state with business_rules_context, merged_sql_components, applied_business_rules
+    """
+    try:
+        logger.info("Retrieving relevant business rules from vector store...")
+
+        # Get vector store instance
+        vector_store = get_business_rules_vector_store()
+
+        # Extract detected tables from parsed_intent if available
+        detected_tables = state.get("detected_tables")
+        if not detected_tables and state.get("parsed_intent"):
+            # Try to extract table names from field hints
+            # (for now, we use MasterReportDocumentTable as default)
+            detected_tables = ["MasterReportDocumentTable"]
+
+        # Get relevant rules
+        logger.debug(f"Searching rules for query: {state['user_query'][:100]}...")
+
+        result = vector_store.get_relevant_rules_for_query(
+            user_query=state['user_query'],
+            detected_tables=detected_tables,
+            n_results=5,  # Top 5 most relevant rules
+            use_hybrid=True  # Use both semantic and keyword search
+        )
+
+        # Store results in state
+        state["applied_business_rules"] = result['rules']
+        state["merged_sql_components"] = result['merged_sql']
+
+        # Format business rules context for LLM prompt
+        context_parts = []
+
+        # 1. Default rules (always applied)
+        default_rules = [r for r in result['rules'] if r['is_default']]
+        if default_rules:
+            context_parts.append("## Default Business Rules (Her Zaman Uygulanır):\n")
+            for rule in default_rules:
+                desc = rule['metadata']['description']
+                context_parts.append(f"- {desc}")
+
+        # 2. Query-specific rules
+        semantic_rules = [r for r in result['rules'] if not r['is_default']]
+        if semantic_rules:
+            context_parts.append("\n## Bu Sorguya Özel İş Kuralları:\n")
+            for rule in semantic_rules:
+                desc = rule['metadata']['description']
+                similarity = rule['similarity']
+                context_parts.append(f"- {desc} (ilgi: {similarity:.2f})")
+
+        # 3. Merged SQL components (SQL oluşturmada kullanılacak)
+        if result['merged_sql']:
+            context_parts.append("\n## SQL Bileşenleri (Kullanılması Gereken):\n")
+
+            for component, value in result['merged_sql'].items():
+                if value:
+                    context_parts.append(f"**{component.upper()}**: `{value}`")
+
+        business_rules_context = "\n".join(context_parts)
+        state["business_rules_context"] = business_rules_context
+
+        # Logging
+        logger.info(
+            f"Business rules retrieved: "
+            f"total={result['total_count']}, "
+            f"default={result['default_count']}, "
+            f"semantic={result['semantic_count']}"
+        )
+
+        if result['rules']:
+            logger.debug("Applied rules:")
+            for rule in result['rules']:
+                logger.debug(
+                    f"  - [{rule['rule_id']}] "
+                    f"similarity={rule['similarity']:.3f} "
+                    f"{'[DEFAULT]' if rule['is_default'] else ''}"
+                )
+
+        logger.debug(f"Business rules context length: {len(business_rules_context)} chars")
+
+    except Exception as e:
+        logger.error(f"Error in retrieve_business_rules_node: {e}", exc_info=True)
+        # Don't fail the whole graph - continue without business rules
+        state["business_rules_context"] = "(Business rules could not be retrieved)"
+        state["merged_sql_components"] = {}
+        state["applied_business_rules"] = []
+        logger.warning("Continuing without business rules due to error")
 
     return state

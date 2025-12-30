@@ -69,3 +69,9 @@ class GenericText2SQLState(TypedDict):
     business_rules: Optional[dict]  # Loaded business rules from JSON
     retry_count: Optional[int]  # Self-healing retry counter
     sql_error_history: Optional[List[dict]]  # History of SQL errors for self-correction
+
+    # Business Rules Vector Store fields
+    business_rules_context: Optional[str]  # LLM'e gönderilecek context (alakalı kurallar)
+    merged_sql_components: Optional[dict]  # Birleştirilmiş SQL bileşenleri
+    applied_business_rules: Optional[List[dict]]  # Uygulanan business rules listesi
+    detected_tables: Optional[List[str]]  # Tespit edilen tablo isimleri (table-aware filtering için)

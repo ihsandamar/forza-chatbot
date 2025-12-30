@@ -11,6 +11,7 @@ langchain-ollama==1.0.0
 # Vector Database & RAG
 chromadb==1.1.1
 chroma-hnswlib==0.7.6
+sentence-transformers==2.2.2
 
 # API & Models
 openai==1.99.4

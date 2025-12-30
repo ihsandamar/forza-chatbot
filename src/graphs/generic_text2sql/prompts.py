@@ -442,6 +442,9 @@ Tablo: MasterReportDocumentTable
 ## KULLANILAN KOLONLAR
 {enriched_metadata}
 
+## İŞ KURALLARI (BUSINESS RULES)
+{business_rules_context}
+
 ## RESOLVED STEPS
 {resolved_steps}
 

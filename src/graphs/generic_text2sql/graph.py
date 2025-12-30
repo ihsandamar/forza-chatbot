@@ -30,7 +30,9 @@ from .nodes import (
     sql_executor_node,
     # Optimized nodes
     sql_architect_node,
-    sql_executor_node_with_retry
+    sql_executor_node_with_retry,
+    # Business rules vector store node
+    retrieve_business_rules_node
 )
 
 
@@ -105,8 +107,8 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         """
         Build and return the compiled StateGraph.
 
-        Architecture (Optimized):
-        START → sql_architect → metadata_enrichment → value_resolver → sql_query_builder → sql_executor_with_retry → END
+        Architecture (Optimized with Business Rules):
+        START → sql_architect → retrieve_business_rules → metadata_enrichment → value_resolver → sql_query_builder → sql_executor_with_retry → END
 
         Architecture (Original):
         START → intent_parser → intent_matching → metadata_enrichment → value_resolver → sql_query_builder → sql_executor → END
@@ -120,12 +122,14 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         builder = self.get_graph_builder()
 
         if use_optimized:
-            # OPTIMIZED ARCHITECTURE (Collapsed)
+            # OPTIMIZED ARCHITECTURE (Collapsed + Business Rules)
             # Eliminates 1 LLM call by combining intent_parser + intent_matching
-            logger.info("Building OPTIMIZED graph (collapsed architecture)")
+            # Adds business rules vector store retrieval
+            logger.info("Building OPTIMIZED graph (collapsed architecture + business rules)")
 
             # Add nodes
             builder.add_node("sql_architect", sql_architect_node)
+            builder.add_node("retrieve_business_rules", retrieve_business_rules_node)
             builder.add_node("metadata_enrichment", metadata_enrichment_node)
             builder.add_node("value_resolver", value_resolver_node)
             builder.add_node("sql_query_builder", sql_query_builder_node)
@@ -133,7 +137,8 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
 
             # Add edges (Sequential)
             builder.add_edge(START, "sql_architect")
-            builder.add_edge("sql_architect", "metadata_enrichment")
+            builder.add_edge("sql_architect", "retrieve_business_rules")
+            builder.add_edge("retrieve_business_rules", "metadata_enrichment")
             builder.add_edge("metadata_enrichment", "value_resolver")
             builder.add_edge("value_resolver", "sql_query_builder")
             builder.add_edge("sql_query_builder", "sql_executor")
