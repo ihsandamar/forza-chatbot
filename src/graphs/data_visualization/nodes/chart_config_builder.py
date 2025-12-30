@@ -54,10 +54,16 @@ class ChartConfigBuilder:
         
         elif output_type == OutputType.COMPARISON:
             chart_config = self._build_comparison_config(data_profile, user_query)
-        
+
+        elif output_type == OutputType.SUNBURST:
+            chart_config = self._build_sunburst_config(data_profile, user_query)
+
+        elif output_type == OutputType.TREEMAP:
+            chart_config = self._build_treemap_config(data_profile, user_query)
+
         else:
             chart_config = self._build_table_config(data_profile)
-        
+
         return {**state, "chart_config": chart_config}
     
     def _build_non_chart_config(self, output_type: OutputType, profile: DataProfile) -> ChartConfig:
@@ -218,7 +224,75 @@ class ChartConfigBuilder:
                 autosize=True
             )
         )
-    
+
+    def _build_sunburst_config(self, profile: DataProfile, query: str) -> ChartConfig:
+        """Build sunburst chart configuration for multi-level grouping"""
+
+        # Sunburst uses multiple dimensions as hierarchy levels
+        # Value: first metric column
+        value_field = profile["metric_columns"][0] if profile["metric_columns"] else None
+
+        # Build hierarchy from time column + dimension columns (up to 3 levels for readability)
+        hierarchy_fields = []
+
+        # Add time column first if exists (for temporal grouping)
+        if profile["time_column"]:
+            hierarchy_fields.append(profile["time_column"])
+
+        # Add dimension columns
+        remaining_slots = 3 - len(hierarchy_fields)
+        if profile["dimension_columns"] and remaining_slots > 0:
+            hierarchy_fields.extend(profile["dimension_columns"][:remaining_slots])
+
+        return ChartConfig(
+            type=OutputType.SUNBURST,
+            label_field=None,  # Sunburst uses path/hierarchy
+            value_field=value_field,
+            series_field=None,  # Not applicable for sunburst
+            options=ChartOptions(
+                title=self._generate_title(query, "sunburst"),
+                show_legend=False,
+                show_values=True,
+                show_percentage=True,
+                autosize=True,
+                hierarchy=hierarchy_fields  # Store hierarchy fields in options
+            )
+        )
+
+    def _build_treemap_config(self, profile: DataProfile, query: str) -> ChartConfig:
+        """Build treemap chart configuration for multi-level grouping"""
+
+        # Treemap uses multiple dimensions as hierarchy levels
+        # Value: first metric column
+        value_field = profile["metric_columns"][0] if profile["metric_columns"] else None
+
+        # Build hierarchy from time column + dimension columns (up to 3 levels for readability)
+        hierarchy_fields = []
+
+        # Add time column first if exists (for temporal grouping)
+        if profile["time_column"]:
+            hierarchy_fields.append(profile["time_column"])
+
+        # Add dimension columns
+        remaining_slots = 3 - len(hierarchy_fields)
+        if profile["dimension_columns"] and remaining_slots > 0:
+            hierarchy_fields.extend(profile["dimension_columns"][:remaining_slots])
+
+        return ChartConfig(
+            type=OutputType.TREEMAP,
+            label_field=None,  # Treemap uses path/hierarchy
+            value_field=value_field,
+            series_field=None,  # Not applicable for treemap
+            options=ChartOptions(
+                title=self._generate_title(query, "treemap"),
+                show_legend=False,
+                show_values=True,
+                show_percentage=True,
+                autosize=True,
+                hierarchy=hierarchy_fields  # Store hierarchy fields in options
+            )
+        )
+
     def _build_table_config(self, profile: DataProfile) -> ChartConfig:
         """Build table configuration"""
         return ChartConfig(

@@ -38,6 +38,8 @@ Kullanıcı sorusu ve veri profiline göre en uygun görselleştirme tipini beli
 - "çizgi grafik", "line chart" → line_chart
 - "pasta grafik", "pie chart", "daire grafik" → pie_chart
 - "scatter", "dağılım grafik" → scatter_chart
+- "sunburst", "hiyerarşik grafik" → sunburst
+- "treemap", "ağaç harita" → treemap
 
 Kullanıcı grafik türü belirtmemişse veri profiline göre karar ver:
 - Tek sayı sonucu → single_value (grafik yok)
@@ -48,6 +50,9 @@ Kullanıcı grafik türü belirtmemişse veri profiline göre karar ver:
 - İki değişken ilişkisi → scatter_chart
 - Çok kolonlu detaylı veri → table
 - Dönem karşılaştırması → comparison
+- BİRDEN FAZLA DİMENSİYON İLE GRUPLAMA (örn: şube ve kategori, bölge ve ürün) → sunburst veya treemap
+  * Kullanıcı "gruplama", "kırılım", "detay", "hiyerarşik" gibi kelimeler kullanıyorsa → sunburst
+  * Veri profilinde 2+ dimension kolonu varsa ve kullanıcı bunları birlikte görmek istiyorsa → sunburst veya treemap
 
 ÖNEMLİ: Yanıtın SADECE geçerli bir JSON objesi olmalı, başka hiçbir metin, açıklama veya markdown yazma.
 Sadece şu formattaki JSON'u döndür:

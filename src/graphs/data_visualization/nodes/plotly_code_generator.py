@@ -44,6 +44,18 @@ KULLANILABILIR DEGISKENLER:
 - pd: pandas (HAZIR!)
 - data: Chart verisi (list of dicts) (HAZIR!)
 
+MULTI-LEVEL CHARTS (Sunburst, Treemap):
+- Birden fazla dimension ile hiyerarşik görselleştirme
+- px.sunburst() veya px.treemap() kullan
+- path parametresi ile hiyerarşi seviyelerini belirle
+- values parametresi ile metric değerini göster
+Örnek:
+```python
+df = pd.DataFrame(data)
+fig = px.sunburst(df, path=['dimension1', 'dimension2'], values='metric')
+fig.update_layout(title="Hiyerarşik Görünüm", autosize=True)
+```
+
 KOD FORMATI (import YOK!):
 ```python
 # Chart oluşturma (import yok!)
@@ -213,6 +225,12 @@ SADECE Python kodu döndür, açıklama ve import yazma!"""
         options = chart_config.get("options", {})
         if options.get("title"):
             prompt_parts.append(f"Başlık: {options['title']}")
+
+        # Add hierarchy information for multi-level charts
+        if options.get("hierarchy"):
+            hierarchy = options["hierarchy"]
+            prompt_parts.append(f"Hiyerarşi Seviyeleri: {' → '.join(hierarchy)}")
+            prompt_parts.append(f"ÖNEMLİ: px.{output_type}() kullanarak path={hierarchy} parametresi ile hiyerarşik grafik oluştur!")
 
         prompt_parts.extend([
             f"",

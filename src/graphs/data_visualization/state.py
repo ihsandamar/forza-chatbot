@@ -7,7 +7,7 @@ from enum import Enum
 class OutputType(str, Enum):
     """Supported output types"""
     SINGLE_VALUE = "single_value"
-    SIMPLE_LIST = "simple_list"  
+    SIMPLE_LIST = "simple_list"
     TABLE = "table"
     BAR_CHART = "bar_chart"
     LINE_CHART = "line_chart"
@@ -15,6 +15,8 @@ class OutputType(str, Enum):
     SCATTER_CHART = "scatter_chart"
     COMPARISON = "comparison"
     KPI_CARDS = "kpi_cards"
+    SUNBURST = "sunburst"  # Multi-level hierarchical chart
+    TREEMAP = "treemap"  # Multi-level hierarchical chart
 
 
 class ColumnType(str, Enum):
@@ -82,6 +84,7 @@ class ChartOptions(TypedDict, total=False):
     show_percentage: Optional[bool]
     enable_zoom: Optional[bool]
     limit_rows: Optional[int]
+    hierarchy: Optional[List[str]]  # For multi-level charts (sunburst, treemap)
 
 
 class ChartConfig(TypedDict, total=False):
