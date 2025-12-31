@@ -967,9 +967,9 @@ class GradioInterface:
         """
         demo = self.build()
 
-        # Print startup info
+        # Print startup info (avoid emoji for Windows console compatibility)
         print(f"\n{'='*50}")
-        print(f"🚀 Gradio Interface Starting")
+        print(f"Gradio Interface Starting")
         print(f"{'='*50}")
         print(f"Title: {self.title}")
         print(f"Server: {server_name}:{server_port}")

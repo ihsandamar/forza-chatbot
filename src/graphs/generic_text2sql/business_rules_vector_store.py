@@ -137,7 +137,7 @@ class BusinessRulesVectorStore:
             metadata={"description": "Default rules applied to all queries"}
         )
 
-        logger.info(f"✅ Collections created successfully")
+        logger.info(f"Collections created successfully")
 
     def index_rules(self):
         """
@@ -172,7 +172,7 @@ class BusinessRulesVectorStore:
                 documents=[r['text'] for r in normal_rules],
                 metadatas=[r['metadata'] for r in normal_rules]
             )
-            logger.info(f"✅ Indexed {len(normal_rules)} normal rules")
+            logger.info(f"Indexed {len(normal_rules)} normal rules")
 
         # Index default rules
         if default_rules:
@@ -181,7 +181,7 @@ class BusinessRulesVectorStore:
                 documents=[r['text'] for r in default_rules],
                 metadatas=[r['metadata'] for r in default_rules]
             )
-            logger.info(f"✅ Indexed {len(default_rules)} default rules")
+            logger.info(f"Indexed {len(default_rules)} default rules")
 
     def search_rules(
         self,
@@ -470,12 +470,12 @@ class BusinessRulesVectorStore:
 
     def rebuild_index(self):
         """
-        Index'i sıfırdan oluştur
+        Index'i sifirdan olustur
         """
         logger.info("Rebuilding index from scratch...")
         self.initialize_collections(force_recreate=True)
         self.index_rules()
-        logger.info("✅ Index rebuild completed")
+        logger.info("Index rebuild completed")
 
 
 def main():
@@ -489,7 +489,7 @@ def main():
     rules_file = Path(__file__).parent / "business_rules.json"
 
     if not rules_file.exists():
-        print(f"❌ business_rules.json bulunamadı: {rules_file}")
+        print(f"ERROR: business_rules.json bulunamadi: {rules_file}")
         sys.exit(1)
 
     print("=" * 60)
@@ -529,13 +529,13 @@ def main():
             use_hybrid=True
         )
 
-        print(f"📊 Stats:")
+        print(f"Stats:")
         print(f"   - Default rules: {result['default_count']}")
         print(f"   - Semantic rules: {result['semantic_count']}")
         print(f"   - Total rules: {result['total_count']}")
 
-        print(f"\n📋 Found Rules:")
-        for rule in result['rules'][:5]:  # İlk 5'i göster
+        print(f"\nFound Rules:")
+        for rule in result['rules'][:5]:  # Ilk 5'i goster
             print(f"   - [{rule['rule_id']}] "
                   f"(similarity: {rule['similarity']:.3f}) "
                   f"{'[DEFAULT]' if rule['is_default'] else ''}")

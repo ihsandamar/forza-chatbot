@@ -32,7 +32,10 @@ from .nodes import (
     sql_architect_node,
     sql_executor_node_with_retry,
     # Business rules vector store node
-    retrieve_business_rules_node
+    retrieve_business_rules_node,
+    # Master table management nodes
+    create_master_table_node,
+    cleanup_master_table_node
 )
 
 
@@ -107,14 +110,14 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         """
         Build and return the compiled StateGraph.
 
-        Architecture (Optimized with Business Rules):
-        START → sql_architect → retrieve_business_rules → metadata_enrichment → value_resolver → sql_query_builder → sql_executor_with_retry → END
+        Architecture (Optimized with Business Rules + Master Table):
+        START → create_master_table → sql_architect → retrieve_business_rules → metadata_enrichment → value_resolver → sql_query_builder → sql_executor_with_retry → cleanup_master_table → END
 
         Architecture (Original):
         START → intent_parser → intent_matching → metadata_enrichment → value_resolver → sql_query_builder → sql_executor → END
 
         Args:
-            use_optimized: If True, use collapsed architecture (default). If False, use original.
+            use_optimized: If True, use collapsed architecture with master table (default). If False, use original.
 
         Returns:
             Compiled StateGraph instance
@@ -122,27 +125,32 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         builder = self.get_graph_builder()
 
         if use_optimized:
-            # OPTIMIZED ARCHITECTURE (Collapsed + Business Rules)
+            # OPTIMIZED ARCHITECTURE (Collapsed + Business Rules + Master Table)
             # Eliminates 1 LLM call by combining intent_parser + intent_matching
             # Adds business rules vector store retrieval
-            logger.info("Building OPTIMIZED graph (collapsed architecture + business rules)")
+            # Manages MasterReportDocumentTable creation and cleanup
+            logger.info("Building OPTIMIZED graph (collapsed architecture + business rules + master table)")
 
             # Add nodes
+            builder.add_node("create_master_table", create_master_table_node)
             builder.add_node("sql_architect", sql_architect_node)
             builder.add_node("retrieve_business_rules", retrieve_business_rules_node)
             builder.add_node("metadata_enrichment", metadata_enrichment_node)
             builder.add_node("value_resolver", value_resolver_node)
             builder.add_node("sql_query_builder", sql_query_builder_node)
             builder.add_node("sql_executor", sql_executor_node_with_retry)
+            builder.add_node("cleanup_master_table", cleanup_master_table_node)
 
             # Add edges (Sequential)
-            builder.add_edge(START, "sql_architect")
+            builder.add_edge(START, "create_master_table")
+            builder.add_edge("create_master_table", "sql_architect")
             builder.add_edge("sql_architect", "retrieve_business_rules")
             builder.add_edge("retrieve_business_rules", "metadata_enrichment")
             builder.add_edge("metadata_enrichment", "value_resolver")
             builder.add_edge("value_resolver", "sql_query_builder")
             builder.add_edge("sql_query_builder", "sql_executor")
-            builder.add_edge("sql_executor", END)
+            builder.add_edge("sql_executor", "cleanup_master_table")
+            builder.add_edge("cleanup_master_table", END)
 
         else:
             # ORIGINAL ARCHITECTURE

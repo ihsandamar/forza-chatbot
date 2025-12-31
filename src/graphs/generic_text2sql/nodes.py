@@ -1090,6 +1090,27 @@ def get_business_rules_vector_store():
     return _business_rules_vector_store
 
 
+def _get_resource_path(relative_path: str) -> Path:
+    """
+    Get absolute path to resource, works for dev and PyInstaller.
+
+    PyInstaller creates a temp folder and stores path in _MEIPASS.
+    In development, use the normal file path.
+    """
+    from pathlib import Path
+    import sys
+    import os
+
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = Path(sys._MEIPASS)
+    except AttributeError:
+        # Running in normal Python environment
+        base_path = Path(__file__).parent
+
+    return base_path / relative_path
+
+
 async def create_master_table_node(state: GenericText2SQLState) -> GenericText2SQLState:
     """
     Create MasterReportDocumentTable temp table at the beginning of the graph.
@@ -1104,15 +1125,28 @@ async def create_master_table_node(state: GenericText2SQLState) -> GenericText2S
         db_conn = get_db_connection_string(state)
         logger.info(f"[CREATE_MASTER_TABLE] Using connection: {db_conn[:50]}...")
 
-        # Read SQL file
-        from pathlib import Path
-        sql_file = Path(__file__).parent / "master_table_creation.sql"
+        # Read SQL file - works in both dev and PyInstaller builds
+        sql_file = _get_resource_path("master_table_creation.sql")
         logger.info(f"[CREATE_MASTER_TABLE] SQL file path: {sql_file}")
 
         if not sql_file.exists():
-            logger.error(f"Master table creation SQL file not found: {sql_file}")
-            state["error"] = "Master table creation SQL file not found"
-            return state
+            # Try alternative paths for PyInstaller
+            alternative_paths = [
+                _get_resource_path("src/graphs/generic_text2sql/master_table_creation.sql"),
+                Path(__file__).parent / "master_table_creation.sql",
+            ]
+
+            for alt_path in alternative_paths:
+                logger.info(f"[CREATE_MASTER_TABLE] Trying alternative path: {alt_path}")
+                if alt_path.exists():
+                    sql_file = alt_path
+                    break
+            else:
+                logger.error(f"Master table creation SQL file not found. Tried: {sql_file}, {alternative_paths}")
+                state["error"] = "Master table creation SQL file not found"
+                return state
+
+        logger.info(f"[CREATE_MASTER_TABLE] Found SQL file at: {sql_file}")
 
         with open(sql_file, 'r', encoding='utf-8') as f:
             master_table_sql = f.read()

@@ -26,7 +26,16 @@ ERİŞİMİN OLAN UZMAN AJANLAR:
    - İlgili dokümanlara veya sayfalara erişim
    - Herhangi bir dokuman erişimi veya navigasyon talebi
 
-2. **CHAT AGENT (Sohbet Ajanı)** - Genel konuşma, sorular ve açıklamalar için:
+2. **REPORT AGENT (Rapor Ajanı)** - Veri analizi, raporlama, SQL sorguları ve görselleştirme için:
+   - Kullanıcı veri analizi istiyor
+   - Master rapor sorguları
+   - Satış, ciro, müşteri verileri ile ilgili sorular
+   - Grafik, chart, görselleştirme istekleri
+   - "rapor", "analiz", "göster", "listele", "hesapla", "grafik" gibi kelimeler
+   - SQL sorguları ve veritabanı sorgulama
+   - İstatistiksel analizler ve karşılaştırmalar
+
+3. **CHAT AGENT (Sohbet Ajanı)** - Genel konuşma, sorular ve açıklamalar için:
    - Kullanıcı sohbet etmek istiyor
    - Genel sorular soruluyor
    - Açıklama veya tartışma gerekiyor
@@ -35,6 +44,7 @@ ERİŞİMİN OLAN UZMAN AJANLAR:
 
 KARAR KURALLARI:
 - Talep BULMA, NAVİGASYON veya BİLGİ ERİŞİMİ ile ilgili ise → ROUTING AGENT kullan
+- Talep VERİ ANALİZİ, RAPOR, SQL SORGUSU, GRAFİK veya GÖRSELLEŞTİRME ise → REPORT AGENT kullan
 - Talep KONUŞMA, TARTIŞMA veya GENEL SORU ise → CHAT AGENT kullan
 - Emin değilsen, niyeti analiz et ve en uygun ajanı seç
 

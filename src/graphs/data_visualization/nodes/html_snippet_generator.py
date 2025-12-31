@@ -39,6 +39,7 @@ class HTMLSnippetGenerator:
             fig = go.Figure(plotly_figure)
 
             # Generate HTML snippet (not full HTML)
+            # Plotly automatically uses UTF-8 encoding
             html_snippet = fig.to_html(
                 full_html=False,           # Only div + script, no <html><head><body>
                 include_plotlyjs='cdn',    # Use CDN for plotly.js
@@ -49,6 +50,9 @@ class HTMLSnippetGenerator:
                     'displaylogo': False,
                 }
             )
+
+            # Ensure UTF-8 encoding by wrapping in proper HTML structure
+            # This is handled in the iframe wrapper in report/nodes.py
 
             logger.info(f"✅ HTML snippet generated: {len(html_snippet)} chars")
             logger.info(f"Snippet preview (first 200 chars):\n{html_snippet[:200]}")

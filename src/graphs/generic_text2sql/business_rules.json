@@ -14,6 +14,21 @@
         "having": null
       },
       "is_default": true
+    },
+    {
+      "id": "sadece_acik_masa_dahil_et",
+      "description": "Sadece açık masaların veya ödemesi alınmamış masalarda toplam ciroya dahil edilmesi",
+      "modules": ["MasterReports"],
+      "related_tables": [],
+      "sql": {
+        "aggregation": null,
+        "filter": "WHERE IsTableActive = 1",
+        "group_by": null,
+        "select": null,
+        "join": null,
+        "having": null
+      },
+      "is_default": false
     }
   ],
   "metadata": {

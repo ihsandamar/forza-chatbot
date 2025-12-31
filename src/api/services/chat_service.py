@@ -129,6 +129,56 @@ class ChatService:
 
         return None
 
+    def _detect_report_response(self, messages: list) -> Optional[dict]:
+        """
+        Detect if messages contain a report response (AI message with Plotly HTML).
+
+        Checks the last few messages for AI messages containing Plotly HTML snippets,
+        which indicates a data visualization/report generation action.
+
+        Args:
+            messages: List of messages from graph output
+
+        Returns:
+            Dict with report info if detected, None otherwise
+            Format: {"html": str, "text": str}
+        """
+        # Check last 5 messages for AI messages with HTML
+        check_count = min(5, len(messages))
+        recent_messages = messages[-check_count:] if check_count > 0 else []
+
+        for msg in reversed(recent_messages):
+            # Parse message to get role and content
+            role, content = self._parse_message(msg)
+
+            # Check if it's an AI message
+            if role == "assistant" and content:
+                content_str = str(content)
+                # Check if content contains Plotly HTML (iframe or div with plotly)
+                if ("<iframe" in content_str and "base64" in content_str) or \
+                   ("<div" in content_str and "plotly" in content_str.lower()):
+                    # Extract HTML snippet
+                    # Find the HTML part (between iframe tags or entire content if it's mostly HTML)
+                    import re
+
+                    # Try to find iframe first (our current format)
+                    iframe_pattern = r'<iframe[^>]*src="[^"]*"[^>]*>.*?</iframe>'
+                    iframe_match = re.search(iframe_pattern, content_str, re.DOTALL | re.IGNORECASE)
+
+                    if iframe_match:
+                        html_snippet = iframe_match.group(0)
+                        # Extract text without HTML for summary
+                        text_without_html = re.sub(r'<[^>]+>', '', content_str).strip()
+                        # Clean up extra whitespace
+                        text_without_html = re.sub(r'\s+', ' ', text_without_html).strip()
+
+                        return {
+                            "html": html_snippet,
+                            "text": text_without_html
+                        }
+
+        return None
+
     async def send_message(self, request: ChatMessageRequest) -> ChatMessageResponse:
         """
         Send a message to the chatbot
@@ -186,7 +236,10 @@ class ChatService:
         # Detect if this is a routing/navigation response
         routing_info = self._detect_routing_response(graph_messages)
 
-        # Build response based on whether routing was detected
+        # Detect if this is a report/visualization response
+        report_info = self._detect_report_response(graph_messages)
+
+        # Build response based on what was detected (priority: routing > report > text)
         if routing_info:
             # Navigation response with special format
             response_data = ResponseData(
@@ -196,6 +249,18 @@ class ChatService:
                 action=ActionResponse(
                     type="routing",
                     target=routing_info["url"],
+                    params={}
+                )
+            )
+        elif report_info:
+            # Report/visualization response with special format
+            response_data = ResponseData(
+                text=report_info["text"] or "Grafik oluşturuldu",
+                type="report",
+                confidence=0.85,
+                action=ActionResponse(
+                    type="chart",
+                    target=report_info["html"],
                     params={}
                 )
             )

@@ -93,7 +93,7 @@ def create_text2sql_node(text2sql_graph):
         logger.info("Invoking text2sql graph...")
 
         try:
-            # Create text2sql input state
+            # Create text2sql input state (config will be loaded by nodes)
             text2sql_input = {
                 "user_query": user_query,
                 "parsed_intent": None,
@@ -242,8 +242,38 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
         f"• {summary}"
     ]
 
-    # Add Plotly info
-    if plotly_figure:
+    # Add Plotly HTML snippet if available
+    plotly_html_snippet = viz_output.get("plotly_html_snippet")
+    if plotly_html_snippet and needs_graph:
+        response_parts.append(f"\n\n### 📈 Grafik:")
+
+        # Wrap HTML snippet in iframe for better Gradio compatibility
+        # Gradio may not execute scripts directly, so we use data URI iframe
+        import base64
+
+        # Ensure proper UTF-8 encoding for Turkish characters
+        # Add charset meta tag to HTML snippet for proper rendering
+        html_with_charset = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;">
+{plotly_html_snippet}
+</body>
+</html>'''
+
+        # Encode with UTF-8 explicitly
+        html_bytes = html_with_charset.encode('utf-8')
+        html_base64 = base64.b64encode(html_bytes).decode('ascii')
+
+        # Specify charset in data URI
+        iframe_html = f'<iframe src="data:text/html;charset=utf-8;base64,{html_base64}" width="100%" height="500" frameborder="0"></iframe>'
+
+        response_parts.append(f"\n{iframe_html}")
+        logger.info(f"Added Plotly HTML snippet (iframe wrapped with UTF-8 charset, {len(plotly_html_snippet)} chars)")
+    elif plotly_figure and needs_graph:
         response_parts.append(f"• Plotly Grafiği: ✓ Oluşturuldu")
     elif needs_graph:
         response_parts.append(f"• Plotly Grafiği: ✗ Oluşturulamadı")

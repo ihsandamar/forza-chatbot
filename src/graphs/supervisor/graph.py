@@ -29,7 +29,8 @@ from src.graphs.supervisor.tools import (
     get_current_time,
     get_supervisor_status,
     assign_to_chat_agent,
-    assign_to_routing_agent
+    assign_to_routing_agent,
+    assign_to_report_agent
 )
 
 logger = logging.getLogger(__name__)
@@ -403,6 +404,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         logger.info("[SUPERVISOR] Creating ReAct agent with handoff tools:")
         logger.info("[SUPERVISOR]   - assign_to_chat_agent")
         logger.info("[SUPERVISOR]   - assign_to_routing_agent")
+        logger.info("[SUPERVISOR]   - assign_to_report_agent")
         logger.info("[SUPERVISOR]   - get_current_time")
         logger.info("[SUPERVISOR]   - get_supervisor_status")
 
@@ -412,7 +414,8 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
                 get_current_time,
                 get_supervisor_status,
                 assign_to_chat_agent,
-                assign_to_routing_agent
+                assign_to_routing_agent,
+                assign_to_report_agent
             ],
             system_prompt=SUPERVISOR_SYSTEM_PROMPT,
             name="supervisor"
@@ -430,18 +433,55 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         chat_agent = ChatGraph(llm=self.llm, config=chat_config).build_graph()
         logger.info("[SUPERVISOR] ✓ Chat subgraph built")
 
+        # Build report agent (text2sql + visualization)
+        # Use lazy import to avoid dependency issues during graph build
+        logger.info("[SUPERVISOR] Building report agent...")
+
+        def build_report_agent_lazy():
+            """Lazy builder for report agent - only imports when needed"""
+            from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
+            from src.graphs.data_visualization.graph import build_visualization_graph
+            from src.graphs.report.graph import build_report_graph
+
+            # Build text2sql graph
+            text2sql_graph = GenericText2SQLGraph(llm=self.llm).build_graph()
+            logger.info("[SUPERVISOR] ✓ Text2SQL subgraph built")
+
+            # Build visualization graph
+            visualization_graph = build_visualization_graph(llm=self.llm)
+            logger.info("[SUPERVISOR] ✓ Visualization subgraph built")
+
+            # Build report graph (combines text2sql + visualization)
+            report_graph = build_report_graph(text2sql_graph, visualization_graph)
+            logger.info("[SUPERVISOR] ✓ Report subgraph built")
+            return report_graph
+
+        # Build report agent (this will import dependencies)
+        try:
+            report_agent = build_report_agent_lazy()
+        except Exception as e:
+            logger.error(f"[SUPERVISOR] Failed to build report agent: {e}")
+            logger.warning("[SUPERVISOR] Report agent disabled due to build error")
+            report_agent = None
+
         # Build the graph with multi-destination pattern
         logger.info("[SUPERVISOR] Building supervisor graph structure...")
         builder = self.get_graph_builder()
 
         # Add nodes
+        destinations = ["routing", "chat"]
+        if report_agent:
+            destinations.append("report")
+
         logger.info("[SUPERVISOR] Adding nodes:")
-        logger.info("[SUPERVISOR]   - supervisor (with destinations: routing, chat)")
+        logger.info(f"[SUPERVISOR]   - supervisor (with destinations: {', '.join(destinations)})")
         logger.info("[SUPERVISOR]   - routing (SUBGRAPH - will be visible)")
         logger.info("[SUPERVISOR]   - process_routing_output")
         logger.info("[SUPERVISOR]   - chat (SUBGRAPH - visible)")
+        if report_agent:
+            logger.info("[SUPERVISOR]   - report (SUBGRAPH - visible)")
 
-        builder.add_node("supervisor", supervisor_agent, destinations=["routing", "chat"])
+        builder.add_node("supervisor", supervisor_agent, destinations=destinations)
 
         # Routing subgraph: Directly added (visible as subgraph in LangGraph Dev)
         builder.add_node("routing", routing_agent)
@@ -449,19 +489,31 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         builder.add_node("process_routing_output", process_routing_output)
         builder.add_node("chat", chat_agent)
 
+        # Add report agent only if successfully built
+        if report_agent:
+            builder.add_node("report", report_agent)
+
         # Define edges
+        edge_list = "{routing, chat" + (", report}" if report_agent else "}")
         logger.info("[SUPERVISOR] Defining edges:")
         logger.info("[SUPERVISOR]   START → supervisor")
-        logger.info("[SUPERVISOR]   supervisor → {routing, chat}")
+        logger.info(f"[SUPERVISOR]   supervisor → {edge_list}")
         logger.info("[SUPERVISOR]   routing → process_routing_output")
         logger.info("[SUPERVISOR]   process_routing_output → supervisor")
         logger.info("[SUPERVISOR]   chat → supervisor")
+        if report_agent:
+            logger.info("[SUPERVISOR]   report → supervisor")
         logger.info("[SUPERVISOR]   supervisor → END")
 
         builder.add_edge(START, "supervisor")
         builder.add_edge("routing", "process_routing_output")
         builder.add_edge("process_routing_output", "supervisor")
         builder.add_edge("chat", "supervisor")
+
+        # Add report edge only if agent exists
+        if report_agent:
+            builder.add_edge("report", "supervisor")
+
         builder.add_edge("supervisor", END)
 
         # Compile with memory
