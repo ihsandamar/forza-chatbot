@@ -1,5 +1,4 @@
 from rapidfuzz import process, fuzz
-from sentence_transformers import SentenceTransformer
 import pyodbc
 from datetime import datetime, timedelta
 from typing import Dict, Set, Optional, List
@@ -7,6 +6,9 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import unicodedata
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ValueResolverService:
     """
@@ -48,7 +50,7 @@ class ValueResolverService:
 
     def _parse_mssql_dsn(self, dsn: str) -> str:
         """mssql+pyodbc DSN'yi pyodbc connection string'e çevir"""
-        # mssql+pyodbc://user:pass@host/database?driver=DRIVER
+        # mssql+pyodbc://user:pass@host:port/database?driver=DRIVER
         from urllib.parse import urlparse, parse_qs
 
         if dsn.startswith("mssql+pyodbc://"):
@@ -56,13 +58,20 @@ class ValueResolverService:
             query_params = parse_qs(parsed.query)
             driver = query_params.get("driver", ["ODBC Driver 17 for SQL Server"])[0]
 
+            # Build server string with port if specified
+            server = parsed.hostname
+            if parsed.port:
+                server = f"{server},{parsed.port}"
+
             conn_str = (
                 f"Driver={{{driver}}};"
-                f"Server={parsed.hostname};"
+                f"Server={server};"
                 f"Database={parsed.path.lstrip('/')};"
                 f"UID={parsed.username};"
                 f"PWD={parsed.password};"
-                "Trusted_Connection=no;"
+                f"Encrypt=yes;"
+                f"TrustServerCertificate=yes;"
+                f"Connection Timeout=30"
             )
             return conn_str
         return dsn
@@ -90,13 +99,13 @@ class ValueResolverService:
 
     async def initialize(self):
         """Uygulama başlangıcında cache'i doldur"""
-        print("🚀 ValueResolver başlatılıyor...")
-        
+        logger.info("ValueResolver baslatiliyor...")
+
         for column, config in self.column_config.items():
             if config["strategy"] == "full_cache":
                 await self._load_to_cache(column)
-        
-        print("✅ ValueResolver hazır!")
+
+        logger.info("ValueResolver hazir!")
     
     async def _load_to_cache(self, column: str):
         """Bir kolonun değerlerini cache'e yükle"""
@@ -119,17 +128,37 @@ class ValueResolverService:
             "ttl": config["ttl"]
         }
 
-        print(f"  ✓ {column}: {len(values)} değer cache'lendi")
+        logger.info(f"  OK {column}: {len(values)} deger cache'lendi")
 
     def _fetch_from_db(self, query: str, column: str) -> list:
-        """Veritabanından veri çek (synchronous)"""
-        conn = pyodbc.connect(self.db_conn)
-        cursor = conn.cursor()
-        cursor.execute(query)
-        rows = [row[0] for row in cursor.fetchall()]
-        cursor.close()
-        conn.close()
-        return rows
+        """Veritabanından veri çek (synchronous) with error handling"""
+        try:
+            conn = pyodbc.connect(self.db_conn)
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = [row[0] for row in cursor.fetchall()]
+            cursor.close()
+            conn.close()
+            return rows
+        except pyodbc.OperationalError as e:
+            # Connection/network errors
+            error_msg = str(e)
+            if '08001' in error_msg or 'timeout' in error_msg.lower() or 'connection' in error_msg.lower():
+                logger.error(f"[DB CONNECTION ERROR] SQL Server baglantisi yapilamiyor ({column})")
+                logger.error(f"  Hata: Named Pipes/Network hatasi")
+                logger.error(f"  Connection string: {self.db_conn[:60]}...")
+                logger.error(f"  Cozum onerileri:")
+                logger.error(f"    1. SQL Server calistigindan emin olun")
+                logger.error(f"    2. config.yaml dosyasindaki connection string'i kontrol edin")
+                logger.error(f"    3. SQL Server remote connections kabul ediyor olsun")
+                logger.error(f"    4. Firewall ayarlarini kontrol edin (port 1433)")
+                logger.error(f"    5. Network connectivity test edin: ping/telnet server_ip 1433")
+            else:
+                logger.error(f"DB operational error for {column}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"DB error for {column}: {e}")
+            return []
     
     async def resolve(self, user_input: str, column: str, threshold: int = 75) -> Optional[Dict]:
         """

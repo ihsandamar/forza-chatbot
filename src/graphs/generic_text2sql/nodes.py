@@ -25,10 +25,51 @@ from src.graphs.generic_text2sql.state import (
 )
 from src.graphs.generic_text2sql.value_resolver_service import ValueResolverService
 from src.graphs.generic_text2sql.json_utils import parse_json_robust, extract_sql_from_text
+from src.services.config_loader import ConfigLoader
 # REMOVED: schema_discovery import (optimized to use static metadata)
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_db_connection_string(state: dict = None) -> str:
+    """
+    Get DB connection string from state, config file, or environment.
+
+    Priority:
+    1. State config
+    2. Config file (database.uri)
+    3. Environment variable (DATABASE_URL)
+    4. Error (no fallback)
+    """
+    import os
+
+    # Try state config first
+    if state:
+        db_conn = state.get("config", {}).get("db_connection_string")
+        if db_conn:
+            return db_conn
+
+    # Try config file
+    try:
+        config = ConfigLoader.load_config("config/config.yaml")
+        if hasattr(config, 'database') and hasattr(config.database, 'uri'):
+            db_conn = config.database.uri
+            if db_conn and db_conn != "${DATABASE_URL}":
+                return db_conn
+    except Exception as e:
+        logger.warning(f"Could not load config file: {e}")
+
+    # Try environment variable
+    db_conn = os.getenv("DATABASE_URL")
+    if db_conn:
+        return db_conn
+
+    # No connection string found
+    raise ValueError(
+        "Database connection string not found! "
+        "Please set DATABASE_URL environment variable or configure database.uri in config.yaml"
+    )
 
 # Module-level cache for ValueResolverService
 _value_resolver_service = None
@@ -354,8 +395,7 @@ async def value_resolver_node(state: GenericText2SQLState) -> GenericText2SQLSta
             return state
 
         # Get ValueResolverService
-        # TODO: Get DB connection string from config
-        db_conn = "mssql+pyodbc://sa:Vega1234@DESKTOP-TIEAGO8/harbi?driver=ODBC+Driver+17+for+SQL+Server"
+        db_conn = get_db_connection_string(state)
         resolver = await get_value_resolver(db_conn)
 
         # Deep copy steps to avoid mutating original
@@ -568,13 +608,20 @@ def _execute_sql(sql_query: str, db_connection_string: str) -> list:
             query_params = parse_qs(parsed.query)
             driver = query_params.get("driver", ["ODBC Driver 17 for SQL Server"])[0]
 
+            # Build server string with port if specified
+            server = parsed.hostname
+            if parsed.port:
+                server = f"{server},{parsed.port}"
+
             conn_str = (
                 f"Driver={{{driver}}};"
-                f"Server={parsed.hostname};"
+                f"Server={server};"
                 f"Database={parsed.path.lstrip('/')};"
                 f"UID={parsed.username};"
                 f"PWD={parsed.password};"
-                "Trusted_Connection=no;"
+                f"Encrypt=yes;"
+                f"TrustServerCertificate=yes;"
+                f"Connection Timeout=30"
             )
         else:
             conn_str = db_connection_string
@@ -648,8 +695,7 @@ async def sql_executor_node(state: GenericText2SQLState) -> GenericText2SQLState
         sql_query = state["sql_queries"][0]  # Get first query
 
         # Get DB connection string
-        # TODO: Get from config
-        db_conn = "mssql+pyodbc://sa:Vega1234@DESKTOP-TIEAGO8/harbi?driver=ODBC+Driver+17+for+SQL+Server"
+        db_conn = get_db_connection_string(state)
 
         # Execute SQL asynchronously
         loop = asyncio.get_event_loop()
@@ -924,7 +970,7 @@ async def sql_executor_node_with_retry(state: GenericText2SQLState) -> GenericTe
         sql_query = state["sql_queries"][0]  # Get first query
 
         # Get DB connection string
-        db_conn = "mssql+pyodbc://sa:Vega1234@DESKTOP-TIEAGO8/harbi?driver=ODBC+Driver+17+for+SQL+Server"
+        db_conn = get_db_connection_string(state)
 
         # Execute SQL asynchronously
         try:
@@ -1000,7 +1046,14 @@ def get_business_rules_vector_store():
         rules_file = current_dir / "business_rules.json"
         persist_dir = current_dir / "chroma_db"
 
-        logger.info("Initializing BusinessRulesVectorStore...")
+        # DEBUG: Log paths
+        logger.info(f"Initializing BusinessRulesVectorStore...")
+        logger.info(f"  Rules file: {rules_file}")
+        logger.info(f"  Rules file exists: {rules_file.exists()}")
+        logger.info(f"  Persist dir: {persist_dir}")
+        logger.info(f"  Persist dir exists: {persist_dir.exists()}")
+        if persist_dir.exists():
+            logger.info(f"  Persist dir contents: {list(persist_dir.iterdir())}")
 
         _business_rules_vector_store = BusinessRulesVectorStore(
             rules_file_path=str(rules_file),
@@ -1012,6 +1065,8 @@ def get_business_rules_vector_store():
         try:
             collections = _business_rules_vector_store.client.list_collections()
             collection_names = [c.name for c in collections]
+
+            logger.info(f"  Found collections: {collection_names}")
 
             if "business_rules" not in collection_names:
                 logger.warning("Business rules collections not found, rebuilding index...")
@@ -1033,6 +1088,159 @@ def get_business_rules_vector_store():
         logger.info("BusinessRulesVectorStore initialized successfully")
 
     return _business_rules_vector_store
+
+
+async def create_master_table_node(state: GenericText2SQLState) -> GenericText2SQLState:
+    """
+    Create MasterReportDocumentTable temp table at the beginning of the graph.
+
+    This table is created from Documents, TempDocuments and related tables.
+    All subsequent queries will run against this temp table.
+    """
+    logger.info("[CREATE_MASTER_TABLE] Creating MasterReportDocumentTable...")
+
+    try:
+        # Get DB connection string
+        db_conn = get_db_connection_string(state)
+        logger.info(f"[CREATE_MASTER_TABLE] Using connection: {db_conn[:50]}...")
+
+        # Read SQL file
+        from pathlib import Path
+        sql_file = Path(__file__).parent / "master_table_creation.sql"
+        logger.info(f"[CREATE_MASTER_TABLE] SQL file path: {sql_file}")
+
+        if not sql_file.exists():
+            logger.error(f"Master table creation SQL file not found: {sql_file}")
+            state["error"] = "Master table creation SQL file not found"
+            return state
+
+        with open(sql_file, 'r', encoding='utf-8') as f:
+            master_table_sql = f.read()
+
+        logger.info(f"[CREATE_MASTER_TABLE] SQL script loaded: {len(master_table_sql)} characters")
+
+        # Execute SQL asynchronously
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_db_executor, _execute_sql_script, master_table_sql, db_conn)
+
+        logger.info("[CREATE_MASTER_TABLE] MasterReportDocumentTable created successfully")
+
+    except Exception as e:
+        logger.error(f"[CREATE_MASTER_TABLE] Error creating master table: {e}", exc_info=True)
+        state["error"] = f"Master table creation error: {str(e)}"
+
+    return state
+
+
+async def cleanup_master_table_node(state: GenericText2SQLState) -> GenericText2SQLState:
+    """
+    Drop MasterReportDocumentTable at the end of the graph.
+
+    Cleanup temp table to free resources.
+    """
+    logger.info("[CLEANUP_MASTER_TABLE] Dropping MasterReportDocumentTable...")
+
+    try:
+        # Get DB connection string
+        db_conn = get_db_connection_string(state)
+
+        # Drop table SQL
+        cleanup_sql = "DROP TABLE IF EXISTS MasterReportDocumentTable;"
+
+        # Execute SQL asynchronously
+        import asyncio
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_db_executor, _execute_sql_script, cleanup_sql, db_conn)
+
+        logger.info("[CLEANUP_MASTER_TABLE] MasterReportDocumentTable dropped successfully")
+
+    except Exception as e:
+        logger.warning(f"[CLEANUP_MASTER_TABLE] Error dropping master table (may not exist): {e}")
+        # Don't set error - cleanup failure shouldn't break the flow
+
+    return state
+
+
+def _execute_sql_script(sql_script: str, db_connection_string: str):
+    """
+    Execute multi-statement SQL script synchronously.
+
+    Args:
+        sql_script: SQL script with multiple statements
+        db_connection_string: Database connection string
+
+    Returns:
+        None (script execution)
+    """
+    import pyodbc
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Parse connection string
+    if db_connection_string.startswith("mssql+pyodbc://"):
+        from urllib.parse import urlparse, parse_qs
+
+        parsed = urlparse(db_connection_string)
+        query_params = parse_qs(parsed.query)
+        driver = query_params.get('driver', ['ODBC Driver 17 for SQL Server'])[0]
+
+        # Build server string with port if specified
+        server = parsed.hostname
+        if parsed.port:
+            server = f"{server},{parsed.port}"
+
+        pyodbc_conn_str = (
+            f"Driver={{{driver}}};"
+            f"Server={server};"
+            f"Database={parsed.path.lstrip('/')};"
+            f"UID={parsed.username};"
+            f"PWD={parsed.password};"
+            f"Encrypt=yes;"
+            f"TrustServerCertificate=yes;"
+            f"Connection Timeout=30"
+        )
+        logger.debug(f"Parsed connection string: Driver={driver};Server={server};Database={parsed.path.lstrip('/')};...")
+    else:
+        pyodbc_conn_str = db_connection_string
+
+    conn = pyodbc.connect(pyodbc_conn_str, autocommit=False)
+    cursor = conn.cursor()
+
+    try:
+        # Execute the entire script as a batch to preserve temp table scope
+        # Split by GO keyword (SQL Server batch separator) instead of semicolon
+        batches = [batch.strip() for batch in sql_script.split('GO') if batch.strip()]
+
+        if not batches:
+            # If no GO separators, try to execute as single batch
+            # Remove comments and execute
+            cleaned_sql = '\n'.join(
+                line for line in sql_script.split('\n')
+                if line.strip() and not line.strip().startswith('--')
+            )
+            if cleaned_sql:
+                cursor.execute(cleaned_sql)
+        else:
+            # Execute each batch separately (batches are separated by GO)
+            for batch in batches:
+                # Remove single-line comments
+                cleaned_batch = '\n'.join(
+                    line for line in batch.split('\n')
+                    if line.strip() and not line.strip().startswith('--')
+                )
+                if cleaned_batch:
+                    cursor.execute(cleaned_batch)
+
+        conn.commit()
+        logger.info("SQL script executed successfully")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error executing SQL script: {e}", exc_info=True)
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def retrieve_business_rules_node(state: GenericText2SQLState) -> GenericText2SQLState:
