@@ -465,6 +465,13 @@ Tablo: MasterReportDocumentTable
 - logical_operator = "OR" → önceki filter ile OR
 - logical_operator yok/AND → AND ile bağla
 
+**3.5. ÇOK ÖNEMLİ - ÇOKLU ADIM SORGULARI (depends_on var)**:
+- Group By'da kullanılan TÜMALANLAR için WHERE'ye IS NOT NULL ekle!
+- Örnek: GROUP BY CategoryName → WHERE'ye `AND CategoryName IS NOT NULL`
+- Örnek: GROUP BY CAST(DocumentDate AS DATE) → WHERE'ye `AND CAST(DocumentDate AS DATE) IS NOT NULL`
+- Örnek: SUM(Amount) agregasyonu → WHERE'ye `AND Amount IS NOT NULL`
+- Bu, sonraki CTE step'lerinde NULL referans sorunlarını önler!
+
 **4. ORDER BY (Zaman Serisi için KRİTİK!)**:
 - GROUP BY'da zaman ifadesi varsa → ORDER BY'a MUTLAKA ekle!
 - Örnek: `GROUP BY YEAR(DocumentDate), MONTH(DocumentDate)` → `ORDER BY YEAR(DocumentDate), MONTH(DocumentDate)`
@@ -510,12 +517,14 @@ Output:
 WITH step_1 AS (
   SELECT TOP 1 CategoryName, SUM(Quantity) AS TotalQty
   FROM MasterReportDocumentTable
+  WHERE CategoryName IS NOT NULL
   GROUP BY CategoryName
   ORDER BY TotalQty DESC
 )
 SELECT TOP 10 ProductName, SUM(RowAmount) AS Revenue, SUM(Quantity) AS TotalQty
 FROM MasterReportDocumentTable
 WHERE CategoryName = (SELECT CategoryName FROM step_1)
+  AND ProductName IS NOT NULL
 GROUP BY ProductName
 ORDER BY Revenue DESC
 ```
