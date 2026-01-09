@@ -704,7 +704,7 @@ async def sql_executor_node(state: GenericText2SQLState) -> GenericText2SQLState
         # Store results
         state["results"] = results
 
-        logger.info(f"SQL execution completed: {len(results)} rows retrieved")
+        logger.info(f"SQL execution completed: {len(results) if results else 0} rows retrieved")
 
         # Log first few rows for debugging
         if results:
@@ -979,7 +979,8 @@ async def sql_executor_node_with_retry(state: GenericText2SQLState) -> GenericTe
 
             # Store results
             state["results"] = results
-            logger.info(f"SQL execution completed successfully: {len(results)} rows retrieved")
+
+            logger.info(f"SQL execution completed successfully: {len(results) if results else 0} rows retrieved")
 
             # Log first few rows for debugging
             if results:

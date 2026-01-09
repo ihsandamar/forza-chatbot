@@ -61,6 +61,31 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
     return {}
 
 
+async def check_results_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Check if text2sql produced results.
+
+    If no results found, set no_records_message and skip visualization.
+    Otherwise, proceed to visualization.
+
+    Returns:
+        state with no_records_message if empty, unchanged otherwise
+    """
+    text2sql_output = state.get("text2sql_output")
+
+    # Check if results are empty
+    if text2sql_output:
+        results = text2sql_output.get("results")
+        if not results or len(results) == 0:
+            logger.info("No records found, skipping visualization")
+            return {
+                "no_records_message": "Sorguya uygun kayıt bulunamadı."
+            }
+
+    logger.info("Results available, proceeding to visualization...")
+    return {}
+
+
 def create_text2sql_node(text2sql_graph):
     """
     Factory to create text2sql invocation node.
@@ -203,6 +228,15 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
     """
     viz_output = state.get("visualization_output")
     error = state.get("error")
+    no_records_message = state.get("no_records_message")
+
+    # Check if no records found message exists (set by check_results_node)
+    if no_records_message:
+        logger.info(f"No records found: {no_records_message}")
+        response_msg = AIMessage(content=f"ℹ️ {no_records_message}")
+        return {
+            "messages": [response_msg]
+        }
 
     if error:
         # Add error message

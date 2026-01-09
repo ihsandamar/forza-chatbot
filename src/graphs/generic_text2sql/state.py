@@ -62,6 +62,7 @@ class GenericText2SQLState(TypedDict):
     sql_queries: Optional[List[str]]
     results: Optional[List[dict]]
     final_response: Optional[str]
+    no_records_message: Optional[str]  # Message when no records found (not an error)
     error: Optional[str]
 
     # Optimization fields

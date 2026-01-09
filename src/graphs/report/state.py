@@ -28,5 +28,8 @@ class ReportState(TypedDict):
     # Final: Visualization output
     visualization_output: Optional[dict]
 
+    # Message when no records found (set by check_results_node)
+    no_records_message: Optional[str]
+
     # Error tracking
     error: Optional[str]

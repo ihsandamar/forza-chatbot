@@ -12,9 +12,10 @@ Architecture (OPTIMIZED FOR STREAMING):
         ↓
     text2sql (generate SQL and execute)
         ↓
-    visualization (decide viz type and build config)
-        ↓
-    build_response (create final message)
+    check_results (skip visualization if no records)
+        ├─→ visualization (if has data)
+        │       ↓
+        └─→ build_response (if no data or after viz)
         ↓
     messages (with AI response)
 """
@@ -25,6 +26,7 @@ from .state import ReportState
 from .nodes import (
     immediate_acknowledgment_node,
     extract_query_node,
+    check_results_node,
     create_text2sql_node,
     create_visualization_node,
     build_response_node
@@ -57,14 +59,24 @@ def build_report_graph(text2sql_graph, visualization_graph) -> StateGraph:
     graph.add_node("immediate_ack", immediate_acknowledgment_node)
     graph.add_node("extract_query", extract_query_node)
     graph.add_node("text2sql", text2sql_node)
+    graph.add_node("check_results", check_results_node)
     graph.add_node("visualization", visualization_node)
     graph.add_node("build_response", build_response_node)
+
+    # Define conditional routing function
+    def should_visualize(state: ReportState) -> str:
+        """Route to visualization only if records exist"""
+        if state.get("no_records_message"):
+            return "build_response"
+        return "visualization"
 
     # Define edges (OPTIMIZED: immediate_ack runs first)
     graph.add_edge(START, "immediate_ack")
     graph.add_edge("immediate_ack", "extract_query")
     graph.add_edge("extract_query", "text2sql")
-    graph.add_edge("text2sql", "visualization")
+    graph.add_edge("text2sql", "check_results")
+    # Conditional edge: check_results -> visualization or build_response
+    graph.add_conditional_edges("check_results", should_visualize)
     graph.add_edge("visualization", "build_response")
     graph.add_edge("build_response", END)
 
