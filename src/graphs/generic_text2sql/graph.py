@@ -10,6 +10,7 @@ from langgraph.graph import StateGraph, START, END
 
 logger = logging.getLogger(__name__)
 
+from src.graphs.generic_text2sql.nodekit import GenericText2SQLNodeKit
 from src.models.llm import LLM
 from src.graphs.base.base_graph import BaseGraph
 from src.graphs.base.graph_metadata import (
@@ -21,22 +22,22 @@ from src.graphs.base.graph_metadata import (
 from src.graphs.registry import register_graph
 from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
 from .state import GenericText2SQLState
-from .nodes import (
-    intent_parser_node,
-    intent_matching_node,
-    metadata_enrichment_node,
-    value_resolver_node,
-    sql_query_builder_node,
-    sql_executor_node,
-    # Optimized nodes
-    sql_architect_node,
-    sql_executor_node_with_retry,
-    # Business rules vector store node
-    retrieve_business_rules_node,
-    # Master table management nodes
-    create_master_table_node,
-    cleanup_master_table_node
-)
+# from .nodes import (
+#     intent_parser_node,
+#     intent_matching_node,
+#     metadata_enrichment_node,
+#     value_resolver_node,
+#     sql_query_builder_node,
+#     sql_executor_node,
+#     # Optimized nodes
+#     sql_architect_node,
+#     sql_executor_node_with_retry,
+#     # Business rules vector store node
+#     retrieve_business_rules_node,
+#     # Master table management nodes
+#     create_master_table_node,
+#     cleanup_master_table_node
+# )
 
 
 @register_graph("generic_text2sql")
@@ -131,15 +132,17 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             # Manages MasterReportDocumentTable creation and cleanup
             logger.info("Building OPTIMIZED graph (collapsed architecture + business rules + master table)")
 
+            nodekit = GenericText2SQLNodeKit(self.llm, self.config)
+
             # Add nodes
-            builder.add_node("create_master_table", create_master_table_node)
-            builder.add_node("sql_architect", sql_architect_node)
-            builder.add_node("retrieve_business_rules", retrieve_business_rules_node)
-            builder.add_node("metadata_enrichment", metadata_enrichment_node)
-            builder.add_node("value_resolver", value_resolver_node)
-            builder.add_node("sql_query_builder", sql_query_builder_node)
-            builder.add_node("sql_executor", sql_executor_node_with_retry)
-            builder.add_node("cleanup_master_table", cleanup_master_table_node)
+            builder.add_node("create_master_table", nodekit.create_master_table_node)
+            builder.add_node("sql_architect", nodekit.sql_architect_node)
+            builder.add_node("retrieve_business_rules", nodekit.retrieve_business_rules_node)
+            builder.add_node("metadata_enrichment", nodekit.metadata_enrichment_node)
+            builder.add_node("value_resolver", nodekit.value_resolver_node)
+            builder.add_node("sql_query_builder", nodekit.sql_query_builder_node)
+            builder.add_node("sql_executor", nodekit.sql_executor_node_with_retry)
+            builder.add_node("cleanup_master_table", nodekit.cleanup_master_table_node)
 
             # Add edges (Sequential)
             builder.add_edge(START, "create_master_table")
@@ -157,12 +160,12 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             logger.info("Building ORIGINAL graph (legacy architecture)")
 
             # Add nodes
-            builder.add_node("intent_parser", intent_parser_node)
-            builder.add_node("intent_matching", intent_matching_node)
-            builder.add_node("metadata_enrichment", metadata_enrichment_node)
-            builder.add_node("value_resolver", value_resolver_node)
-            builder.add_node("sql_query_builder", sql_query_builder_node)
-            builder.add_node("sql_executor", sql_executor_node)
+            builder.add_node("intent_parser", nodekit.intent_parser_node)
+            builder.add_node("intent_matching", nodekit.intent_matching_node)
+            builder.add_node("metadata_enrichment", nodekit.metadata_enrichment_node)
+            builder.add_node("value_resolver", nodekit.value_resolver_node)
+            builder.add_node("sql_query_builder", nodekit.sql_query_builder_node)
+            builder.add_node("sql_executor", nodekit.sql_executor_node)
 
             # Add edges
             builder.add_edge(START, "intent_parser")
