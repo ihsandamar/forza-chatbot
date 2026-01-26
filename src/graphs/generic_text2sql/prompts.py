@@ -437,7 +437,7 @@ COLUMN_METADATA_SHORT = """
 
 SQL_QUERY_BUILDER_PROMPT_TEXT = """Sen bir MSSQL sorgu oluşturma uzmanısın. Yukarıdaki adımları MSSQL sorgusuna çevir.
 
-Tablo: MasterReportDocumentTable
+Tablo: {table_name}
 
 ## KULLANILAN KOLONLAR
 {enriched_metadata}

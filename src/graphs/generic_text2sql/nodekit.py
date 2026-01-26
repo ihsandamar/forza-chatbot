@@ -941,6 +941,7 @@ class GenericText2SQLNodeKit:
 
         Args:
             state: Current generic text2sql state with resolved_steps
+            config: LangGraph runtime configuration
 
         Returns:
             Updated state with sql_queries or error
@@ -959,6 +960,10 @@ class GenericText2SQLNodeKit:
                 # Only skip if there was an intent parsing error (critical)
                 logger.warning(f"Skipping SQL generation due to critical error: {state['error']}")
                 return state
+
+            # Extract table name from config
+            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+            logger.info(f"[SQL_QUERY_BUILDER] Using table_name: {table_name}")
 
             resolved_steps = state["resolved_steps"]
 
@@ -988,6 +993,7 @@ class GenericText2SQLNodeKit:
             chain = SQL_QUERY_BUILDER_PROMPT | llm
 
             response = await chain.ainvoke({
+                "table_name": table_name,
                 "resolved_steps": steps_json,
                 "enriched_metadata": metadata_text,
                 "business_rules_context": business_rules_context
