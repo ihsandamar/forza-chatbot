@@ -41,6 +41,11 @@ logger = logging.getLogger(__name__)
 # Module-level executor for async DB operations
 _db_executor = ThreadPoolExecutor(max_workers=3)
 
+# Module-level caches and singletons
+_business_rules_cache = None
+_business_rules_vector_store = None
+_value_resolver_service = None
+
 def intent_parser_to_json(response_text: str) -> ParsedIntent:
     """
     Convert LLM response text to ParsedIntent model.
@@ -507,11 +512,6 @@ class GenericText2SQLNodeKit:
         self.vectorstore = vectorstore
         self.global_config = global_config
         logger.debug(f"[TEXT2SQL] NodeKit initialized with config")
-
-
-
-    # Module-level cache for ValueResolverService
-    _value_resolver_service = None
 
 
 
@@ -1007,11 +1007,6 @@ class GenericText2SQLNodeKit:
     # OPTIMIZED NODES - Collapsed Architecture
     # ============================================================================
 
-    # Module-level cache for business rules
-    _business_rules_cache = None
-
-
- 
 
 
 
@@ -1221,12 +1216,6 @@ class GenericText2SQLNodeKit:
     # ============================================================================
     # BUSINESS RULES VECTOR STORE NODE
     # ============================================================================
-
-    # Module-level cache for vector store
-    _business_rules_vector_store = None
-
-
-
 
     async def create_master_table_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
         """

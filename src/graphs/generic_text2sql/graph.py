@@ -20,6 +20,7 @@ from src.graphs.base.graph_metadata import (
     OutputSpec,
 )
 from src.graphs.registry import register_graph
+from src.services.config_loader import ConfigLoader
 from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
 from .state import GenericText2SQLState
 # from .nodes import (
@@ -67,14 +68,36 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             metadata=self._get_default_metadata(),
         )
 
+        # Load global configuration from config file
+        global_config = ConfigLoader.load_config("config/config.yaml")
+
+        # Initialize NodeKit with configuration
+        self.node_kit = GenericText2SQLNodeKit(
+            llm=self.llm,
+            config=self.config,
+            global_config=global_config
+        )
+
     def _get_default_config(self) -> GenericSQLAssistantConfiguration:
         """
         Get default configuration for generic text2sql graph.
 
         Returns:
             GenericSQLAssistantConfiguration with default values
+
+        Note:
+            Config fields are intentionally empty and will be injected at runtime
+            via LangGraph Dev's configurable parameters.
         """
+        logger.debug("[GENERIC_TEXT2SQL] Using empty config, will be injected at runtime via state")
+
         return GenericSQLAssistantConfiguration(
+            report_name="",
+            description="",
+            table_name="",
+            query="",
+            column_metadata={},
+            business_rules=[],
             system_prompt="Sen bir ERP uzmanı ve SQL sorgulama asistanısın.",
             assistant_name="GenericSQL Assistant"
         )
@@ -111,14 +134,14 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         """
         Build and return the compiled StateGraph.
 
-        Architecture (Optimized with Business Rules + Master Table):
-        START → create_master_table → sql_architect → retrieve_business_rules → metadata_enrichment → value_resolver → sql_query_builder → sql_executor_with_retry → cleanup_master_table → END
+        Architecture (Optimized with Business Rules + Table Creation):
+        START → create_table → sql_architect → retrieve_business_rules → metadata_enrichment → value_resolver → sql_query_builder → sql_executor_with_retry → cleanup_table → END
 
         Architecture (Original):
         START → intent_parser → intent_matching → metadata_enrichment → value_resolver → sql_query_builder → sql_executor → END
 
         Args:
-            use_optimized: If True, use collapsed architecture with master table (default). If False, use original.
+            use_optimized: If True, use collapsed architecture with table creation (default). If False, use original.
 
         Returns:
             Compiled StateGraph instance
@@ -126,7 +149,7 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
         builder = self.get_graph_builder()
 
         if use_optimized:
-            # OPTIMIZED ARCHITECTURE (Collapsed + Business Rules + Master Table)
+            # OPTIMIZED ARCHITECTURE (Collapsed + Business Rules + Table Creation)
             # Eliminates 1 LLM call by combining intent_parser + intent_matching
             # Adds business rules vector store retrieval
             # Manages MasterReportDocumentTable creation and cleanup
@@ -135,25 +158,25 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             nodekit = GenericText2SQLNodeKit(self.llm, self.config)
 
             # Add nodes
-            builder.add_node("create_master_table", nodekit.create_master_table_node)
+            builder.add_node("create_table", nodekit.create_master_table_node)
             builder.add_node("sql_architect", nodekit.sql_architect_node)
             builder.add_node("retrieve_business_rules", nodekit.retrieve_business_rules_node)
             builder.add_node("metadata_enrichment", nodekit.metadata_enrichment_node)
             builder.add_node("value_resolver", nodekit.value_resolver_node)
             builder.add_node("sql_query_builder", nodekit.sql_query_builder_node)
             builder.add_node("sql_executor", nodekit.sql_executor_node_with_retry)
-            builder.add_node("cleanup_master_table", nodekit.cleanup_master_table_node)
+            builder.add_node("cleanup_table", nodekit.cleanup_master_table_node)
 
             # Add edges (Sequential)
-            builder.add_edge(START, "create_master_table")
-            builder.add_edge("create_master_table", "sql_architect")
+            builder.add_edge(START, "create_table")
+            builder.add_edge("create_table", "sql_architect")
             builder.add_edge("sql_architect", "retrieve_business_rules")
             builder.add_edge("retrieve_business_rules", "metadata_enrichment")
             builder.add_edge("metadata_enrichment", "value_resolver")
             builder.add_edge("value_resolver", "sql_query_builder")
             builder.add_edge("sql_query_builder", "sql_executor")
-            builder.add_edge("sql_executor", "cleanup_master_table")
-            builder.add_edge("cleanup_master_table", END)
+            builder.add_edge("sql_executor", "cleanup_table")
+            builder.add_edge("cleanup_table", END)
 
         else:
             # ORIGINAL ARCHITECTURE
