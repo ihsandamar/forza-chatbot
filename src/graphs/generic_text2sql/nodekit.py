@@ -46,6 +46,60 @@ _business_rules_cache = None
 _business_rules_vector_store = None
 _value_resolver_service = None
 
+
+def _extract_config_value(config: Optional[RunnableConfig], state: dict, config_key: str, default_config, default_value=None):
+    """
+    Extract configuration value from RunnableConfig, state, or default config.
+
+    Priority: RunnableConfig > state > default_config > default_value
+
+    Args:
+        config: RunnableConfig from LangGraph
+        state: Current state dict
+        config_key: Key to extract (e.g., 'table_name', 'query')
+        default_config: Default configuration object (self.config)
+        default_value: Final fallback value
+
+    Returns:
+        Configuration value
+    """
+    # Try RunnableConfig first (highest priority - runtime config)
+    if config and "configurable" in config:
+        configurable = config["configurable"]
+        logger.debug(f"[CONFIG] Checking RunnableConfig for '{config_key}': type={type(configurable)}")
+
+        # Check if configurable is a Pydantic model
+        if hasattr(configurable, config_key):
+            value = getattr(configurable, config_key)
+            if value:
+                logger.info(f"[CONFIG] ✓ Using '{config_key}' from RunnableConfig (Pydantic model)")
+                return value
+        # Or if it's a dict
+        elif isinstance(configurable, dict):
+            value = configurable.get(config_key)
+            if value:
+                logger.info(f"[CONFIG] ✓ Using '{config_key}' from RunnableConfig (dict)")
+                return value
+
+    # Try state (medium priority - injected by BaseGraph)
+    if state and config_key in state:
+        value = state.get(config_key)
+        if value:
+            logger.info(f"[CONFIG] ✓ Using '{config_key}' from state")
+            return value
+
+    # Try default config (low priority - build-time config)
+    if default_config and hasattr(default_config, config_key):
+        value = getattr(default_config, config_key)
+        if value:
+            logger.info(f"[CONFIG] ✓ Using '{config_key}' from default config")
+            return value
+
+    # Final fallback
+    logger.warning(f"[CONFIG] ⚠ Using default value for '{config_key}': {default_value}")
+    return default_value
+
+
 def intent_parser_to_json(response_text: str) -> ParsedIntent:
     """
     Convert LLM response text to ParsedIntent model.
@@ -517,7 +571,7 @@ class GenericText2SQLNodeKit:
 
 
 
-    async def intent_parser_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def intent_parser_node(self, state: GenericText2SQLState, *, config: RunnableConfig = None) -> GenericText2SQLState:
         """
         Parse user query into generic structured intent (no business logic, no dates).
 
@@ -565,7 +619,7 @@ class GenericText2SQLNodeKit:
 
         return state
 
-    async def intent_matching_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def intent_matching_node(self, state: GenericText2SQLState, *, config: RunnableConfig = None) -> GenericText2SQLState:
         """
         Match generic intent to specific database schema (business logic).
 
@@ -643,7 +697,7 @@ class GenericText2SQLNodeKit:
         return state
 
 
-    async def metadata_enrichment_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def metadata_enrichment_node(self, state: GenericText2SQLState, *, config: RunnableConfig = None) -> GenericText2SQLState:
         """
         Extract metadata for only the columns used in the query (token optimization).
 
@@ -729,7 +783,7 @@ class GenericText2SQLNodeKit:
 
 
 
-    async def value_resolver_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def value_resolver_node(self, state: GenericText2SQLState, *, config: RunnableConfig = None) -> GenericText2SQLState:
         """
         Resolve user input values to actual database values.
 
@@ -859,7 +913,7 @@ class GenericText2SQLNodeKit:
         return state
 
 
-    async def sql_query_builder_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def sql_query_builder_node(self, state: GenericText2SQLState, *, config: RunnableConfig = None) -> GenericText2SQLState:
         """
         Build SQL query from resolved steps using LLM.
 
@@ -946,7 +1000,7 @@ class GenericText2SQLNodeKit:
 
 
 
-    async def sql_executor_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def sql_executor_node(self, state: GenericText2SQLState, *, config: RunnableConfig = None) -> GenericText2SQLState:
         """
         Execute SQL query and store results in state.
 
@@ -1010,7 +1064,7 @@ class GenericText2SQLNodeKit:
 
 
 
-    async def sql_architect_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def sql_architect_node(self, state: GenericText2SQLState, *, config: RunnableConfig) -> GenericText2SQLState:
         """
         OPTIMIZED: Collapsed SQL Architect Node.
 
@@ -1026,6 +1080,7 @@ class GenericText2SQLNodeKit:
 
         Args:
             state: Current generic text2sql state with user_query
+            config: LangGraph runtime configuration
 
         Returns:
             Updated state with parsed_intent, business_rules, schema_metadata
@@ -1033,8 +1088,49 @@ class GenericText2SQLNodeKit:
         try:
             logger.info("Starting SQL Architect (collapsed architecture)...")
 
-            # Load business rules
-            business_rules = load_business_rules()
+            # Get configuration from RunnableConfig (LangGraph's runtime config)
+            business_rules_list = None
+            column_metadata_dict = None
+            table_name = None
+
+            if config and "configurable" in config:
+                configurable = config["configurable"]
+                # Check if configurable is a Pydantic model
+                if hasattr(configurable, 'business_rules'):
+                    business_rules_list = configurable.business_rules
+                    column_metadata_dict = configurable.column_metadata
+                    table_name = configurable.table_name
+                    logger.debug(f"[SQL_ARCHITECT] Config from RunnableConfig: {len(business_rules_list) if business_rules_list else 0} rules")
+                # Or if it's a dict
+                elif isinstance(configurable, dict):
+                    business_rules_list = configurable.get("business_rules")
+                    column_metadata_dict = configurable.get("column_metadata")
+                    table_name = configurable.get("table_name")
+                    logger.debug(f"[SQL_ARCHITECT] Config from RunnableConfig dict")
+
+            # Load business rules: RunnableConfig > state > self.config > file
+            if business_rules_list and len(business_rules_list) > 0:
+                business_rules = {
+                    "rules": business_rules_list,
+                    "source": "runtime_config"
+                }
+                logger.info(f"Using business rules from RunnableConfig ({len(business_rules_list)} rules)")
+            elif state.get("business_rules") and len(state.get("business_rules")) > 0:
+                business_rules = {
+                    "rules": state.get("business_rules"),
+                    "source": "state"
+                }
+                logger.info(f"Using business rules from state ({len(state.get('business_rules'))} rules)")
+            elif self.config and self.config.business_rules and len(self.config.business_rules) > 0:
+                business_rules = {
+                    "rules": self.config.business_rules,
+                    "source": "configuration"
+                }
+                logger.info(f"Using business rules from default configuration ({len(self.config.business_rules)} rules)")
+            else:
+                business_rules = load_business_rules()
+                logger.info(f"Using business rules from file")
+
             state["business_rules"] = business_rules
 
             # Format business rules for prompt
@@ -1055,15 +1151,32 @@ class GenericText2SQLNodeKit:
 
             # OPTIMIZED: Use static metadata instead of dynamic schema discovery
             # This eliminates 4-5 second DB query delay before LLM call
-            from src.graphs.generic_text2sql.prompts import COLUMN_METADATA_DETAILED
+            # Priority: RunnableConfig > state > self.config > default metadata
+            if column_metadata_dict and len(column_metadata_dict) > 0:
+                # Use column metadata from RunnableConfig
+                column_metadata = column_metadata_dict
+                logger.info(f"Using column metadata from RunnableConfig ({len(column_metadata)} columns)")
+            elif state.get("column_metadata") and len(state.get("column_metadata")) > 0:
+                # Use column metadata from state
+                column_metadata = state.get("column_metadata")
+                logger.info(f"Using column metadata from state ({len(column_metadata)} columns)")
+            elif self.config and self.config.column_metadata and len(self.config.column_metadata) > 0:
+                # Use column metadata from self.config
+                column_metadata = self.config.column_metadata
+                logger.info(f"Using column metadata from default configuration ({len(column_metadata)} columns)")
+            else:
+                # Fallback to default metadata from prompts
+                from src.graphs.generic_text2sql.prompts import COLUMN_METADATA_DETAILED
+                column_metadata = COLUMN_METADATA_DETAILED
+                logger.info(f"Using default column metadata ({len(column_metadata)} columns)")
 
-            # Format schema metadata for prompt (using static metadata)
+            # Format schema metadata for prompt
             schema_text = "\n".join(
                 f"- {col_name}: {desc}"
-                for col_name, desc in COLUMN_METADATA_DETAILED.items()
+                for col_name, desc in column_metadata.items()
             )
 
-            state["schema_metadata"] = COLUMN_METADATA_DETAILED
+            state["schema_metadata"] = column_metadata
 
             logger.debug(f"Architecting SQL for query: {state['user_query'][:100]}...")
 
@@ -1071,13 +1184,18 @@ class GenericText2SQLNodeKit:
             llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
             chain = SQL_ARCHITECT_PROMPT | llm
 
+            # Get table name: RunnableConfig > state > self.config > default
+            if not table_name:
+                table_name = state.get("table_name") or (self.config.table_name if self.config else None) or "MasterReportDocumentTable"
+            logger.debug(f"[SQL_ARCHITECT] Using table_name: {table_name}")
+
             response = await chain.ainvoke({
                 "user_query": state["user_query"],
                 "today_date": today_date,
                 "current_datetime": current_datetime,
                 "current_year": current_year,
                 "current_month": current_month,
-                "table_name": "MasterReportDocumentTable",
+                "table_name": table_name,
                 "schema_metadata": schema_text,
                 "business_rules": business_rules_text
             })
@@ -1125,7 +1243,7 @@ class GenericText2SQLNodeKit:
         return state
 
 
-    async def sql_executor_node_with_retry(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def sql_executor_node_with_retry(self, state: GenericText2SQLState, *, config: RunnableConfig = None) -> GenericText2SQLState:
         """
         OPTIMIZED: SQL Executor with self-healing retry logic.
 
@@ -1217,14 +1335,28 @@ class GenericText2SQLNodeKit:
     # BUSINESS RULES VECTOR STORE NODE
     # ============================================================================
 
-    async def create_master_table_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def create_master_table_node(self, state: GenericText2SQLState, *, config: RunnableConfig) -> GenericText2SQLState:
         """
-        Create MasterReportDocumentTable temp table at the beginning of the graph.
+        Create master table from configuration at the beginning of the graph.
 
-        This table is created from Documents, TempDocuments and related tables.
+        Table name and creation SQL are loaded from assistant configuration.
         All subsequent queries will run against this temp table.
         """
-        logger.info("[CREATE_MASTER_TABLE] Creating MasterReportDocumentTable...")
+        logger.info("=" * 80)
+        logger.info("[CREATE_MASTER_TABLE] Starting table creation...")
+        logger.info(f"[CREATE_MASTER_TABLE] config parameter: {config is not None}")
+        logger.info(f"[CREATE_MASTER_TABLE] config.configurable exists: {config and 'configurable' in config}")
+        if config and "configurable" in config:
+            logger.info(f"[CREATE_MASTER_TABLE] configurable type: {type(config['configurable'])}")
+            logger.info(f"[CREATE_MASTER_TABLE] configurable content: {config['configurable']}")
+        logger.info("=" * 80)
+
+        # Extract configuration values using helper function
+        table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+        query = _extract_config_value(config, state, "query", self.config, None)
+
+        logger.info(f"[CREATE_MASTER_TABLE] Final table_name: {table_name}")
+        logger.info(f"[CREATE_MASTER_TABLE] Final query length: {len(query) if query else 0} chars")
 
         try:
             logger.info(f"[CREATE_MASTER_TABLE] Preparing to create master table...")
@@ -1232,40 +1364,48 @@ class GenericText2SQLNodeKit:
             db_conn = get_db_connection_string(state)
             logger.info(f"[CREATE_MASTER_TABLE] Using connection: {db_conn[:50]}...")
 
-            # Read SQL file - works in both dev and PyInstaller builds
-            sql_file = _get_resource_path("master_table_creation.sql")
-            logger.info(f"[CREATE_MASTER_TABLE] SQL file path: {sql_file}")
+            # Get SQL from configuration or fallback to file
+            master_table_sql = None
 
-            if not sql_file.exists():
-                # Try alternative paths for PyInstaller
-                alternative_paths = [
-                    _get_resource_path("src/graphs/generic_text2sql/master_table_creation.sql"),
-                    Path(__file__).parent / "master_table_creation.sql",
-                ]
+            if query and query.strip():
+                # Use SQL from runtime configuration (already resolved from RunnableConfig or fallbacks)
+                master_table_sql = query
+                logger.info(f"[CREATE_MASTER_TABLE] Using SQL from configuration ({len(master_table_sql)} characters)")
+            else:
+                # Fallback: Read SQL file - works in both dev and PyInstaller builds
+                sql_file = _get_resource_path("master_table_creation.sql")
+                logger.info(f"[CREATE_MASTER_TABLE] SQL file path: {sql_file}")
 
-                for alt_path in alternative_paths:
-                    logger.info(f"[CREATE_MASTER_TABLE] Trying alternative path: {alt_path}")
-                    if alt_path.exists():
-                        sql_file = alt_path
-                        break
-                else:
-                    logger.error(f"Master table creation SQL file not found. Tried: {sql_file}, {alternative_paths}")
-                    state["error"] = "Master table creation SQL file not found"
-                    return state
+                if not sql_file.exists():
+                    # Try alternative paths for PyInstaller
+                    alternative_paths = [
+                        _get_resource_path("src/graphs/generic_text2sql/master_table_creation.sql"),
+                        Path(__file__).parent / "master_table_creation.sql",
+                    ]
 
-            logger.info(f"[CREATE_MASTER_TABLE] Found SQL file at: {sql_file}")
+                    for alt_path in alternative_paths:
+                        logger.info(f"[CREATE_MASTER_TABLE] Trying alternative path: {alt_path}")
+                        if alt_path.exists():
+                            sql_file = alt_path
+                            break
+                    else:
+                        logger.error(f"Master table creation SQL file not found. Tried: {sql_file}, {alternative_paths}")
+                        state["error"] = "Master table creation SQL file not found"
+                        return state
 
-            with open(sql_file, 'r', encoding='utf-8') as f:
-                master_table_sql = f.read()
+                logger.info(f"[CREATE_MASTER_TABLE] Found SQL file at: {sql_file}")
 
-            logger.info(f"[CREATE_MASTER_TABLE] SQL script loaded: {len(master_table_sql)} characters")
+                with open(sql_file, 'r', encoding='utf-8') as f:
+                    master_table_sql = f.read()
+
+                logger.info(f"[CREATE_MASTER_TABLE] SQL script loaded: {len(master_table_sql)} characters")
 
             # Execute SQL asynchronously
             import asyncio
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(_db_executor, _execute_sql_script, master_table_sql, db_conn)
 
-            logger.info("[CREATE_MASTER_TABLE] MasterReportDocumentTable created successfully")
+            logger.info(f"[CREATE_MASTER_TABLE] {table_name} created successfully")
 
         except Exception as e:
             logger.error(f"[CREATE_MASTER_TABLE] Error creating master table: {e}", exc_info=True)
@@ -1274,27 +1414,40 @@ class GenericText2SQLNodeKit:
         return state
 
 
-    async def cleanup_master_table_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def cleanup_master_table_node(self, state: GenericText2SQLState, *, config: RunnableConfig) -> GenericText2SQLState:
         """
-        Drop MasterReportDocumentTable at the end of the graph.
+        Drop master table at the end of the graph.
 
-        Cleanup temp table to free resources.
+        Cleanup temp table to free resources. Table name is loaded from configuration.
         """
-        logger.info("[CLEANUP_MASTER_TABLE] Dropping MasterReportDocumentTable...")
+        # Get table name from RunnableConfig
+        table_name = None
+        if config and "configurable" in config:
+            configurable = config["configurable"]
+            if hasattr(configurable, 'table_name'):
+                table_name = configurable.table_name
+            elif isinstance(configurable, dict):
+                table_name = configurable.get("table_name")
+
+        # Fallback to state > self.config > default
+        if not table_name:
+            table_name = state.get("table_name") or (self.config.table_name if self.config else None) or "MasterReportDocumentTable"
+
+        logger.info(f"[CLEANUP_MASTER_TABLE] Dropping {table_name}...")
 
         try:
             # Get DB connection string
             db_conn = get_db_connection_string(state)
 
             # Drop table SQL
-            cleanup_sql = "DROP TABLE IF EXISTS MasterReportDocumentTable;"
+            cleanup_sql = f"DROP TABLE IF EXISTS {table_name};"
 
             # Execute SQL asynchronously
             import asyncio
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(_db_executor, _execute_sql_script, cleanup_sql, db_conn)
 
-            logger.info("[CLEANUP_MASTER_TABLE] MasterReportDocumentTable dropped successfully")
+            logger.info(f"[CLEANUP_MASTER_TABLE] {table_name} dropped successfully")
 
         except Exception as e:
             logger.warning(f"[CLEANUP_MASTER_TABLE] Error dropping master table (may not exist): {e}")
@@ -1304,7 +1457,7 @@ class GenericText2SQLNodeKit:
 
 
 
-    async def retrieve_business_rules_node(self, state: GenericText2SQLState) -> GenericText2SQLState:
+    async def retrieve_business_rules_node(self, state: GenericText2SQLState, *, config: RunnableConfig) -> GenericText2SQLState:
         """
         Retrieve relevant business rules for the user query using vector store.
 
@@ -1317,6 +1470,7 @@ class GenericText2SQLNodeKit:
 
         Args:
             state: Current generic text2sql state with user_query
+            config: LangGraph runtime configuration
 
         Returns:
             Updated state with business_rules_context, merged_sql_components, applied_business_rules
@@ -1327,12 +1481,23 @@ class GenericText2SQLNodeKit:
             # Get vector store instance
             vector_store = get_business_rules_vector_store()
 
+            # Get table name from RunnableConfig
+            table_name = None
+            if config and "configurable" in config:
+                configurable = config["configurable"]
+                if hasattr(configurable, 'table_name'):
+                    table_name = configurable.table_name
+                elif isinstance(configurable, dict):
+                    table_name = configurable.get("table_name")
+
             # Extract detected tables from parsed_intent if available
             detected_tables = state.get("detected_tables")
             if not detected_tables and state.get("parsed_intent"):
                 # Try to extract table names from field hints
-                # (for now, we use MasterReportDocumentTable as default)
-                detected_tables = ["MasterReportDocumentTable"]
+                # RunnableConfig > state > self.config > default
+                if not table_name:
+                    table_name = state.get("table_name") or (self.config.table_name if self.config else None) or "MasterReportDocumentTable"
+                detected_tables = [table_name]
 
             # Get relevant rules
             logger.debug(f"Searching rules for query: {state['user_query'][:100]}...")

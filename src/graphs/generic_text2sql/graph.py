@@ -78,6 +78,10 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             global_config=global_config
         )
 
+        # NOTE: self.config here is build-time default config (empty by design)
+        # Runtime configuration comes via RunnableConfig during invoke
+        logger.debug("[GENERIC_TEXT2SQL] NodeKit initialized with default config (runtime config will be injected during invoke)")
+
     def _get_default_config(self) -> GenericSQLAssistantConfiguration:
         """
         Get default configuration for generic text2sql graph.
@@ -152,20 +156,19 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             # OPTIMIZED ARCHITECTURE (Collapsed + Business Rules + Table Creation)
             # Eliminates 1 LLM call by combining intent_parser + intent_matching
             # Adds business rules vector store retrieval
-            # Manages MasterReportDocumentTable creation and cleanup
+            # Manages master table creation and cleanup
             logger.info("Building OPTIMIZED graph (collapsed architecture + business rules + master table)")
 
-            nodekit = GenericText2SQLNodeKit(self.llm, self.config)
-
+            # Use self.node_kit instead of creating new instance
             # Add nodes
-            builder.add_node("create_table", nodekit.create_master_table_node)
-            builder.add_node("sql_architect", nodekit.sql_architect_node)
-            builder.add_node("retrieve_business_rules", nodekit.retrieve_business_rules_node)
-            builder.add_node("metadata_enrichment", nodekit.metadata_enrichment_node)
-            builder.add_node("value_resolver", nodekit.value_resolver_node)
-            builder.add_node("sql_query_builder", nodekit.sql_query_builder_node)
-            builder.add_node("sql_executor", nodekit.sql_executor_node_with_retry)
-            builder.add_node("cleanup_table", nodekit.cleanup_master_table_node)
+            builder.add_node("create_table", self.node_kit.create_master_table_node)
+            builder.add_node("sql_architect", self.node_kit.sql_architect_node)
+            builder.add_node("retrieve_business_rules", self.node_kit.retrieve_business_rules_node)
+            builder.add_node("metadata_enrichment", self.node_kit.metadata_enrichment_node)
+            builder.add_node("value_resolver", self.node_kit.value_resolver_node)
+            builder.add_node("sql_query_builder", self.node_kit.sql_query_builder_node)
+            builder.add_node("sql_executor", self.node_kit.sql_executor_node_with_retry)
+            builder.add_node("cleanup_table", self.node_kit.cleanup_master_table_node)
 
             # Add edges (Sequential)
             builder.add_edge(START, "create_table")
@@ -182,13 +185,13 @@ class GenericText2SQLGraph(BaseGraph[GenericSQLAssistantConfiguration]):
             # ORIGINAL ARCHITECTURE
             logger.info("Building ORIGINAL graph (legacy architecture)")
 
-            # Add nodes
-            builder.add_node("intent_parser", nodekit.intent_parser_node)
-            builder.add_node("intent_matching", nodekit.intent_matching_node)
-            builder.add_node("metadata_enrichment", nodekit.metadata_enrichment_node)
-            builder.add_node("value_resolver", nodekit.value_resolver_node)
-            builder.add_node("sql_query_builder", nodekit.sql_query_builder_node)
-            builder.add_node("sql_executor", nodekit.sql_executor_node)
+            # Add nodes (use self.node_kit)
+            builder.add_node("intent_parser", self.node_kit.intent_parser_node)
+            builder.add_node("intent_matching", self.node_kit.intent_matching_node)
+            builder.add_node("metadata_enrichment", self.node_kit.metadata_enrichment_node)
+            builder.add_node("value_resolver", self.node_kit.value_resolver_node)
+            builder.add_node("sql_query_builder", self.node_kit.sql_query_builder_node)
+            builder.add_node("sql_executor", self.node_kit.sql_executor_node)
 
             # Add edges
             builder.add_edge(START, "intent_parser")
