@@ -63,6 +63,18 @@ def _extract_config_value(config: Optional[RunnableConfig], state: dict, config_
     Returns:
         Configuration value
     """
+    def _is_valid_value(val):
+        """Check if value is not None and not empty string."""
+        if val is None:
+            return False
+        # For strings, check if not empty after strip
+        if isinstance(val, str):
+            return bool(val.strip())
+        # For lists/dicts, check if not empty
+        if isinstance(val, (list, dict)):
+            return bool(val)
+        return True
+
     # Try RunnableConfig first (highest priority - runtime config)
     if config and "configurable" in config:
         configurable = config["configurable"]
@@ -71,28 +83,28 @@ def _extract_config_value(config: Optional[RunnableConfig], state: dict, config_
         # Check if configurable is a Pydantic model
         if hasattr(configurable, config_key):
             value = getattr(configurable, config_key)
-            if value:
-                logger.info(f"[CONFIG] ✓ Using '{config_key}' from RunnableConfig (Pydantic model)")
+            if _is_valid_value(value):
+                logger.info(f"[CONFIG] ✓ Using '{config_key}' from RunnableConfig (Pydantic model): {repr(value)[:100]}")
                 return value
         # Or if it's a dict
         elif isinstance(configurable, dict):
             value = configurable.get(config_key)
-            if value:
-                logger.info(f"[CONFIG] ✓ Using '{config_key}' from RunnableConfig (dict)")
+            if _is_valid_value(value):
+                logger.info(f"[CONFIG] ✓ Using '{config_key}' from RunnableConfig (dict): {repr(value)[:100]}")
                 return value
 
     # Try state (medium priority - injected by BaseGraph)
     if state and config_key in state:
         value = state.get(config_key)
-        if value:
-            logger.info(f"[CONFIG] ✓ Using '{config_key}' from state")
+        if _is_valid_value(value):
+            logger.info(f"[CONFIG] ✓ Using '{config_key}' from state: {repr(value)[:100]}")
             return value
 
     # Try default config (low priority - build-time config)
     if default_config and hasattr(default_config, config_key):
         value = getattr(default_config, config_key)
-        if value:
-            logger.info(f"[CONFIG] ✓ Using '{config_key}' from default config")
+        if _is_valid_value(value):
+            logger.info(f"[CONFIG] ✓ Using '{config_key}' from default config: {repr(value)[:100]}")
             return value
 
     # Final fallback
@@ -420,23 +432,25 @@ def get_db_connection_string(state: dict = None) -> str:
         "Please set DATABASE_URL environment variable or configure database.uri in config.yaml"
     )
 
-async def get_value_resolver(db_connection_string: str) -> ValueResolverService:
+async def get_value_resolver(db_connection_string: str, table_name: str = "MasterReportDocumentTable") -> ValueResolverService:
     """
-    Get or create ValueResolverService instance (singleton pattern).
+    Get or create ValueResolverService instance (singleton pattern with table-based cache).
 
     Args:
         db_connection_string: Database connection string
+        table_name: Table name to query (default: MasterReportDocumentTable)
 
     Returns:
         Initialized ValueResolverService instance
     """
     global _value_resolver_service
 
-    if _value_resolver_service is None:
-        logger.info("Initializing ValueResolverService...")
-        _value_resolver_service = ValueResolverService(db_connection_string)
+    # Check if we need to reinitialize (different table or not initialized)
+    if _value_resolver_service is None or _value_resolver_service.table_name != table_name:
+        logger.info(f"Initializing ValueResolverService for table: {table_name}")
+        _value_resolver_service = ValueResolverService(db_connection_string, table_name)
         await _value_resolver_service.initialize()
-        logger.info("ValueResolverService initialized successfully")
+        logger.info(f"ValueResolverService initialized successfully for table: {table_name}")
 
     return _value_resolver_service
 
@@ -792,6 +806,7 @@ class GenericText2SQLNodeKit:
 
         Args:
             state: Current generic text2sql state with parsed_intent
+            config: LangGraph runtime configuration
 
         Returns:
             Updated state with resolved_steps and resolution_metadata or error
@@ -805,9 +820,13 @@ class GenericText2SQLNodeKit:
                 state["error"] = "Value resolution için parsed_intent gerekli"
                 return state
 
-            # Get ValueResolverService
+            # Extract table name from config
+            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+            logger.info(f"[VALUE_RESOLVER] Using table_name: {table_name}")
+
+            # Get ValueResolverService with table name
             db_conn = get_db_connection_string(state)
-            resolver = await get_value_resolver(db_conn)
+            resolver = await get_value_resolver(db_conn, table_name)
 
             # Deep copy steps to avoid mutating original
             parsed_intent = state["parsed_intent"]
@@ -1086,48 +1105,27 @@ class GenericText2SQLNodeKit:
             Updated state with parsed_intent, business_rules, schema_metadata
         """
         try:
-            logger.info("Starting SQL Architect (collapsed architecture)...")
+            logger.info("=" * 80)
+            logger.info("[SQL_ARCHITECT] Starting SQL Architect (collapsed architecture)...")
 
-            # Get configuration from RunnableConfig (LangGraph's runtime config)
-            business_rules_list = None
-            column_metadata_dict = None
-            table_name = None
+            # Extract configuration using helper function
+            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+            column_metadata_dict = _extract_config_value(config, state, "column_metadata", self.config, None)
+            business_rules_list = _extract_config_value(config, state, "business_rules", self.config, None)
 
-            if config and "configurable" in config:
-                configurable = config["configurable"]
-                # Check if configurable is a Pydantic model
-                if hasattr(configurable, 'business_rules'):
-                    business_rules_list = configurable.business_rules
-                    column_metadata_dict = configurable.column_metadata
-                    table_name = configurable.table_name
-                    logger.debug(f"[SQL_ARCHITECT] Config from RunnableConfig: {len(business_rules_list) if business_rules_list else 0} rules")
-                # Or if it's a dict
-                elif isinstance(configurable, dict):
-                    business_rules_list = configurable.get("business_rules")
-                    column_metadata_dict = configurable.get("column_metadata")
-                    table_name = configurable.get("table_name")
-                    logger.debug(f"[SQL_ARCHITECT] Config from RunnableConfig dict")
+            logger.info(f"[SQL_ARCHITECT] Final table_name: {table_name}")
+            logger.info(f"[SQL_ARCHITECT] Final column_metadata: {len(column_metadata_dict) if column_metadata_dict else 0} columns")
+            logger.info(f"[SQL_ARCHITECT] Final business_rules: {len(business_rules_list) if business_rules_list else 0} rules")
+            logger.info("=" * 80)
 
-            # Load business rules: RunnableConfig > state > self.config > file
+            # Load business rules
             if business_rules_list and len(business_rules_list) > 0:
                 business_rules = {
                     "rules": business_rules_list,
-                    "source": "runtime_config"
+                    "source": "config"
                 }
-                logger.info(f"Using business rules from RunnableConfig ({len(business_rules_list)} rules)")
-            elif state.get("business_rules") and len(state.get("business_rules")) > 0:
-                business_rules = {
-                    "rules": state.get("business_rules"),
-                    "source": "state"
-                }
-                logger.info(f"Using business rules from state ({len(state.get('business_rules'))} rules)")
-            elif self.config and self.config.business_rules and len(self.config.business_rules) > 0:
-                business_rules = {
-                    "rules": self.config.business_rules,
-                    "source": "configuration"
-                }
-                logger.info(f"Using business rules from default configuration ({len(self.config.business_rules)} rules)")
             else:
+                # Fallback to loading from business_rules.json file
                 business_rules = load_business_rules()
                 logger.info(f"Using business rules from file")
 
@@ -1151,19 +1149,9 @@ class GenericText2SQLNodeKit:
 
             # OPTIMIZED: Use static metadata instead of dynamic schema discovery
             # This eliminates 4-5 second DB query delay before LLM call
-            # Priority: RunnableConfig > state > self.config > default metadata
+            # column_metadata_dict already extracted via helper function
             if column_metadata_dict and len(column_metadata_dict) > 0:
-                # Use column metadata from RunnableConfig
                 column_metadata = column_metadata_dict
-                logger.info(f"Using column metadata from RunnableConfig ({len(column_metadata)} columns)")
-            elif state.get("column_metadata") and len(state.get("column_metadata")) > 0:
-                # Use column metadata from state
-                column_metadata = state.get("column_metadata")
-                logger.info(f"Using column metadata from state ({len(column_metadata)} columns)")
-            elif self.config and self.config.column_metadata and len(self.config.column_metadata) > 0:
-                # Use column metadata from self.config
-                column_metadata = self.config.column_metadata
-                logger.info(f"Using column metadata from default configuration ({len(column_metadata)} columns)")
             else:
                 # Fallback to default metadata from prompts
                 from src.graphs.generic_text2sql.prompts import COLUMN_METADATA_DETAILED
@@ -1184,10 +1172,8 @@ class GenericText2SQLNodeKit:
             llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
             chain = SQL_ARCHITECT_PROMPT | llm
 
-            # Get table name: RunnableConfig > state > self.config > default
-            if not table_name:
-                table_name = state.get("table_name") or (self.config.table_name if self.config else None) or "MasterReportDocumentTable"
-            logger.debug(f"[SQL_ARCHITECT] Using table_name: {table_name}")
+            # table_name already extracted via helper function with proper fallbacks
+            logger.info(f"[SQL_ARCHITECT] Using table_name for LLM: {table_name}")
 
             response = await chain.ainvoke({
                 "user_query": state["user_query"],
@@ -1420,19 +1406,8 @@ class GenericText2SQLNodeKit:
 
         Cleanup temp table to free resources. Table name is loaded from configuration.
         """
-        # Get table name from RunnableConfig
-        table_name = None
-        if config and "configurable" in config:
-            configurable = config["configurable"]
-            if hasattr(configurable, 'table_name'):
-                table_name = configurable.table_name
-            elif isinstance(configurable, dict):
-                table_name = configurable.get("table_name")
-
-        # Fallback to state > self.config > default
-        if not table_name:
-            table_name = state.get("table_name") or (self.config.table_name if self.config else None) or "MasterReportDocumentTable"
-
+        # Extract table name using helper function
+        table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
         logger.info(f"[CLEANUP_MASTER_TABLE] Dropping {table_name}...")
 
         try:
@@ -1481,22 +1456,13 @@ class GenericText2SQLNodeKit:
             # Get vector store instance
             vector_store = get_business_rules_vector_store()
 
-            # Get table name from RunnableConfig
-            table_name = None
-            if config and "configurable" in config:
-                configurable = config["configurable"]
-                if hasattr(configurable, 'table_name'):
-                    table_name = configurable.table_name
-                elif isinstance(configurable, dict):
-                    table_name = configurable.get("table_name")
+            # Extract table name using helper function
+            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
 
             # Extract detected tables from parsed_intent if available
             detected_tables = state.get("detected_tables")
             if not detected_tables and state.get("parsed_intent"):
-                # Try to extract table names from field hints
-                # RunnableConfig > state > self.config > default
-                if not table_name:
-                    table_name = state.get("table_name") or (self.config.table_name if self.config else None) or "MasterReportDocumentTable"
+                # Use extracted table name
                 detected_tables = [table_name]
 
             # Get relevant rules
