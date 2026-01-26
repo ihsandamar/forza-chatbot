@@ -14,37 +14,18 @@ class ValueResolverService:
     """
     Kullanıcı inputlarını veritabanı değerlerine çeviren servis
     """
-    
-    def __init__(self, db_connection_string: str):
+
+    def __init__(self, db_connection_string: str, table_name: str = "MasterReportDocumentTable"):
         # MSSQL+pyodbc DSN'yi pyodbc connection string'e çevir
         self.db_conn = self._parse_mssql_dsn(db_connection_string)
         self.executor = ThreadPoolExecutor(max_workers=5)
+        self.table_name = table_name
 
-        # Kolon konfigürasyonu
-        self.column_config = {
-            # Tam cache (az değer, sık kullanım)
-            "BusinessName": {"strategy": "full_cache", "max": 50, "ttl": 1440},
-            "BusinessType": {"strategy": "full_cache", "max": 20, "ttl": 1440},
-            "BranchName": {"strategy": "full_cache", "max": 500, "ttl": 60},
-            "BranchGroupName": {"strategy": "full_cache", "max": 100, "ttl": 1440},
-            "BranchCityName": {"strategy": "full_cache", "max": 81, "ttl": 1440},
-            "BranchTownName": {"strategy": "full_cache", "max": 1000, "ttl": 1440},
-            "CategoryName": {"strategy": "full_cache", "max": 100, "ttl": 60},
-            "DocumentTypeName": {"strategy": "full_cache", "max": 20, "ttl": 1440},
-            "DocumentKindName": {"strategy": "full_cache", "max": 20, "ttl": 1440},
-            "ProductUnitName": {"strategy": "full_cache", "max": 50, "ttl": 1440},
-            "CashierName": {"strategy": "full_cache", "max": 200, "ttl": 120},
-            "TableNo": {"strategy": "full_cache", "max": 200, "ttl": 120},
-            "ChoiceName": {"strategy": "full_cache", "max": 100, "ttl": 1440},
-            "MainChoiceName": {"strategy": "full_cache", "max": 50, "ttl": 1440},
-            "ProductName": {"strategy": "full_cache", "max": 200, "ttl": 1440},
-            "CustomerName": {"strategy": "full_cache", "max": 200, "ttl": 1440},
+        logger.info(f"ValueResolverService initialized with table: {table_name}")
 
-            # DB arama (çok değer)
-            # "ProductName": {"strategy": "db_search", "max": 10},
-            # "CustomerName": {"strategy": "db_search", "max": 10},
-        }
-        
+        # Kolon konfigürasyonu - dinamik olarak tabloya göre oluşturulacak
+        self.column_config = {}
+
         # Cache storage
         self.cache: Dict[str, Dict] = {}
 
@@ -76,6 +57,86 @@ class ValueResolverService:
             return conn_str
         return dsn
 
+    def _discover_table_schema(self) -> List[str]:
+        """
+        Tablodaki string kolonları otomatik keşfet.
+
+        Returns:
+            List of column names that are string types (varchar, nvarchar, char, nchar, text)
+        """
+        try:
+            conn = pyodbc.connect(self.db_conn)
+            cursor = conn.cursor()
+
+            # Get table schema from INFORMATION_SCHEMA
+            query = """
+                SELECT COLUMN_NAME, DATA_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = ?
+                AND DATA_TYPE IN ('varchar', 'nvarchar', 'char', 'nchar', 'text', 'ntext')
+                ORDER BY ORDINAL_POSITION
+            """
+
+            cursor.execute(query, (self.table_name,))
+            columns = [row[0] for row in cursor.fetchall()]
+
+            cursor.close()
+            conn.close()
+
+            logger.info(f"Discovered {len(columns)} string columns in {self.table_name}: {', '.join(columns)}")
+            return columns
+
+        except Exception as e:
+            logger.error(f"Error discovering table schema: {e}")
+            return []
+
+    def _determine_cache_strategy(self, column: str) -> Dict:
+        """
+        Kolonun distinct value sayısına göre otomatik cache stratejisi belirle.
+
+        Args:
+            column: Column name
+
+        Returns:
+            Dict with strategy config (strategy, max, ttl)
+        """
+        try:
+            conn = pyodbc.connect(self.db_conn)
+            cursor = conn.cursor()
+
+            # Count distinct values
+            query = f"SELECT COUNT(DISTINCT {column}) FROM {self.table_name} WHERE {column} IS NOT NULL"
+            cursor.execute(query)
+            distinct_count = cursor.fetchone()[0]
+
+            cursor.close()
+            conn.close()
+
+            # Determine strategy based on distinct count
+            if distinct_count <= 20:
+                # Very few values - full cache with long TTL
+                config = {"strategy": "full_cache", "max": distinct_count + 10, "ttl": 1440}  # 24 hours
+            elif distinct_count <= 100:
+                # Moderate values - full cache with medium TTL
+                config = {"strategy": "full_cache", "max": distinct_count + 20, "ttl": 240}  # 4 hours
+            elif distinct_count <= 500:
+                # Many values - full cache with short TTL
+                config = {"strategy": "full_cache", "max": 500, "ttl": 60}  # 1 hour
+            elif distinct_count <= 1000:
+                # Very many values - partial cache
+                config = {"strategy": "full_cache", "max": 1000, "ttl": 30}  # 30 minutes
+            else:
+                # Too many values - use DB search only (no initial cache)
+                config = {"strategy": "db_search", "max": 20, "ttl": 15}  # 15 minutes
+
+            logger.info(f"Column '{column}': {distinct_count} distinct values → strategy={config['strategy']}, max={config['max']}")
+            return config
+
+        except Exception as e:
+            logger.error(f"Error determining cache strategy for {column}: {e}")
+            # Fallback to safe defaults
+            return {"strategy": "db_search", "max": 20, "ttl": 15}
+
     def _normalize_turkish(self, text: str) -> str:
         """Türkçe karakterleri normalize et ve küçük harfe çevir"""
         # Türkçe karakter eşleştirmeleri
@@ -98,14 +159,37 @@ class ValueResolverService:
         return text
 
     async def initialize(self):
-        """Uygulama başlangıcında cache'i doldur"""
-        logger.info("ValueResolver baslatiliyor...")
+        """
+        Uygulama başlangıcında tabloyu keşfet ve cache'i doldur.
 
+        Adımlar:
+        1. Tablo şemasını keşfet (string kolonlar)
+        2. Her kolon için cache stratejisi belirle
+        3. full_cache stratejisi olan kolonları cache'e yükle
+        """
+        logger.info(f"ValueResolver baslatiliyor (table: {self.table_name})...")
+
+        # 1. Tablodaki string kolonları keşfet
+        columns = self._discover_table_schema()
+
+        if not columns:
+            logger.warning(f"No string columns found in table {self.table_name}")
+            logger.info("ValueResolver initialized with empty config")
+            return
+
+        # 2. Her kolon için otomatik cache stratejisi belirle
+        logger.info(f"Determining cache strategies for {len(columns)} columns...")
+        for column in columns:
+            self.column_config[column] = self._determine_cache_strategy(column)
+
+        # 3. full_cache stratejisi olan kolonları cache'e yükle
+        cache_count = 0
         for column, config in self.column_config.items():
             if config["strategy"] == "full_cache":
                 await self._load_to_cache(column)
+                cache_count += 1
 
-        logger.info("ValueResolver hazir!")
+        logger.info(f"ValueResolver hazir! ({cache_count}/{len(columns)} columns cached)")
     
     async def _load_to_cache(self, column: str):
         """Bir kolonun değerlerini cache'e yükle"""
@@ -113,7 +197,7 @@ class ValueResolverService:
 
         query = f"""
             SELECT DISTINCT TOP {config['max']} {column}
-            FROM MasterReportDocumentTable
+            FROM {self.table_name}
             WHERE {column} IS NOT NULL
         """
 
@@ -163,7 +247,7 @@ class ValueResolverService:
     async def resolve(self, user_input: str, column: str, threshold: int = 75) -> Optional[Dict]:
         """
         Ana metod: Kullanıcı inputunu veritabanı değerine çevir
-        
+
         Returns:
             {
                 "original": "kullanıcının yazdığı",
@@ -172,14 +256,20 @@ class ValueResolverService:
                 "column": "CategoryName"
             }
         """
-        config = self.column_config.get(column)
-        
-        if not config:
-            return None
-        
+        # Eğer kolon henüz keşfedilmemişse, otomatik olarak strateji belirle
+        if column not in self.column_config:
+            logger.info(f"Column '{column}' not in config, auto-discovering strategy...")
+            self.column_config[column] = self._determine_cache_strategy(column)
+
+            # Eğer full_cache stratejisi seçildiyse, hemen cache'e yükle
+            if self.column_config[column]["strategy"] == "full_cache":
+                await self._load_to_cache(column)
+
+        config = self.column_config[column]
+
         if config["strategy"] == "full_cache":
             return await self._resolve_from_cache(user_input, column, threshold)
-        
+
         elif config["strategy"] == "db_search":
             return await self._resolve_from_db(user_input, column, threshold)
         
@@ -278,7 +368,7 @@ class ValueResolverService:
 
         query = f"""
             SELECT DISTINCT TOP {config['max']} {column}
-            FROM MasterReportDocumentTable
+            FROM {self.table_name}
             WHERE {column} LIKE '%{search_term}%'
         """
 
