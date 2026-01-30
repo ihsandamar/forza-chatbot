@@ -32,6 +32,7 @@ from src.graphs.supervisor.tools import (
     assign_to_routing_agent,
     assign_to_report_agent
 )
+from langchain_core.runnables import RunnableLambda
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +300,144 @@ def process_routing_output(state: MessagesState) -> MessagesState:
     return state
 
 
+def handle_report_node(report_graph_compiled, supervisor_config):
+    """
+    Wrapper for report agent that handles runtime configuration injection.
+
+    This node:
+    1. Extracts report config from supervisor config
+    2. Converts supervisor state to report state
+    3. Invokes report graph with proper RunnableConfig
+    4. Returns result back to supervisor state
+
+    Args:
+        report_graph_compiled: Compiled report graph instance
+        supervisor_config: Default SupervisorAssistantConfiguration (fallback)
+
+    Returns:
+        RunnableLambda that wraps the report agent
+    """
+    async def wrapped_report(state: MessagesState, config: dict = None) -> MessagesState:
+        logger.info("[SUPERVISOR] Invoking report agent with runtime config...")
+
+        try:
+            # ============================================
+            # Step 1: Extract report config from runtime or default
+            # ============================================
+            report_config = None
+
+            # Try runtime config first
+            if config and 'configurable' in config:
+                runtime_configurable = config['configurable']
+                logger.debug(f"[SUPERVISOR] Runtime config type: {type(runtime_configurable)}")
+
+                # If runtime config has get_report_config method
+                if hasattr(runtime_configurable, 'get_report_config'):
+                    report_config = runtime_configurable.get_report_config()
+                    logger.info("[SUPERVISOR] Using report config from runtime (get_report_config)")
+                # Or if it's a dict with report fields
+                elif isinstance(runtime_configurable, dict):
+                    # Check if dict has report fields
+                    if 'report_table_name' in runtime_configurable or 'table_name' in runtime_configurable:
+                        from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
+                        report_config = GenericSQLAssistantConfiguration(
+                            report_name=runtime_configurable.get('report_name', ''),
+                            description=runtime_configurable.get('report_description', ''),
+                            table_name=runtime_configurable.get('report_table_name') or runtime_configurable.get('table_name', 'MasterReportDocumentTable'),
+                            query=runtime_configurable.get('report_query') or runtime_configurable.get('query', ''),
+                            column_metadata=runtime_configurable.get('report_column_metadata') or runtime_configurable.get('column_metadata', {}),
+                            business_rules=runtime_configurable.get('report_business_rules') or runtime_configurable.get('business_rules', []),
+                            system_prompt=runtime_configurable.get('report_system_prompt', 'Sen bir ERP uzmanı ve SQL sorgulama asistanısın.'),
+                            assistant_name="ReportAssistant"
+                        )
+                        logger.info("[SUPERVISOR] Using report config from runtime dict")
+
+            # Fallback to default supervisor config
+            if report_config is None:
+                report_config = supervisor_config.get_report_config()
+                logger.info("[SUPERVISOR] Using report config from default supervisor config")
+
+            logger.info(f"[SUPERVISOR] Report config: table={report_config.table_name}, report={report_config.report_name or 'default'}")
+
+            # ============================================
+            # Step 2: Prepare report input state
+            # ============================================
+            messages = state.get("messages", [])
+            logger.debug(f"[SUPERVISOR] Passing {len(messages)} messages to report agent")
+
+            # Report graph expects messages
+            report_input = {
+                "messages": messages,
+                "text2sql_output": None,
+                "visualization_output": None,
+                "error": None,
+                "no_records_message": None,
+                # New stateful fields
+                "active_query_context": state.get("active_query_context"),
+                "query_history": state.get("query_history", []),
+                "pending_question": None,
+                "waiting_for_user_input": False,
+                "user_clarification": None
+            }
+
+            # ============================================
+            # Step 3: Invoke report graph with report config
+            # ============================================
+            # Create RunnableConfig with report-specific configuration
+            # LangGraph expects configurable to be a dict, not Pydantic model
+            # Also need to pass thread_id from parent config for checkpointer
+            report_config_dict = report_config.model_dump() if hasattr(report_config, 'model_dump') else dict(report_config)
+
+            # Merge with parent config's thread_id and other required fields
+            if config and 'configurable' in config:
+                parent_configurable = config['configurable']
+                if isinstance(parent_configurable, dict):
+                    # Copy thread_id and checkpoint_ns from parent
+                    if 'thread_id' in parent_configurable:
+                        report_config_dict['thread_id'] = parent_configurable['thread_id']
+                    if 'checkpoint_ns' in parent_configurable:
+                        report_config_dict['checkpoint_ns'] = parent_configurable['checkpoint_ns']
+
+            report_runtime_config = {
+                "configurable": report_config_dict
+            }
+
+            logger.info("[SUPERVISOR] Invoking report graph...")
+            report_output = await report_graph_compiled.ainvoke(report_input, report_runtime_config)
+
+            logger.debug(f"[SUPERVISOR] Report output keys: {list(report_output.keys()) if hasattr(report_output, 'keys') else 'N/A'}")
+
+            # ============================================
+            # Step 4: Merge report output back to supervisor state
+            # ============================================
+            if isinstance(report_output, dict):
+                # Update messages
+                if "messages" in report_output:
+                    state["messages"] = report_output["messages"]
+                    logger.debug(f"[SUPERVISOR] Updated messages from report output")
+
+                # Preserve stateful fields for next invocation
+                if "active_query_context" in report_output:
+                    state["active_query_context"] = report_output["active_query_context"]
+                if "query_history" in report_output:
+                    state["query_history"] = report_output["query_history"]
+
+                # Preserve report outputs for potential further processing
+                if "text2sql_output" in report_output:
+                    state["text2sql_output"] = report_output["text2sql_output"]
+                if "visualization_output" in report_output:
+                    state["visualization_output"] = report_output["visualization_output"]
+
+            logger.info("[SUPERVISOR] Report agent completed successfully")
+            return state
+
+        except Exception as e:
+            logger.error(f"[SUPERVISOR] Error in report agent: {e}", exc_info=True)
+            raise
+
+    return RunnableLambda(wrapped_report)
+
+
 @register_graph("supervisor")
 class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
     """
@@ -356,7 +495,17 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
 
             # Chat sub-agent config (flat fields)
             chat_system_prompt="Sen yardımcı bir sohbet asistanısın. Kullanıcılarla doğal ve samimi bir şekilde konuşursun.",
-            chat_model="anthropic:claude-haiku-4-5"
+            chat_model="anthropic:claude-haiku-4-5",
+
+            # Report sub-agent config (flat fields)
+            report_name="",  # Empty by design - set at runtime
+            report_description="",
+            report_table_name="MasterReportDocumentTable",
+            report_query="",  # SQL query - set at runtime
+            report_column_metadata={},
+            report_business_rules=[],
+            report_system_prompt="Sen bir ERP uzmanı ve SQL sorgulama asistanısın.",
+            report_model="anthropic:claude-sonnet-4-5"
         )
 
     def _get_default_metadata(self) -> GraphMetadata:
@@ -443,26 +592,42 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
             from src.graphs.data_visualization.graph import build_visualization_graph
             from src.graphs.report.graph import build_report_graph
 
-            # Build text2sql graph
-            text2sql_graph = GenericText2SQLGraph(llm=self.llm).build_graph()
-            logger.info("[SUPERVISOR] ✓ Text2SQL subgraph built")
+            # Get report configuration from supervisor config (build-time default)
+            report_config = self.config.get_report_config()
+            logger.info(f"[SUPERVISOR] Report build-time config: table={report_config.table_name}, report={report_config.report_name or 'default'}")
+
+            # Build text2sql graph with report config
+            text2sql_graph = GenericText2SQLGraph(llm=self.llm, config=report_config).build_graph()
+            logger.info("[SUPERVISOR] ✓ Text2SQL subgraph built with config")
 
             # Build visualization graph
             visualization_graph = build_visualization_graph(llm=self.llm)
             logger.info("[SUPERVISOR] ✓ Visualization subgraph built")
 
             # Build report graph (combines text2sql + visualization)
-            report_graph = build_report_graph(text2sql_graph, visualization_graph)
-            logger.info("[SUPERVISOR] ✓ Report subgraph built")
+            # Use GenericSQLAssistantConfiguration as config schema for runtime config
+            from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
+            report_graph = build_report_graph(
+                text2sql_graph=text2sql_graph,
+                visualization_graph=visualization_graph,
+                llm=self.llm,
+                enable_hitl=True,
+                config_schema=GenericSQLAssistantConfiguration
+            )
+            logger.info("[SUPERVISOR] ✓ Report subgraph built (HITL enabled, config_schema set)")
             return report_graph
 
         # Build report agent (this will import dependencies)
+        report_agent = None
+        report_agent_wrapper = None
         try:
             report_agent = build_report_agent_lazy()
+            # Create wrapper node for runtime config injection
+            report_agent_wrapper = handle_report_node(report_agent, self.config)
+            logger.info("[SUPERVISOR] ✓ Report agent wrapper created (runtime config will be injected)")
         except Exception as e:
             logger.error(f"[SUPERVISOR] Failed to build report agent: {e}")
             logger.warning("[SUPERVISOR] Report agent disabled due to build error")
-            report_agent = None
 
         # Build the graph with multi-destination pattern
         logger.info("[SUPERVISOR] Building supervisor graph structure...")
@@ -470,7 +635,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
 
         # Add nodes
         destinations = ["routing", "chat"]
-        if report_agent:
+        if report_agent_wrapper:
             destinations.append("report")
 
         logger.info("[SUPERVISOR] Adding nodes:")
@@ -478,8 +643,8 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         logger.info("[SUPERVISOR]   - routing (SUBGRAPH - will be visible)")
         logger.info("[SUPERVISOR]   - process_routing_output")
         logger.info("[SUPERVISOR]   - chat (SUBGRAPH - visible)")
-        if report_agent:
-            logger.info("[SUPERVISOR]   - report (SUBGRAPH - visible)")
+        if report_agent_wrapper:
+            logger.info("[SUPERVISOR]   - report (WRAPPER with runtime config injection)")
 
         builder.add_node("supervisor", supervisor_agent, destinations=destinations)
 
@@ -489,19 +654,19 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         builder.add_node("process_routing_output", process_routing_output)
         builder.add_node("chat", chat_agent)
 
-        # Add report agent only if successfully built
-        if report_agent:
-            builder.add_node("report", report_agent)
+        # Add report agent wrapper (handles runtime config injection)
+        if report_agent_wrapper:
+            builder.add_node("report", report_agent_wrapper)
 
         # Define edges
-        edge_list = "{routing, chat" + (", report}" if report_agent else "}")
+        edge_list = "{routing, chat" + (", report}" if report_agent_wrapper else "}")
         logger.info("[SUPERVISOR] Defining edges:")
         logger.info("[SUPERVISOR]   START → supervisor")
         logger.info(f"[SUPERVISOR]   supervisor → {edge_list}")
         logger.info("[SUPERVISOR]   routing → process_routing_output")
         logger.info("[SUPERVISOR]   process_routing_output → supervisor")
         logger.info("[SUPERVISOR]   chat → supervisor")
-        if report_agent:
+        if report_agent_wrapper:
             logger.info("[SUPERVISOR]   report → supervisor")
         logger.info("[SUPERVISOR]   supervisor → END")
 
@@ -510,8 +675,8 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         builder.add_edge("process_routing_output", "supervisor")
         builder.add_edge("chat", "supervisor")
 
-        # Add report edge only if agent exists
-        if report_agent:
+        # Add report edge only if agent wrapper exists
+        if report_agent_wrapper:
             builder.add_edge("report", "supervisor")
 
         builder.add_edge("supervisor", END)
