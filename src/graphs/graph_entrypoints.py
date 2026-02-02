@@ -131,5 +131,10 @@ def report_graph():
     # Build visualization graph
     visualization = build_visualization_graph(llm=llm)
 
-    # Build and return report graph
-    return build_report_graph(text2sql_graph=text2sql, visualization_graph=visualization)
+    # Build and return report graph WITH LLM for smart intent classification
+    return build_report_graph(
+        text2sql_graph=text2sql,
+        visualization_graph=visualization,
+        llm=llm,  # CRITICAL: Enable LLM-based intent classification and smart routing
+        enable_hitl=True  # Enable Human-in-the-Loop features
+    )

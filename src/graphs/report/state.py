@@ -157,6 +157,16 @@ class ReportState(TypedDict):
     error: Optional[str]
     no_records_message: Optional[str]
 
+    # -------------------------------------------------------------------------
+    # Internal: Intent classification results (runtime fields)
+    # -------------------------------------------------------------------------
+    _intent_type: Optional[str]                     # IntentType enum value
+    _confidence: Optional[float]                    # 0.0-1.0
+    _extracted_entities: Optional[Dict[str, Any]]   # Extracted entities from intent
+    _modification_action: Optional[str]             # "add", "remove", "expand", etc.
+    _selected_table: Optional[str]                  # User-selected table from HITL
+    _selected_filter_value: Optional[str]           # User-selected filter value from HITL
+
 
 # =============================================================================
 # FACTORY FUNCTIONS - State oluşturma yardımcıları

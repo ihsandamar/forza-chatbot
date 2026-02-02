@@ -95,12 +95,25 @@ def update_active_context(
             if order_col:
                 order_by_columns.append(f"{order_col} {order_dir}")
 
-    # Tablo adını config'den veya schema_metadata'dan al
-    table_name = ""
+    # Tablo adını tespit et
+    table_name = "MasterReportDocumentTable"  # Default
+
+    # 1. Önce schema_metadata'dan almayı dene
     schema_metadata = text2sql_output.get("schema_metadata", {})
-    if schema_metadata:
-        # İlk key'i tablo adı olarak kullan (basit yaklaşım)
-        table_name = "MasterReportDocumentTable"  # Default
+    if schema_metadata and isinstance(schema_metadata, dict):
+        # İlk key'i tablo adı olarak kullan
+        table_keys = list(schema_metadata.keys())
+        if table_keys:
+            table_name = table_keys[0]
+
+    # 2. SQL query'den tablo adını parse etmeyi dene
+    if sql_queries and not table_name:
+        first_sql = sql_queries[0].upper()
+        # "FROM TableName" pattern'ini ara
+        import re
+        from_match = re.search(r'\bFROM\s+(\w+)', first_sql)
+        if from_match:
+            table_name = from_match.group(1)
 
     # Result sample oluştur (ilk 5 satır)
     result_sample = None
@@ -159,7 +172,8 @@ def create_intent_classifier_node(llm: BaseChatModel):
         """
         Kullanıcı mesajını sınıflandır.
 
-        Önce simple classifier dener, belirsizse LLM classifier kullanır.
+        Context varken HER ZAMAN LLM classifier kullanır (daha doğru analiz).
+        Context yokken önce simple classifier dener.
         """
         user_message = get_last_user_message(state)
         if not user_message:
@@ -170,19 +184,37 @@ def create_intent_classifier_node(llm: BaseChatModel):
         active_context = state.get("active_query_context")
         has_context = active_context is not None
 
-        # Önce simple classifier dene (hızlı)
-        simple_result = simple_classifier.classify(user_message, has_context)
-
-        # Confidence yeterli değilse LLM classifier kullan
-        if simple_result.confidence < 0.6:
-            logger.info("[REPORT] Low confidence, using LLM classifier")
+        # Context varsa HER ZAMAN LLM classifier kullan
+        # Çünkü "burdaki", "peki bunun" gibi ifadeleri anlamak için context gerekli
+        if has_context:
+            logger.info("[REPORT] Context exists, using LLM classifier for accurate analysis")
             messages = state.get("messages", [])
-            classification = await llm_classifier.classify(
-                user_message, messages, active_context
-            )
+            try:
+                classification = await llm_classifier.classify(
+                    user_message, messages, active_context
+                )
+                logger.info(f"[REPORT] LLM classification: {classification.intent_type.value} (confidence: {classification.confidence})")
+            except Exception as e:
+                logger.error(f"[REPORT] LLM classifier error: {e}, falling back to simple")
+                classification = simple_classifier.classify(user_message, has_context)
         else:
-            classification = simple_result
-            logger.info(f"[REPORT] Simple classifier sufficient: {classification.intent_type}")
+            # Context yoksa önce simple classifier dene (hızlı)
+            simple_result = simple_classifier.classify(user_message, has_context)
+
+            # Confidence yeterli değilse LLM classifier kullan
+            if simple_result.confidence < 0.6:
+                logger.info("[REPORT] Low confidence, using LLM classifier")
+                messages = state.get("messages", [])
+                try:
+                    classification = await llm_classifier.classify(
+                        user_message, messages, active_context
+                    )
+                except Exception as e:
+                    logger.error(f"[REPORT] LLM classifier error: {e}")
+                    classification = simple_result
+            else:
+                classification = simple_result
+                logger.info(f"[REPORT] Simple classifier sufficient: {classification.intent_type}")
 
         # HITL gerekiyor mu?
         if classification.requires_clarification:
@@ -218,6 +250,7 @@ async def process_user_clarification_node(state: ReportState) -> Dict[str, Any]:
     Kullanıcı yanıtını işle.
 
     interrupt_before sonrası resume edildiğinde çalışır.
+    Kullanıcının seçtiği opsiyon veya verdiği cevaba göre intent belirlenir.
     """
     user_response = state.get("user_clarification")
     pending_question = state.get("pending_question")
@@ -230,22 +263,73 @@ async def process_user_clarification_node(state: ReportState) -> Dict[str, Any]:
 
     # Yanıta göre intent'i belirle
     response_lower = user_response.lower()
-
-    if "yeni" in response_lower or "oluştur" in response_lower:
-        intent_type = IntentType.NEW_QUERY
-    elif "değiştir" in response_lower or "filtre" in response_lower:
-        intent_type = IntentType.MODIFY_FILTER
-    elif "geri" in response_lower or "önceki" in response_lower:
-        intent_type = IntentType.ROLLBACK
-    else:
-        intent_type = IntentType.NEW_QUERY  # Default
-
-    return {
-        "_intent_type": intent_type.value,
+    result = {
         "pending_question": None,
         "waiting_for_user_input": False,
         "user_clarification": None
     }
+
+    # Pending question context'ine göre analiz et
+    question_context = pending_question.get("context", "") if pending_question else ""
+
+    # Empty result recovery sorusu için
+    if "boş sonuç" in question_context.lower() or "veri bulunamadı" in question_context.lower():
+        if "geri" in response_lower or "önceki" in response_lower:
+            result["_intent_type"] = IntentType.ROLLBACK.value
+            logger.info("[REPORT] User chose rollback after empty result")
+        elif "genişlet" in response_lower or "filtre" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_FILTER.value
+            result["_modification_action"] = "expand_filter"
+            logger.info("[REPORT] User chose to expand filter")
+        else:
+            result["_intent_type"] = IntentType.NEW_QUERY.value
+            logger.info("[REPORT] User chose new query")
+        return result
+
+    # Tablo belirsizliği için
+    if "hangi tablo" in question_context.lower():
+        # Kullanıcının seçtiği tablo adını kaydet
+        result["_selected_table"] = user_response
+        result["_intent_type"] = IntentType.NEW_QUERY.value
+        logger.info(f"[REPORT] User selected table: {user_response}")
+        return result
+
+    # Filtre değeri belirsizliği için
+    if "hangi değer" in question_context.lower() or "için birden fazla" in question_context.lower():
+        result["_selected_filter_value"] = user_response
+        result["_intent_type"] = IntentType.MODIFY_FILTER.value
+        logger.info(f"[REPORT] User selected filter value: {user_response}")
+        return result
+
+    # Modifikasyon tipi belirsizliği için
+    if "nasıl değiştirmek" in question_context.lower():
+        if "filtre ekle" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_FILTER.value
+            result["_modification_action"] = "add"
+        elif "filtre çıkar" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_FILTER.value
+            result["_modification_action"] = "remove"
+        elif "gruplama" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_AGGREGATION.value
+        elif "sıralama" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_ORDER.value
+        elif "yeni" in response_lower:
+            result["_intent_type"] = IntentType.NEW_QUERY.value
+        else:
+            result["_intent_type"] = IntentType.NEW_QUERY.value
+        return result
+
+    # Genel fallback
+    if "yeni" in response_lower or "oluştur" in response_lower:
+        result["_intent_type"] = IntentType.NEW_QUERY.value
+    elif "değiştir" in response_lower or "ekle" in response_lower:
+        result["_intent_type"] = IntentType.MODIFY_FILTER.value
+    elif "geri" in response_lower or "önceki" in response_lower:
+        result["_intent_type"] = IntentType.ROLLBACK.value
+    else:
+        result["_intent_type"] = IntentType.NEW_QUERY.value
+
+    return result
 
 
 async def extract_query_node(state: ReportState) -> Dict[str, Any]:
@@ -272,8 +356,15 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
     """
     text2sql_output = state.get("text2sql_output")
 
+    # Önceki node'dan gelen hatayı kontrol et
+    prev_error = state.get("error")
+    if prev_error:
+        logger.warning(f"[REPORT] Previous error detected: {prev_error}")
+        return {"error": prev_error}
+
     if not text2sql_output:
-        return {"error": "No text2sql output"}
+        logger.error("[REPORT] No text2sql_output in state")
+        return {"error": "Sorgu işlenemedi. Lütfen tekrar deneyin."}
 
     results = text2sql_output.get("results", [])
     logger.info(f"[REPORT] Checking results: {len(results)} rows")
@@ -313,6 +404,9 @@ def create_text2sql_node(text2sql_graph):
     """
     Text2SQL node factory.
 
+    Context-aware: Eğer aktif context varsa ve intent modify_* ise,
+    mevcut SQL'i modifiye edecek şekilde context injection yapar.
+
     Args:
         text2sql_graph: Compiled text2sql graph
 
@@ -322,7 +416,7 @@ def create_text2sql_node(text2sql_graph):
     from langchain_core.runnables import RunnableConfig
 
     async def text2sql_node(state: ReportState, config: RunnableConfig = None) -> Dict[str, Any]:
-        """Text2SQL graph'ı çağır with runtime config."""
+        """Text2SQL graph'ı çağır with runtime config and context injection."""
         user_query = get_last_user_message(state)
 
         if not user_query:
@@ -331,11 +425,38 @@ def create_text2sql_node(text2sql_graph):
         logger.info("[REPORT] Invoking text2sql graph...")
 
         try:
-            # Context bilgisini ekle (delta-SQL için)
+            # Context bilgisini al
             active_context = state.get("active_query_context")
+            intent_type = state.get("_intent_type", "new_query")
+            extracted_entities = state.get("_extracted_entities", {})
+
+            # Delta-SQL için query enhancement
+            enhanced_query = user_query
+
+            # Eğer modify_* intent ise ve context varsa, sorguyu zenginleştir
+            if active_context and intent_type in ["modify_filter", "modify_aggregation", "modify_columns", "modify_order"]:
+                logger.info(f"[REPORT] Detected modification intent: {intent_type}")
+                logger.info(f"[REPORT] Active context exists: table={active_context.get('current_table')}, filters={len(active_context.get('applied_filters', []))}, rows={active_context.get('result_row_count', 0)}")
+
+                # Context bilgisini prompt'a ekle
+                context_hint = _build_modification_context_hint(
+                    active_context,
+                    intent_type,
+                    extracted_entities,
+                    user_query
+                )
+                enhanced_query = context_hint
+
+                logger.info(f"[REPORT] Enhanced query for modification (first 300 chars): {enhanced_query[:300]}...")
+            else:
+                # Context yok veya new_query intent
+                if active_context:
+                    logger.info(f"[REPORT] Active context exists but intent is {intent_type}, treating as new query")
+                else:
+                    logger.info(f"[REPORT] No active context, processing as new query")
 
             text2sql_input = {
-                "user_query": user_query,
+                "user_query": enhanced_query,
                 "parsed_intent": None,
                 "enriched_metadata": None,
                 "resolved_steps": None,
@@ -346,16 +467,40 @@ def create_text2sql_node(text2sql_graph):
                 "error": None
             }
 
-            # Context varsa ekle (ileride delta-SQL için kullanılacak)
+            # Context meta bilgisini ekle (debug ve gelecek kullanım için)
             if active_context:
                 text2sql_input["_previous_context"] = active_context
+                text2sql_input["_is_modification"] = intent_type.startswith("modify_")
 
             # Pass runtime config to text2sql graph
-            # This allows runtime configuration from supervisor/report to reach text2sql
             logger.debug(f"[REPORT] Passing config to text2sql: {config is not None}")
-            result = await text2sql_graph.ainvoke(text2sql_input, config)
+            logger.info(f"[REPORT] Text2SQL input query (first 300 chars): {enhanced_query[:300]}...")
 
-            logger.info(f"[REPORT] Text2SQL completed: {len(result.get('results', []))} rows")
+            try:
+                result = await text2sql_graph.ainvoke(text2sql_input, config)
+            except Exception as invoke_error:
+                logger.error(f"[REPORT] Text2SQL invoke failed: {invoke_error}", exc_info=True)
+                return {
+                    "error": f"Text2SQL invoke error: {invoke_error}",
+                    "text2sql_output": None
+                }
+
+            # Result kontrolü
+            if result is None:
+                logger.error("[REPORT] Text2SQL returned None")
+                return {
+                    "error": "Text2SQL returned None",
+                    "text2sql_output": None
+                }
+
+            # Error kontrolü
+            if result.get("error"):
+                logger.warning(f"[REPORT] Text2SQL returned with error: {result.get('error')}")
+
+            # Results kontrolü - None olabilir
+            results = result.get("results")
+            result_count = len(results) if results else 0
+            logger.info(f"[REPORT] Text2SQL completed: {result_count} rows")
 
             return {
                 "text2sql_output": result,
@@ -367,6 +512,149 @@ def create_text2sql_node(text2sql_graph):
             return {"error": f"Text2SQL error: {e}", "text2sql_output": None}
 
     return text2sql_node
+
+
+def _build_modification_context_hint(
+    active_context: ActiveQueryContext,
+    intent_type: str,
+    extracted_entities: Dict[str, Any],
+    user_query: str
+) -> str:
+    """
+    Modification intent için context-aware sorgu oluştur.
+
+    Mevcut SQL'i ve filtreleri açıklayarak, kullanıcının modifikasyon
+    isteğini daha iyi anlaşılır hale getirir.
+
+    Args:
+        active_context: Mevcut sorgu context'i
+        intent_type: Intent türü (modify_filter, modify_aggregation, vb.)
+        extracted_entities: Intent'ten çıkarılan entity'ler
+        user_query: Kullanıcının orijinal mesajı
+
+    Returns:
+        Zenginleştirilmiş sorgu string'i
+    """
+    # Mevcut filtreleri text'e çevir
+    current_filters = active_context.get("applied_filters", [])
+    filter_descriptions = []
+    for f in current_filters:
+        col = f.get("column", "")
+        val = f.get("value", "")
+        op = f.get("operator", "=")
+        filter_descriptions.append(f"{col} {op} '{val}'")
+
+    filters_text = ", ".join(filter_descriptions) if filter_descriptions else "filtre yok"
+
+    # Gruplama bilgisi
+    grouping = active_context.get("grouping_columns", [])
+    grouping_text = ", ".join(grouping) if grouping else "gruplama yok"
+
+    # Result sample bilgisini text'e çevir
+    result_sample = active_context.get("result_sample", [])
+    result_text = ""
+    if result_sample:
+        sample_lines = []
+        for row in result_sample[:3]:  # İlk 3 satır
+            sample_lines.append(str(row))
+        result_text = "\n".join(sample_lines)
+
+    # Modification type'a göre hint oluştur
+    if intent_type == "modify_filter":
+        # Filter ekleme/çıkarma/genişletme
+        filter_action = extracted_entities.get("filter_action", "add")
+        filter_column = extracted_entities.get("filter_column", "")
+        filter_value = extracted_entities.get("filter_value", "")
+        uses_context_ref = extracted_entities.get("uses_context_reference", False)
+
+        if filter_action == "expand" or uses_context_ref:
+            # Context-referencing sorgu: "burdaki ürünlerin", "bu kategorinin" vb.
+            # Önceki sorgunun sonucunu kullanarak yeni sorgu oluştur
+            hint = f"""ÖNCEKİ SORGU SONUCU (REFERANS):
+Tablo: {active_context.get('current_table', 'MasterReportDocumentTable')}
+Önceki SQL: {active_context.get('current_sql', '')[:500]}
+Önceki Filtreler: {filters_text}
+Önceki Gruplama: {grouping_text}
+Sonuç Sayısı: {active_context.get('result_row_count', 0)} satır
+Örnek Sonuç:
+{result_text}
+
+KULLANICI İSTEĞİ: {user_query}
+
+GÖREV: Kullanıcı ÖNCEKİ SORGUNUN SONUCUNU REFERANS ALIYOR.
+Örneğin: "burdaki ürünlerin satış oranlarını ver" = Önceki sorguda bulunan kategori/filtre ile ürün detaylarını getir.
+
+ADIMLAR:
+1. Önceki sorgunun sonucundaki değerleri (örn: CategoryName = 'DURUMLER') filtre olarak kullan
+2. Kullanıcının istediği yeni bilgiyi (ürünler, satış oranları vb.) getir
+3. Gerekirse GROUP BY ekle
+
+ÖNEMLİ: Bu bir BAĞIMLI SORGU olabilir. Önceki sonucu WHERE clause'da kullan."""
+
+        elif filter_action == "add":
+            hint = f"""MEVCUT SORGU BAĞLAMI:
+Tablo: {active_context.get('current_table', 'MasterReportDocumentTable')}
+Mevcut Filtreler: {filters_text}
+Mevcut Gruplama: {grouping_text}
+Son Sonuç: {active_context.get('result_row_count', 0)} satır
+
+KULLANICI İSTEĞİ: {user_query}
+
+GÖREV: Yukarıdaki mevcut sorguya EK FİLTRE ekle. Mevcut filtreleri KORU, sadece yeni filtre ekle.
+{f'Tespit Edilen Filtre: {filter_column} = {filter_value}' if filter_column else ''}"""
+
+        elif filter_action == "remove":
+            hint = f"""MEVCUT SORGU BAĞLAMI:
+Tablo: {active_context.get('current_table', 'MasterReportDocumentTable')}
+Mevcut Filtreler: {filters_text}
+Mevcut Gruplama: {grouping_text}
+
+KULLANICI İSTEĞİ: {user_query}
+
+GÖREV: Mevcut filtrelerden birini ÇIKAR. Diğer filtreleri koru."""
+
+        else:  # replace
+            hint = f"""MEVCUT SORGU BAĞLAMI:
+Tablo: {active_context.get('current_table', 'MasterReportDocumentTable')}
+Mevcut Filtreler: {filters_text}
+
+KULLANICI İSTEĞİ: {user_query}
+
+GÖREV: Mevcut filtreyi DEĞİŞTİR."""
+
+    elif intent_type == "modify_aggregation":
+        hint = f"""MEVCUT SORGU BAĞLAMI:
+Tablo: {active_context.get('current_table', 'MasterReportDocumentTable')}
+Mevcut Filtreler: {filters_text}
+Mevcut Gruplama: {grouping_text}
+
+KULLANICI İSTEĞİ: {user_query}
+
+GÖREV: Mevcut sorgunun GRUPLAMA/AGGREGATION'ını değiştir. Filtreleri KORU."""
+
+    elif intent_type == "modify_order":
+        hint = f"""MEVCUT SORGU BAĞLAMI:
+Tablo: {active_context.get('current_table', 'MasterReportDocumentTable')}
+Mevcut Filtreler: {filters_text}
+
+KULLANICI İSTEĞİ: {user_query}
+
+GÖREV: Mevcut sorgunun SIRALAMA'sını değiştir. Diğer her şeyi koru."""
+
+    elif intent_type == "modify_columns":
+        hint = f"""MEVCUT SORGU BAĞLAMI:
+Tablo: {active_context.get('current_table', 'MasterReportDocumentTable')}
+Mevcut Filtreler: {filters_text}
+
+KULLANICI İSTEĞİ: {user_query}
+
+GÖREV: Mevcut sorguya yeni KOLON ekle. Filtreleri ve diğer yapıyı koru."""
+
+    else:
+        # Fallback - orijinal sorguyu kullan
+        hint = user_query
+
+    return hint
 
 
 def create_visualization_node(visualization_graph):
@@ -498,24 +786,242 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
 # ROUTING FUNCTIONS (Conditional edges için)
 # =============================================================================
 
+# LLM Router için prompt template
+ROUTING_DECISION_PROMPT = """Sen bir akıllı sorgu yönlendirme uzmanısın.
+
+Görevin: Kullanıcının mesajını, konuşma geçmişini ve mevcut bağlamı analiz ederek
+doğru işlem yolunu belirlemek.
+
+## MEVCUT DURUM
+
+Aktif Sorgu Bağlamı:
+{context_info}
+
+Intent Sınıflandırması:
+- Tespit Edilen Intent: {intent_type}
+- Güven Skoru: {confidence}
+- Çıkarılan Bilgiler: {extracted_entities}
+
+Kullanıcı Sorusu Bekliyor mu: {waiting_for_input}
+
+## KONUŞMA GEÇMİŞİ (Son 5 mesaj)
+{conversation_history}
+
+## SON KULLANICI MESAJI
+{user_message}
+
+## ROUTING SEÇENEKLERİ
+
+1. **ask_user** - Kullanıcıdan açıklama iste
+   - Belirsiz ifadeler varsa ("bu", "şu", "o" ama neyi kastettiği belli değil)
+   - Birden fazla olası yorum varsa
+   - Kritik bir karar gerekiyorsa (örn: veri silme, büyük değişiklik)
+   - confidence < 0.6 ise
+
+2. **rollback** - Önceki sorguya geri dön
+   - Kullanıcı açıkça geri almak istiyor ("geri al", "önceki", "iptal")
+   - Hatalı bir işlem yapıldığını belirtiyor
+
+3. **process_query** - Sorguyu işle
+   - Yeni sorgu başlatılacak (new_query)
+   - Mevcut sorgu modifiye edilecek (modify_*)
+   - Görselleştirme değişecek (visualize)
+   - Confidence yeterli (>= 0.6)
+
+## KARAR KRİTERLERİ
+
+- Eğer waiting_for_input=true ise → ask_user
+- Eğer kullanıcı açıkça "geri", "iptal", "önceki" diyorsa → rollback
+- Eğer intent belirsiz VEYA confidence düşük (<0.6) VEYA birden fazla anlam varsa → ask_user
+- Aksi halde → process_query
+
+## ÇIKTI FORMATI
+
+Sadece aşağıdaki JSON formatında yanıt ver:
+{{
+    "route": "ask_user" | "rollback" | "process_query",
+    "reason": "Kısa açıklama (1 cümle)",
+    "clarification_needed": "Eğer ask_user ise, sorulacak soru (opsiyonel)"
+}}"""
+
+
+def create_route_after_intent(llm: BaseChatModel):
+    """
+    LLM tabanlı akıllı router factory.
+
+    Tüm conversation history ve context'i analiz ederek
+    en doğru routing kararını verir.
+
+    Args:
+        llm: Language model for routing decisions
+
+    Returns:
+        Async routing function
+    """
+    import json
+    from langchain_core.prompts import ChatPromptTemplate
+
+    prompt = ChatPromptTemplate.from_template(ROUTING_DECISION_PROMPT)
+
+    async def smart_route_after_intent(state: ReportState) -> str:
+        """
+        LLM ile akıllı routing kararı.
+
+        Tüm conversation history, active context ve intent bilgisini
+        analiz ederek en uygun yönlendirmeyi yapar.
+
+        Returns:
+            Next node name: "ask_user", "rollback", or "process_query"
+        """
+        # HITL bekliyor mu? (öncelikli kontrol)
+        waiting_for_input = state.get("waiting_for_user_input", False)
+        if waiting_for_input:
+            logger.info("[REPORT] Routing to ask_user (waiting for input flag set)")
+            return "ask_user"
+
+        # State bilgilerini topla
+        intent_type = state.get("_intent_type", "new_query")
+        confidence = state.get("_confidence", 0.0)
+        extracted_entities = state.get("_extracted_entities", {})
+        active_context = state.get("active_query_context")
+        messages = state.get("messages", [])
+        user_message = get_last_user_message(state) or ""
+
+        # Hızlı yol: Rollback açıkça isteniyor
+        if intent_type == "rollback" and confidence >= 0.7:
+            logger.info("[REPORT] Fast path: routing to rollback")
+            return "rollback"
+
+        # Hızlı yol: Yüksek güvenli new_query
+        if intent_type == "new_query" and confidence >= 0.85:
+            logger.info("[REPORT] Fast path: routing to process_query (high confidence new_query)")
+            return "process_query"
+
+        # LLM ile detaylı analiz
+        try:
+            # Context bilgisini formatla
+            if active_context:
+                context_info = f"""VAR ✓
+Tablo: {active_context.get('current_table', 'Bilinmiyor')}
+Filtreler: {active_context.get('applied_filters', [])}
+Gruplama: {active_context.get('grouping_columns', [])}
+Sonuç: {active_context.get('result_row_count', 0)} satır"""
+            else:
+                context_info = "YOK (yeni oturum)"
+
+            # Conversation history formatla (son 5 mesaj)
+            history_lines = []
+            recent_messages = messages[-5:] if len(messages) > 5 else messages
+            for msg in recent_messages:
+                role = "Kullanıcı" if isinstance(msg, HumanMessage) else "Asistan"
+                content = str(msg.content)[:150]
+                history_lines.append(f"[{role}]: {content}")
+            conversation_history = "\n".join(history_lines) if history_lines else "(Geçmiş yok)"
+
+            # Prompt oluştur
+            formatted_prompt = prompt.format(
+                context_info=context_info,
+                intent_type=intent_type,
+                confidence=confidence,
+                extracted_entities=json.dumps(extracted_entities, ensure_ascii=False),
+                waiting_for_input=waiting_for_input,
+                conversation_history=conversation_history,
+                user_message=user_message
+            )
+
+            # LLM çağır
+            logger.info("[REPORT] Invoking LLM for smart routing decision...")
+            response = await llm.ainvoke(formatted_prompt)
+            response_text = response.content.strip()
+
+            # JSON parse et
+            # Code block içindeyse çıkar
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                json_lines = [l for l in lines if not l.startswith("```")]
+                response_text = "\n".join(json_lines)
+
+            result = json.loads(response_text)
+            route = result.get("route", "process_query")
+            reason = result.get("reason", "")
+
+            logger.info(f"[REPORT] LLM routing decision: {route} - {reason}")
+
+            # Clarification sorusu varsa state'e ekle
+            clarification = result.get("clarification_needed")
+            if route == "ask_user" and clarification:
+                # Bu bilgi bir sonraki node'da kullanılabilir
+                logger.info(f"[REPORT] Clarification question: {clarification}")
+
+            # Geçerli route mu kontrol et
+            if route in ["ask_user", "rollback", "process_query"]:
+                return route
+            else:
+                logger.warning(f"[REPORT] Invalid route from LLM: {route}, defaulting to process_query")
+                return "process_query"
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"[REPORT] JSON parse error in routing: {e}")
+            # Fallback: basit kurallara göre karar
+            return _fallback_route_decision(intent_type, confidence)
+        except Exception as e:
+            logger.error(f"[REPORT] LLM routing error: {e}")
+            # Fallback: basit kurallara göre karar
+            return _fallback_route_decision(intent_type, confidence)
+
+    return smart_route_after_intent
+
+
+def _fallback_route_decision(intent_type: str, confidence: float) -> str:
+    """
+    LLM başarısız olduğunda basit kural tabanlı routing.
+
+    Args:
+        intent_type: Tespit edilen intent
+        confidence: Güven skoru
+
+    Returns:
+        Route string
+    """
+    if intent_type == "rollback":
+        return "rollback"
+
+    if confidence < 0.5:
+        return "ask_user"
+
+    return "process_query"
+
+
 def route_after_intent(state: ReportState) -> str:
     """
-    Intent classification sonrası routing.
+    Basit kural tabanlı routing (LLM olmadan fallback).
+
+    Bu fonksiyon LLM router kullanılamadığında veya
+    hızlı yol gerektiğinde kullanılır.
 
     Returns:
         Next node name
     """
     # HITL bekliyor mu?
     if state.get("waiting_for_user_input"):
+        logger.info("[REPORT] Routing to ask_user (waiting for input)")
         return "ask_user"
 
     # Intent type'a göre route et
     intent_type = state.get("_intent_type", "new_query")
+    confidence = state.get("_confidence", 0.0)
+    extracted_entities = state.get("_extracted_entities", {})
+
+    logger.info(f"[REPORT] Routing decision: intent={intent_type}, confidence={confidence}")
+    logger.debug(f"[REPORT] Extracted entities: {extracted_entities}")
 
     if intent_type == "rollback":
+        logger.info("[REPORT] Routing to rollback")
         return "rollback"
 
-    # Default: process_query
+    # new_query, modify_filter, modify_aggregation, modify_order, modify_columns
+    # hepsi process_query'ye gidiyor (text2sql ile işlenecek)
+    logger.info(f"[REPORT] Routing to process_query (intent: {intent_type})")
     return "process_query"
 
 

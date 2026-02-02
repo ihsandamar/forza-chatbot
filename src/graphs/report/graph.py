@@ -57,6 +57,7 @@ from .nodes import (
     rollback_node,
     build_response_node,
     route_after_intent,
+    create_route_after_intent,
     route_after_results
 )
 from .tools import should_interrupt, format_interrupt_message
@@ -107,12 +108,19 @@ def build_report_graph(
 
     # Intent classifier (LLM gerektirir)
     if llm:
-        intent_classifier_node = create_intent_classifier_node(llm.get_chat())
+        llm_chat = llm.get_chat()
+        intent_classifier_node = create_intent_classifier_node(llm_chat)
+        # LLM tabanlı akıllı router
+        smart_router = create_route_after_intent(llm_chat)
+        logger.info("[REPORT] Using LLM-based smart router")
     else:
         # Fallback: basit classifier (LLM olmadan)
         async def simple_intent_node(state: ReportState):
             return {"_intent_type": "new_query", "_confidence": 0.8}
         intent_classifier_node = simple_intent_node
+        # Fallback: basit router
+        smart_router = route_after_intent
+        logger.info("[REPORT] Using simple rule-based router (no LLM)")
 
     # -------------------------------------------------------------------------
     # ADD NODES
@@ -151,11 +159,11 @@ def build_report_graph(
     graph.add_edge(START, "immediate_ack")
     graph.add_edge("immediate_ack", "classify_intent")
 
-    # classify_intent → conditional routing
+    # classify_intent → conditional routing (LLM-based smart router)
     if enable_hitl:
         graph.add_conditional_edges(
             "classify_intent",
-            route_after_intent,
+            smart_router,
             {
                 "ask_user": "ask_user",
                 "rollback": "rollback",
@@ -167,10 +175,22 @@ def build_report_graph(
         graph.add_edge("ask_user", "process_clarification")
         graph.add_edge("process_clarification", "extract_query")
     else:
-        # HITL disabled: direct to extract_query or rollback
+        # HITL disabled: use smart router but skip ask_user
+        # smart_router hala akıllı karar verir ama ask_user yerine process_query'ye yönlendirir
+        async def hitl_disabled_router(state: ReportState) -> str:
+            """HITL disabled router - ask_user yerine process_query'ye yönlendirir."""
+            if llm:
+                route = await smart_router(state)
+                # ask_user devre dışı, process_query'ye yönlendir
+                if route == "ask_user":
+                    return "extract_query"
+                return "rollback" if route == "rollback" else "extract_query"
+            else:
+                return "rollback" if state.get("_intent_type") == "rollback" else "extract_query"
+
         graph.add_conditional_edges(
             "classify_intent",
-            lambda s: "rollback" if s.get("_intent_type") == "rollback" else "extract_query",
+            hitl_disabled_router,
             {
                 "rollback": "rollback",
                 "extract_query": "extract_query"

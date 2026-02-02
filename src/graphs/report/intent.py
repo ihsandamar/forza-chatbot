@@ -101,11 +101,13 @@ Kullanıcının mesajını analiz et ve aşağıdaki bilgileri JSON formatında 
 - confidence: Güven skoru (0.0-1.0)
 - requires_clarification: Belirsizlik var mı? (true/false)
 - clarification_question: Varsa sorulacak soru
-- extracted_entities: Mesajdan çıkarılan bilgiler
+- clarification_options: Varsa seçenekler listesi
+- extracted_entities: Mesajdan çıkarılan bilgiler (filtreler, değerler vs.)
+- modification_details: Eğer modify_* intent ise, ne tür değişiklik yapılacak
 
 Niyet Türleri:
 - new_query: Yeni bir rapor/sorgu isteği ("Satış raporu getir", "Müşterileri listele")
-- modify_filter: Filtre ekleme/çıkarma ("Sadece İstanbul", "2024 yılı için")
+- modify_filter: Filtre ekleme/çıkarma ("Sadece İstanbul", "2024 yılı için", "Bunu da ekle")
 - modify_aggregation: Gruplama değişikliği ("Aylık göster", "Şehir bazlı")
 - modify_columns: Kolon değişikliği ("Buna müşteri adı da ekle")
 - modify_order: Sıralama değişikliği ("Büyükten küçüğe sırala")
@@ -114,7 +116,71 @@ Niyet Türleri:
 - clarify: Detay isteme ("Daha detaylı", "Açıkla")
 - unknown: Belirsiz/anlaşılamayan
 
+## CONTEXT BİLGİSİ (Mevcut Sorgu Durumu)
 {context_info}
+
+## MODİFİKASYON TESPİTİ İÇİN KURALLAR
+
+⚠️ ÖNEMLİ: Eğer aktif sorgu bağlamı VARSA, kullanıcı büyük ihtimalle MEVCUT sorguyu değiştirmek istiyor!
+
+### Context-Referencing İfadeler (Önceki sonuca atıf):
+Kullanıcı aşağıdaki ifadelerden BİRİNİ bile kullanıyorsa → %90 ihtimalle modify_filter:
+- "burdaki", "buradaki", "bunun", "bunların", "şunun", "şunların"
+- "bu kategorinin", "bu ürünlerin", "bu şubenin", "bu sonuçların"
+- "peki", "peki bunun", "onun", "onların"
+- "gösterdiğin", "verdiğin", "getirdiğin"
+- "yukarıdaki", "önceki", "az önceki"
+
+Bu ifadeler ÖNCEKI SONUCU REFERANS ALIYOR demektir!
+→ intent = modify_filter
+→ extracted_entities = {{"filter_action": "expand", "uses_context_reference": true}}
+→ confidence = 0.9+
+
+### Filtre Modifikasyonu (modify_filter):
+Aktif context VARSA ve kullanıcı aşağıdakileri söylüyorsa:
+- "Sadece X olsun", "Sadece X için" → filter_action: "add"
+- "X ekle", "Buna X de ekle" → filter_action: "add"
+- "X hariç", "X olmadan", "X çıkar" → filter_action: "remove"
+- "Son X gün/ay/yıl" → filter_action: "add"
+
+### Gruplama Değişikliği (modify_aggregation):
+Aktif context VARSA:
+- "X bazlı göster", "X bazında"
+- "Aylık/günlük/yıllık göster"
+- "Kategorilere göre"
+
+### Sıralama Değişikliği (modify_order):
+- "Büyükten küçüğe", "En çoktan en aza"
+- "Alfabetik sırala", "Ters sırala"
+
+### Kolon Ekleme (modify_columns):
+- "X kolonunu da ekle"
+- "Bunda X de göster"
+
+### YENİ SORGU (new_query):
+Sadece aktif context YOKSA veya kullanıcı açıkça yeni bir konu başlatıyorsa:
+- "X raporu getir", "Y listele" (tamamen farklı konu)
+- "Yeni rapor", "Başka bir şey"
+
+## KARAR MATRİSİ
+
+| Durum | Aktif Context? | Kullanıcı İfadesi | Intent |
+|-------|---------------|-------------------|--------|
+| Yeni rapor | Yok | "Satış raporu getir" | new_query |
+| Yeni rapor | Var | "Müşteri listesini göster" (farklı konu) | new_query |
+| Modifikasyon | Var | "Sadece İstanbul" | modify_filter |
+| Modifikasyon | Var | "Aylık göster" | modify_aggregation |
+| Modifikasyon | Yok | "Sadece İstanbul" | new_query (context yok!) |
+
+## EXTRACTED_ENTITIES FORMATI (modify_filter için)
+
+Eğer intent modify_filter ise, extracted_entities şöyle olmalı:
+{{
+  "filter_action": "add" | "remove" | "replace",
+  "filter_column": "Tespit edilen kolon (örn: BranchCityName)",
+  "filter_value": "Tespit edilen değer (örn: İstanbul)",
+  "filter_operator": "=" | "!=" | ">" | "<" | "LIKE"
+}}
 
 Kullanıcı mesajı: {user_message}
 
@@ -197,14 +263,79 @@ class IntentClassifier:
     def _format_context_info(self, context: Optional[ActiveQueryContext]) -> str:
         """Active context bilgisini formatla."""
         if not context:
-            return "Aktif sorgu bağlamı: YOK (yeni oturum)"
+            return """Aktif Sorgu Bağlamı: YOK (yeni oturum)
 
-        return f"""Aktif Sorgu Bağlamı:
-- Tablo: {context.get('current_table', 'Bilinmiyor')}
-- SQL: {context.get('current_sql', 'Yok')[:200]}...
-- Filtreler: {context.get('applied_filters', [])}
-- Gruplama: {context.get('grouping_columns', [])}
-- Sonuç sayısı: {context.get('result_row_count', 0)} satır"""
+NOT: Aktif context olmadığında, kullanıcı "sadece X" veya "X ekle" dese bile
+bu yeni bir sorgu olarak değerlendirilmelidir (modify değil)."""
+
+        # Filtreleri okunabilir formata çevir
+        filters = context.get('applied_filters', [])
+        filter_text = ""
+        if filters:
+            filter_lines = []
+            for f in filters:
+                col = f.get('column', '')
+                op = f.get('operator', '=')
+                val = f.get('value', '')
+                filter_lines.append(f"  • {col} {op} '{val}'")
+            filter_text = "\n".join(filter_lines)
+        else:
+            filter_text = "  (Filtre yok)"
+
+        # Gruplama
+        grouping = context.get('grouping_columns', [])
+        grouping_text = ", ".join(grouping) if grouping else "(Gruplama yok)"
+
+        # Result sample
+        result_sample = context.get('result_sample', [])
+        sample_text = ""
+        if result_sample:
+            sample_lines = []
+            for row in result_sample[:3]:
+                sample_lines.append(f"  {row}")
+            sample_text = "\n".join(sample_lines)
+        else:
+            sample_text = "  (Örnek sonuç yok)"
+
+        return f"""🔵 Aktif Sorgu Bağlamı: VAR ✓
+
+Mevcut Tablo: {context.get('current_table', 'Bilinmiyor')}
+
+Mevcut SQL (kısaltılmış):
+```sql
+{context.get('current_sql', 'Yok')[:400]}
+```
+
+Uygulanan Filtreler:
+{filter_text}
+
+Gruplama: {grouping_text}
+
+Son Sonuç: {context.get('result_row_count', 0)} satır (son {context.get('last_execution_time', 'bilinmeyen zaman')})
+
+Örnek Sonuç Verisi (ilk 3 satır):
+{sample_text}
+
+⚠️ KRİTİK: Aktif context VAR - kullanıcı büyük ihtimalle MEVCUT sorguyu değiştirmek istiyor!
+
+CONTEXT-AWARE İNTENT TESPİTİ:
+1. Kullanıcı "burdaki", "bunun", "peki", "gösterdiğin" gibi REFERANS ifadeleri kullanıyorsa
+   → %95 ihtimalle modify_filter (filter_action: expand, uses_context_reference: true)
+   → confidence = 0.9+
+
+2. Kullanıcı "sadece X", "X ekle", "X için" diyorsa
+   → %90 ihtimalle modify_filter (filter_action: add)
+   → confidence = 0.85+
+
+3. Kullanıcı "aylık göster", "bazlı göster" diyorsa
+   → %85 ihtimalle modify_aggregation
+   → confidence = 0.8+
+
+4. Kullanıcı tamamen FARKLI bir konu açıyorsa (örn: "Müşteri listesi" ama önceki sorgu satış ile ilgiliyse)
+   → new_query
+   → confidence = 0.7+
+
+DEFAULT: Context varken belirsiz ifadeler → modify_filter olarak yorumla (conservative approach)"""
 
     def _format_message_history(self, messages: List[BaseMessage], limit: int = 3) -> str:
         """Son N mesajı formatla."""
@@ -276,34 +407,62 @@ class SimpleIntentClassifier:
     Kural tabanlı basit intent classifier.
 
     LLM çağırmadan hızlı sınıflandırma yapar.
-    Belirsiz durumlarda LLM classifier'a yönlendirir.
+    Context-aware: Aktif context varken modification intent'lerini
+    daha yüksek öncelikle tespit eder.
     """
 
-    # Keyword patterns
+    # Keyword patterns - öncelik sırasına göre
     PATTERNS = {
-        IntentType.NEW_QUERY: [
-            "rapor", "listele", "göster", "getir", "bul", "ara",
-            "kaç tane", "ne kadar", "toplam"
+        IntentType.ROLLBACK: [
+            "geri", "önceki", "iptal", "undo", "vazgeç", "geri al"
         ],
         IntentType.MODIFY_FILTER: [
             "sadece", "için", "filtrele", "hariç", "dahil",
-            "olan", "olmayan", "arasında", "büyük", "küçük"
+            "olan", "olmayan", "arasında", "büyük", "küçük",
+            "ekle", "çıkar", "kaldır", "bunu da"
         ],
         IntentType.MODIFY_AGGREGATION: [
-            "bazlı", "bazında", "grupla", "aylık", "günlük",
-            "yıllık", "haftalık", "toplam", "ortalama"
+            "bazlı", "bazında", "grupla", "aylık göster", "günlük göster",
+            "yıllık göster", "haftalık göster", "gruplama"
+        ],
+        IntentType.MODIFY_ORDER: [
+            "sırala", "büyükten küçüğe", "küçükten büyüğe",
+            "en çoktan", "en azdan", "alfabetik"
         ],
         IntentType.VISUALIZE: [
             "grafik", "chart", "bar", "pasta", "line", "çizgi",
-            "görselleştir", "tablo"
-        ],
-        IntentType.ROLLBACK: [
-            "geri", "önceki", "iptal", "undo", "vazgeç"
+            "görselleştir"
         ],
         IntentType.CLARIFY: [
             "detay", "açıkla", "ne demek", "nasıl"
+        ],
+        IntentType.NEW_QUERY: [
+            "rapor", "listele", "göster", "getir", "bul", "ara",
+            "kaç tane", "ne kadar", "toplam"
         ]
     }
+
+    # Context varken modification'ı tetikleyen ifadeler
+    MODIFICATION_TRIGGERS = [
+        "sadece", "için", "ekle", "çıkar", "hariç", "dahil",
+        "bunu da", "şunu da", "de ekle", "da ekle",
+        "olsun", "olmasın", "filtrele",
+        "bazlı", "bazında", "göre göster"
+    ]
+
+    # Context-referencing ifadeler (önceki sorguya atıfta bulunan)
+    CONTEXT_REFERENCE_TRIGGERS = [
+        "burdaki", "buradaki", "bu kategorideki", "bu şubedeki",
+        "bunun", "bunların", "şunun", "şunların",
+        "bu ürünlerin", "bu kategorinin", "bu şubenin",
+        "aynı", "aynısı", "aynısının", "aynı şekilde",
+        "peki", "peki bu", "peki bunun", "onun", "onların",
+        "yukarıdaki", "önceki sorgu", "az önce",
+        "bunlar", "şunlar", "onlar", "bunlarda", "şunlarda",
+        "bu sonuçların", "bu verilerin", "bu kayıtların",
+        "gösterdiğin", "verdiğin", "getirdiğin",
+        "az önceki", "önceki", "geçen sorgu"
+    ]
 
     def classify(
         self,
@@ -313,21 +472,77 @@ class SimpleIntentClassifier:
         """
         Basit kural tabanlı sınıflandırma.
 
+        Context-aware: Aktif context varsa, modification ifadelerini
+        daha yüksek öncelikle tespit eder.
+
         Args:
             user_message: Kullanıcı mesajı
             has_active_context: Aktif context var mı?
 
         Returns:
-            IntentClassification (düşük confidence, LLM verification gerekebilir)
+            IntentClassification
         """
         message_lower = user_message.lower()
         scores: Dict[IntentType, int] = {}
+        extracted_entities: Dict[str, Any] = {}
 
-        # Pattern matching
+        # Önce context-reference trigger'larını kontrol et (context varsa)
+        # "burdaki ürünler", "bu kategorinin" gibi ifadeler
+        if has_active_context:
+            context_ref_score = sum(1 for t in self.CONTEXT_REFERENCE_TRIGGERS if t in message_lower)
+            if context_ref_score > 0:
+                # Context'e atıf var - bu bir detaylandırma/expansion sorgusu
+                # Örn: "burdaki ürünlerin satış oranlarını ver"
+                logger.info(f"[INTENT] Context reference detected: score={context_ref_score}")
+
+                # Bu tür sorgular genelde NEW_QUERY gibi davranır ama context'i kullanır
+                # MODIFY_FILTER olarak işaretleyip context injection yapalım
+                scores[IntentType.MODIFY_FILTER] = context_ref_score + 3  # Yüksek öncelik
+
+                extracted_entities["filter_action"] = "expand"  # Genişletme/detaylandırma
+                extracted_entities["uses_context_reference"] = True
+
+        # Sonra modification trigger'larını kontrol et (context varsa)
+        if has_active_context:
+            modification_score = sum(1 for t in self.MODIFICATION_TRIGGERS if t in message_lower)
+            if modification_score > 0:
+                # Modification tipi tespit et
+                if any(t in message_lower for t in ["bazlı", "bazında", "göre göster", "aylık", "günlük"]):
+                    scores[IntentType.MODIFY_AGGREGATION] = modification_score + 2
+                elif any(t in message_lower for t in ["sırala", "büyükten", "küçükten"]):
+                    scores[IntentType.MODIFY_ORDER] = modification_score + 2
+                else:
+                    # Eğer zaten context reference ile MODIFY_FILTER varsa, score'u artır
+                    if IntentType.MODIFY_FILTER in scores:
+                        scores[IntentType.MODIFY_FILTER] += modification_score
+                    else:
+                        scores[IntentType.MODIFY_FILTER] = modification_score + 2
+
+                    # Filter entity extraction (basit)
+                    extracted_entities["filter_action"] = extracted_entities.get("filter_action", "add")
+                    if any(t in message_lower for t in ["hariç", "çıkar", "kaldır", "olmadan"]):
+                        extracted_entities["filter_action"] = "remove"
+
+                    # Değer tespiti (basit pattern matching)
+                    # "sadece X" veya "X için" patternleri
+                    import re
+                    sadece_match = re.search(r"sadece\s+(\w+)", message_lower)
+                    icin_match = re.search(r"(\w+)\s+için", message_lower)
+
+                    if sadece_match:
+                        extracted_entities["filter_value"] = sadece_match.group(1)
+                    elif icin_match:
+                        extracted_entities["filter_value"] = icin_match.group(1)
+
+        # Pattern matching (normal flow)
         for intent_type, patterns in self.PATTERNS.items():
             score = sum(1 for p in patterns if p in message_lower)
             if score > 0:
-                scores[intent_type] = score
+                # Var olan score'a ekle (override etme)
+                if intent_type in scores:
+                    scores[intent_type] += score
+                else:
+                    scores[intent_type] = score
 
         if not scores:
             return IntentClassification(
@@ -343,17 +558,36 @@ class SimpleIntentClassifier:
         best_intent = max(scores, key=scores.get)
         max_score = scores[best_intent]
 
-        # Confidence hesapla (basit: max 3 pattern match = 0.9)
-        confidence = min(max_score * 0.3, 0.9)
+        # Confidence hesapla
+        # Context varken modification intent'leri daha güvenilir
+        if has_active_context and best_intent in {IntentType.MODIFY_FILTER, IntentType.MODIFY_AGGREGATION, IntentType.MODIFY_ORDER}:
+            confidence = min(max_score * 0.35, 0.95)  # Daha yüksek confidence
+        else:
+            confidence = min(max_score * 0.3, 0.9)
 
-        # Modification intent ama context yoksa düşük confidence
+        # Modification intent ama context yoksa - NEW_QUERY'ye çevir
         modification_intents = {
             IntentType.MODIFY_FILTER,
             IntentType.MODIFY_AGGREGATION,
+            IntentType.MODIFY_ORDER,
             IntentType.ROLLBACK
         }
         if best_intent in modification_intents and not has_active_context:
-            confidence *= 0.5  # Yarıya düşür
+            # Context yoksa modification yapamazsın
+            # NEW_QUERY'ye düşür veya clarification iste
+            if IntentType.NEW_QUERY in scores:
+                best_intent = IntentType.NEW_QUERY
+                confidence = 0.6
+            else:
+                # Clarification iste
+                return IntentClassification(
+                    intent_type=IntentType.UNKNOWN,
+                    confidence=0.3,
+                    requires_clarification=True,
+                    clarification_question="Henüz aktif bir sorgu yok. Yeni bir rapor oluşturmak ister misiniz?",
+                    clarification_options=["Evet, yeni rapor oluştur", "Hayır"],
+                    extracted_entities=extracted_entities
+                )
 
         return IntentClassification(
             intent_type=best_intent,
@@ -361,5 +595,5 @@ class SimpleIntentClassifier:
             requires_clarification=confidence < 0.6,
             clarification_question=None,
             clarification_options=None,
-            extracted_entities={}
+            extracted_entities=extracted_entities
         )

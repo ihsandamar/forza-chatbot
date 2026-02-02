@@ -6,7 +6,7 @@
       "modules": ["MasterReports"],
       "related_tables": [],
       "sql": {
-        "aggregation": "SUM(CASE WHEN DocumentTypeIsReturn = 1 THEN -PaymentAmount ELSE PaymentAmount END)",
+        "aggregation": "SUM(CASE WHEN DocumentTypeIsReturn = 1 THEN -RowAmount ELSE RowAmount END)",
         "filter": null,
         "group_by": null,
         "select": null,
