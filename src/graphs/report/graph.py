@@ -60,6 +60,7 @@ from .nodes import (
     process_user_clarification_node,
     extract_query_node,
     check_results_node,
+    decide_visualization_node,
     create_text2sql_node,
     create_visualization_node,
     rollback_node,
@@ -151,10 +152,13 @@ def build_report_graph(
     graph.add_node("text2sql", text2sql_node)
     graph.add_node("check_results", check_results_node)
 
+    # Visualization decision (moved from data_visualization graph)
+    graph.add_node("decide_visualization", decide_visualization_node)
+
     # Rollback
     graph.add_node("rollback", rollback_node)
 
-    # Visualization and response
+    # Visualization rendering (only renders, no decision)
     graph.add_node("visualization", visualization_node)
     graph.add_node("build_response", build_response_node)
 
@@ -175,6 +179,7 @@ def build_report_graph(
             {
                 "ask_user": "ask_user",
                 "rollback": "rollback",
+                "visualize_direct": "decide_visualization",  # Skip text2sql for chart conversion
                 "process_query": "extract_query"
             }
         )
@@ -184,23 +189,28 @@ def build_report_graph(
         graph.add_edge("process_clarification", "extract_query")
     else:
         # HITL disabled: use smart router but skip ask_user
-        # smart_router hala akıllı karar verir ama ask_user yerine process_query'ye yönlendirir
         async def hitl_disabled_router(state: ReportState) -> str:
-            """HITL disabled router - ask_user yerine process_query'ye yönlendirir."""
+            """HITL disabled router."""
             if llm:
                 route = await smart_router(state)
-                # ask_user devre dışı, process_query'ye yönlendir
                 if route == "ask_user":
                     return "extract_query"
-                return "rollback" if route == "rollback" else "extract_query"
+                return route  # rollback, visualize_direct, or extract_query
             else:
-                return "rollback" if state.get("_intent_type") == "rollback" else "extract_query"
+                intent = state.get("_intent_type", "new_query")
+                if intent == "rollback":
+                    return "rollback"
+                elif intent == "visualize":
+                    return "visualize_direct"
+                else:
+                    return "extract_query"
 
         graph.add_conditional_edges(
             "classify_intent",
             hitl_disabled_router,
             {
                 "rollback": "rollback",
+                "visualize_direct": "decide_visualization",
                 "extract_query": "extract_query"
             }
         )
@@ -216,20 +226,42 @@ def build_report_graph(
             route_after_results,
             {
                 "ask_user": "ask_user",
-                "visualization": "visualization",
+                "decide_visualization": "decide_visualization",  # Go to viz decision first
                 "build_response": "build_response"
             }
         )
     else:
-        # HITL disabled: skip to visualization or response
+        # HITL disabled: skip to viz decision or response
         graph.add_conditional_edges(
             "check_results",
-            lambda s: "build_response" if s.get("no_records_message") or s.get("error") else "visualization",
+            lambda s: "build_response" if s.get("no_records_message") or s.get("error") else "decide_visualization",
             {
-                "visualization": "visualization",
+                "decide_visualization": "decide_visualization",
                 "build_response": "build_response"
             }
         )
+
+    # decide_visualization → conditional routing (check needs_graph)
+    def route_after_viz_decision(state: ReportState) -> str:
+        """Route based on needs_graph decision."""
+        viz_decision = state.get("_viz_decision", {})
+        needs_graph = viz_decision.get("needs_graph", False)
+
+        if needs_graph:
+            logger.info("[REPORT] Routing to visualization (graph needed)")
+            return "visualization"
+        else:
+            logger.info("[REPORT] Skipping visualization (no graph needed)")
+            return "build_response"
+
+    graph.add_conditional_edges(
+        "decide_visualization",
+        route_after_viz_decision,
+        {
+            "visualization": "visualization",
+            "build_response": "build_response"
+        }
+    )
 
     # Rollback → build_response
     graph.add_edge("rollback", "build_response")

@@ -31,6 +31,110 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# VISUALIZATION DECISION (Moved from data_visualization graph)
+# =============================================================================
+
+async def decide_visualization_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Görselleştirme kararı ver (data_visualization graph'tan alındı).
+
+    Karar logic'i artık report graph'ta.
+    Visualization graph sadece render yapar.
+    """
+    text2sql_output = state.get("text2sql_output")
+
+    if not text2sql_output or text2sql_output.get("error"):
+        logger.info("[REPORT] No text2sql output for visualization decision")
+        return {}
+
+    results = text2sql_output.get("results", [])
+
+    if not results or len(results) == 0:
+        logger.info("[REPORT] No results for visualization")
+        return {
+            "_viz_decision": {
+                "needs_graph": False,
+                "output_type": "table",
+                "reason": "Sonuç yok"
+            }
+        }
+
+    # Quick decisions without LLM
+    # 1. Single value
+    if len(results) == 1 and len(results[0].keys()) == 1:
+        logger.info("[REPORT] Single value detected, no graph needed")
+        return {
+            "_viz_decision": {
+                "needs_graph": False,
+                "output_type": "single_value",
+                "reason": "Tek değer sonucu"
+            }
+        }
+
+    # 2. Check user query for explicit chart type
+    user_query = get_last_user_message(state) or ""
+    user_query_lower = user_query.lower()
+
+    chart_type_keywords = {
+        "bar": ["çubuk", "bar", "막대"],
+        "line": ["çizgi", "line", "trend"],
+        "pie": ["pasta", "pie", "daire", "oran"],
+        "scatter": ["scatter", "dağılım"],
+        "sunburst": ["sunburst", "hiyerarşik"],
+        "treemap": ["treemap", "ağaç"]
+    }
+
+    detected_chart_type = None
+    for chart_type, keywords in chart_type_keywords.items():
+        if any(kw in user_query_lower for kw in keywords):
+            detected_chart_type = f"{chart_type}_chart"
+            logger.info(f"[REPORT] User explicitly requested: {detected_chart_type}")
+            break
+
+    if detected_chart_type:
+        return {
+            "_viz_decision": {
+                "needs_graph": True,
+                "output_type": detected_chart_type,
+                "reason": f"Kullanıcı {detected_chart_type} istedi"
+            }
+        }
+
+    # 3. Default: ALWAYS LIST/TABLE (grafik sadece explicit istek)
+    # Kullanıcı grafik istemediyse, her zaman liste öncelikli
+    if len(results) > 1:
+        if len(results) <= 20:
+            output_type = "simple_list"
+            reason = "Liste gösterimi (kullanıcı grafik belirtmedi)"
+        else:
+            output_type = "table"
+            reason = "Tablo gösterimi (çok satır)"
+
+        logger.info(f"[REPORT] Default decision: {output_type} (no graph)")
+        return {
+            "_viz_decision": {
+                "needs_graph": False,
+                "output_type": output_type,
+                "reason": reason
+            }
+        }
+
+    # Fallback: simple_list or table
+    return {
+        "_viz_decision": {
+            "needs_graph": False,
+            "output_type": "simple_list" if len(results) <= 5 else "table",
+            "reason": "Liste gösterimi (varsayılan)"
+        }
+    }
+
+
+# =============================================================================
+# EXISTING NODE FUNCTIONS
+# =============================================================================
+
+
+# =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
 
@@ -880,6 +984,9 @@ def create_visualization_node(visualization_graph):
     """
     Visualization node factory.
 
+    Karar logic'i artık report graph'ta (decide_visualization_node).
+    Bu node sadece render işlemi yapar.
+
     Args:
         visualization_graph: Compiled visualization graph
 
@@ -889,8 +996,13 @@ def create_visualization_node(visualization_graph):
     from langchain_core.runnables import RunnableConfig
 
     async def visualization_node(state: ReportState, config: RunnableConfig = None) -> Dict[str, Any]:
-        """Visualization graph'ı çağır with runtime config."""
+        """
+        Visualization graph'ı çağır - sadece render işlemi.
+
+        Karar logic'i decide_visualization_node'da yapıldı.
+        """
         text2sql_output = state.get("text2sql_output")
+        viz_decision = state.get("_viz_decision")
 
         if not text2sql_output:
             return {"error": "No text2sql output", "visualization_output": None}
@@ -901,11 +1013,39 @@ def create_visualization_node(visualization_graph):
                 "visualization_output": None
             }
 
-        logger.info("[REPORT] Invoking visualization graph...")
+        # Check if graph is needed
+        if viz_decision and not viz_decision.get("needs_graph"):
+            logger.info(f"[REPORT] No graph needed: {viz_decision.get('reason')}")
+            # Return formatted output without calling visualization graph
+            output_type = viz_decision.get("output_type", "table")
+            results = text2sql_output.get("results", [])
+
+            formatted_output = {
+                "summary": viz_decision.get("reason", "Sonuçlar hazır"),
+                "output_type": output_type,
+                "needs_graph": False,
+                "data": results,
+                "sql_query": text2sql_output.get("sql_query"),
+                "metadata": text2sql_output.get("metadata", {})
+            }
+
+            return {
+                "visualization_output": formatted_output,
+                "error": None
+            }
+
+        logger.info("[REPORT] Invoking visualization graph (render only)...")
 
         try:
+            # Prepare input with decision
+            viz_input = {
+                **text2sql_output,
+                # Pass decision to visualization graph
+                "_viz_decision": viz_decision
+            }
+
             # Pass runtime config to visualization graph
-            result = await visualization_graph.ainvoke(text2sql_output, config)
+            result = await visualization_graph.ainvoke(viz_input, config)
             logger.info("[REPORT] Visualization completed")
 
             return {
@@ -965,12 +1105,25 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
     if error:
         return {"messages": [AIMessage(content=f"❌ Hata: {error}")]}
 
-    # Visualization yok
+    # Visualization yok - check if we have viz_decision and text2sql_output
     if not viz_output:
-        return {"messages": [AIMessage(content="⚠️ Görselleştirme çıktısı bulunamadı")]}
+        viz_decision = state.get("_viz_decision")
+        text2sql_output = state.get("text2sql_output")
 
-    # Response oluştur
-    viz_final = viz_output.get("visualization_output", {})
+        # If we have viz_decision (needs_graph=false case), create output from text2sql
+        if viz_decision and text2sql_output:
+            viz_final = {
+                "summary": viz_decision.get("reason", "Sonuçlar hazır"),
+                "output_type": viz_decision.get("output_type", "table"),
+                "needs_graph": False,
+                "data": text2sql_output.get("results", [])
+            }
+        else:
+            return {"messages": [AIMessage(content="⚠️ Görselleştirme çıktısı bulunamadı")]}
+    else:
+        # Response oluştur
+        viz_final = viz_output.get("visualization_output", {})
+
     summary = viz_final.get("summary", "Rapor hazır")
     output_type = viz_final.get("output_type", "table")
     needs_graph = viz_final.get("needs_graph", False)
@@ -987,8 +1140,27 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
     if active_context:
         parts.append(f"\n💾 Sorgu kaydedildi (v{len(state.get('query_history', []))})")
 
+    # Eğer grafik yoksa ama data varsa, liste/tablo formatında göster
+    if not needs_graph and data:
+        parts.append("\n📋 Sonuçlar:")
+
+        # Format data based on output_type
+        if output_type == "single_value":
+            # Single value - just show it
+            if data and len(data) > 0:
+                value = list(data[0].values())[0] if data[0] else "N/A"
+                parts.append(f"• {value}")
+        elif output_type in ["simple_list", "table"]:
+            # List or table - show all rows
+            for i, row in enumerate(data[:10], 1):  # Limit to 10 rows
+                row_str = " | ".join([f"{k}: {v}" for k, v in row.items()])
+                parts.append(f"{i}. {row_str}")
+
+            if len(data) > 10:
+                parts.append(f"\n... ve {len(data) - 10} satır daha")
+
     # Plotly HTML ekle
-    plotly_html = viz_output.get("plotly_html_snippet")
+    plotly_html = viz_output.get("plotly_html_snippet") if viz_output else None
     if plotly_html and needs_graph:
         import base64
         html_full = f'''<!DOCTYPE html>
@@ -1041,16 +1213,21 @@ Kullanıcı Sorusu Bekliyor mu: {waiting_for_input}
    - Kullanıcı açıkça geri almak istiyor ("geri al", "önceki", "iptal")
    - Hatalı bir işlem yapıldığını belirtiyor
 
-3. **process_query** - Sorguyu işle
+3. **visualize_direct** - Mevcut veriyi grafiğe dönüştür (Text2SQL atla)
+   - Kullanıcı "grafiğe dönüştür", "çubuk grafik yap" gibi ifadeler kullanıyor
+   - Context'te mevcut sonuç var
+   - Sadece visualization yapılacak, yeni SQL çalıştırılmayacak
+
+4. **process_query** - Sorguyu işle
    - Yeni sorgu başlatılacak (new_query)
    - Mevcut sorgu modifiye edilecek (modify_*)
-   - Görselleştirme değişecek (visualize)
    - Confidence yeterli (>= 0.6)
 
 ## KARAR KRİTERLERİ
 
 - Eğer waiting_for_input=true ise → ask_user
 - Eğer kullanıcı açıkça "geri", "iptal", "önceki" diyorsa → rollback
+- Eğer kullanıcı "grafiğe dönüştür", "çubuk grafik yap" diyorsa VE context varsa → visualize_direct
 - Eğer intent belirsiz VEYA confidence düşük (<0.6) VEYA birden fazla anlam varsa → ask_user
 - Aksi halde → process_query
 
@@ -1110,6 +1287,11 @@ def create_route_after_intent(llm: BaseChatModel):
         if intent_type == "rollback" and confidence >= 0.7:
             logger.info("[REPORT] Fast path: routing to rollback")
             return "rollback"
+
+        # Hızlı yol: Visualize (grafiğe dönüştür)
+        if intent_type == "visualize" and confidence >= 0.85:
+            logger.info("[REPORT] Fast path: routing to visualize_direct (skip text2sql)")
+            return "visualize_direct"
 
         # Hızlı yol: Yüksek güvenli new_query
         if intent_type == "new_query" and confidence >= 0.85:
@@ -1173,7 +1355,7 @@ Sonuç: {active_context.get('result_row_count', 0)} satır"""
                 logger.info(f"[REPORT] Clarification question: {clarification}")
 
             # Geçerli route mu kontrol et
-            if route in ["ask_user", "rollback", "process_query"]:
+            if route in ["ask_user", "rollback", "visualize_direct", "process_query"]:
                 return route
             else:
                 logger.warning(f"[REPORT] Invalid route from LLM: {route}, defaulting to process_query")
@@ -1238,6 +1420,12 @@ def route_after_intent(state: ReportState) -> str:
         logger.info("[REPORT] Routing to rollback")
         return "rollback"
 
+    # VISUALIZE intent: Text2SQL'i atla, direkt decide_visualization'a git
+    # Mevcut context'teki sonuçları kullan, sadece grafik render et
+    if intent_type == "visualize":
+        logger.info("[REPORT] Routing to visualize_direct (skip text2sql for chart conversion)")
+        return "visualize_direct"
+
     # Metadata clarification sonrası retry
     if intent_type == "retry_with_clarification":
         logger.info("[REPORT] Routing to process_query (retry with user clarification)")
@@ -1268,4 +1456,5 @@ def route_after_results(state: ReportState) -> str:
     if state.get("error"):
         return "build_response"
 
-    return "visualization"
+    # Success → Go to visualization decision
+    return "decide_visualization"

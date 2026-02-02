@@ -172,6 +172,7 @@ class ReportState(TypedDict):
     _user_preference: Optional[str]                 # User preference (date range, location, category)
     _preference_type: Optional[str]                 # "date_range", "location", "category", "general"
     _use_exact_input: Optional[bool]                # True if user rejected "did you mean" suggestion
+    _viz_decision: Optional[Dict[str, Any]]         # Visualization decision (from report graph, not viz graph)
 
 
 # =============================================================================

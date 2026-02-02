@@ -534,6 +534,25 @@ class SimpleIntentClassifier:
                     elif icin_match:
                         extracted_entities["filter_value"] = icin_match.group(1)
 
+        # Öncelikli kontrol: "Grafiğe dönüştür" pattern'i (text2sql atlanacak)
+        visualize_convert_keywords = [
+            "grafiğe dönüştür", "grafik yap", "grafik göster", "chart yap",
+            "çubuk grafik yap", "pasta grafik yap", "çizgi grafik yap",
+            "bunu grafiğe", "bunu çubuk", "bunu pasta", "bunu çizgi"
+        ]
+
+        if has_active_context and any(kw in message_lower for kw in visualize_convert_keywords):
+            # Context var + "grafiğe dönüştür" = VISUALIZE intent
+            logger.info("[INTENT] Visualize convert detected (skip text2sql, go direct to viz)")
+            return IntentClassification(
+                intent_type=IntentType.VISUALIZE,
+                confidence=0.95,
+                requires_clarification=False,
+                clarification_question=None,
+                clarification_options=None,
+                extracted_entities={"convert_to_chart": True}
+            )
+
         # Pattern matching (normal flow)
         for intent_type, patterns in self.PATTERNS.items():
             score = sum(1 for p in patterns if p in message_lower)
