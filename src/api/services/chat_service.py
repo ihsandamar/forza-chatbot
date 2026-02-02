@@ -291,27 +291,53 @@ class ChatService:
             "_extracted_entities": None,
             "_modification_action": None,
             "_selected_table": None,
-            "_selected_filter_value": None
+            "_selected_filter_value": None,
+            "_selected_column": None,
+            "_selected_value": None,
+            "_clarification_type": None,
+            "_user_preference": None,
+            "_preference_type": None,
+            "_use_exact_input": None
         }
 
-        # If HITL is pending, add user response as clarification
+        # If HITL is pending, handle as clarification with Command pattern
         if hitl_pending:
-            # Add user message as clarification response
-            messages.append({"role": "user", "content": request.message})
-            state["messages"] = messages
-            # Set user_clarification in state for report graph to process
-            state["user_clarification"] = request.message
-            state["waiting_for_user_input"] = False
-            state["pending_question"] = hitl_pending  # Pass the pending question for context
+            # Command-based HITL: Resume graph with Command(resume=...)
+            logger.info(f"[CHAT] HITL clarification received: {request.message[:50]}...")
+
+            # Try to use Command(resume=...) if available
+            try:
+                from langgraph.types import Command
+
+                # Use Command to resume the interrupted graph
+                logger.info("[CHAT] Using Command(resume=...) for HITL")
+
+                # Create Command with resume value
+                # This will be passed to graph instead of state
+                state = Command(resume=request.message)
+
+            except ImportError:
+                # Fallback: Message-based HITL (old pattern)
+                logger.info("[CHAT] Command not available, using message-based HITL")
+
+                # Keep messages as-is, only set user_clarification
+                state["messages"] = messages
+                state["user_clarification"] = request.message
+                state["waiting_for_user_input"] = False
+                state["pending_question"] = hitl_pending
+
             # Clear HITL state
             self._clear_hitl_state(request.session_id)
+
         else:
-            # Normal message
+            # Normal message - add to conversation history
             messages.append({"role": "user", "content": request.message})
             state["messages"] = messages
             state["user_clarification"] = None
             state["pending_question"] = None
             state["waiting_for_user_input"] = False
+
+            logger.info(f"[CHAT] Normal message received: {request.message[:50]}...")
 
         # Prepare adapter kwargs (e.g., token for VegaForza)
         adapter_kwargs = {}

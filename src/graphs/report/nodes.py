@@ -216,6 +216,9 @@ def create_intent_classifier_node(llm: BaseChatModel):
                 classification = simple_result
                 logger.info(f"[REPORT] Simple classifier sufficient: {classification.intent_type}")
 
+        # =========================================================================
+        # INTENT CLARIFICATION (Only when ambiguous)
+        # =========================================================================
         # HITL gerekiyor mu?
         if classification.requires_clarification:
             logger.info("[REPORT] Clarification required, preparing HITL")
@@ -251,6 +254,8 @@ async def process_user_clarification_node(state: ReportState) -> Dict[str, Any]:
 
     interrupt_before sonrası resume edildiğinde çalışır.
     Kullanıcının seçtiği opsiyon veya verdiği cevaba göre intent belirlenir.
+
+    Metadata ambiguity (column/value) için kullanıcı cevabını runtime config'e ekler.
     """
     user_response = state.get("user_clarification")
     pending_question = state.get("pending_question")
@@ -271,6 +276,70 @@ async def process_user_clarification_node(state: ReportState) -> Dict[str, Any]:
 
     # Pending question context'ine göre analiz et
     question_context = pending_question.get("context", "") if pending_question else ""
+    question_text = pending_question.get("question", "") if pending_question else ""
+
+    # =========================================================================
+    # USER PREFERENCES CLARIFICATION
+    # =========================================================================
+    if "tercihleri" in question_text or "tercihleriniz" in question_text:
+        logger.info(f"[REPORT] User preference received: {user_response}")
+        # Tercihi _user_preference olarak kaydet
+        result["_user_preference"] = user_response
+        result["_preference_type"] = "date_range" if "gün" in user_response or "ay" in user_response or "yıl" in user_response else "general"
+        result["_intent_type"] = "new_query"  # Tercih alındı, sorguya devam et
+        logger.info(f"[REPORT] User preference set: {user_response}")
+        return result
+
+    # =========================================================================
+    # "DID YOU MEAN" CLARIFICATION
+    # =========================================================================
+    if "demek istediniz" in question_text or "kullanılsın mı" in question_text:
+        logger.info(f"[REPORT] 'Did you mean' clarification received: {user_response}")
+
+        if "evet" in response_lower or "doğru" in response_lower:
+            # Kullanıcı öneriyi kabul etti
+            # Pending question'dan suggested field'ı çıkar
+            if pending_question:
+                question_parts = pending_question.get("question", "").split("'")
+                if len(question_parts) >= 4:
+                    suggested_value = question_parts[3]  # "... 'suggested_value' ..."
+                    result["_selected_value"] = suggested_value
+                    result["_clarification_type"] = "value"
+                    result["_intent_type"] = "retry_with_clarification"
+                    logger.info(f"[REPORT] User accepted suggestion: {suggested_value}")
+        else:
+            # Kullanıcı öneriyi reddetti, tam olarak yazdığını kullan
+            result["_use_exact_input"] = True
+            result["_intent_type"] = "new_query"
+            logger.info("[REPORT] User rejected suggestion, using exact input")
+
+        return result
+
+    # =========================================================================
+    # METADATA AMBIGUITY - Column/Value Clarification
+    # =========================================================================
+    # "için hangi kolonu" veya "için hangi değeri" ifadeleri metadata ambiguity sorusu
+    if "için hangi kolonu" in question_text or "birden fazla kolon" in question_context:
+        # Column ambiguity clarification
+        logger.info(f"[REPORT] Column ambiguity clarification received: {user_response}")
+        result["_selected_column"] = user_response
+        result["_clarification_type"] = "column"
+        # Text2SQL'i tekrar çalıştırmak için intent set et
+        result["_intent_type"] = "retry_with_clarification"
+        return result
+
+    if "için hangi değeri" in question_text or "için birden fazla eşleşme" in question_context:
+        # Value ambiguity clarification
+        logger.info(f"[REPORT] Value ambiguity clarification received: {user_response}")
+        result["_selected_value"] = user_response
+        result["_clarification_type"] = "value"
+        # Text2SQL'i tekrar çalıştırmak için intent set et
+        result["_intent_type"] = "retry_with_clarification"
+        return result
+
+    # =========================================================================
+    # REGULAR CLARIFICATIONS (Empty Result, Modification Type, etc.)
+    # =========================================================================
 
     # Empty result recovery sorusu için
     if "boş sonuç" in question_context.lower() or "veri bulunamadı" in question_context.lower():
@@ -352,7 +421,10 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
     """
     Text2SQL sonuçlarını kontrol et.
 
-    Boş sonuç varsa HITL sorusu sor.
+    1. Önce resolution_metadata'daki belirsizlikleri kontrol et (column/value ambiguity)
+    2. Belirsizlik varsa kullanıcıya HITL sorusu sor
+    3. Yoksa boş sonuç kontrolü yap
+    4. Her şey OK ise context güncelle
     """
     text2sql_output = state.get("text2sql_output")
 
@@ -366,6 +438,74 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
         logger.error("[REPORT] No text2sql_output in state")
         return {"error": "Sorgu işlenemedi. Lütfen tekrar deneyin."}
 
+    # =========================================================================
+    # METADATA KONTROLÜ - Column/Value Belirsizliği
+    # =========================================================================
+    resolution_metadata = text2sql_output.get("resolution_metadata")
+
+    if resolution_metadata:
+        logger.info(f"[REPORT] Checking resolution_metadata for ambiguities...")
+
+        # Column belirsizliği kontrolü
+        ambiguous_fields = resolution_metadata.get("ambiguous_fields", [])
+        if ambiguous_fields and len(ambiguous_fields) > 0:
+            # İlk belirsiz field'ı al
+            ambiguous_field = ambiguous_fields[0]
+            field_hint = ambiguous_field.get("field_hint", "Bilinmeyen alan")
+            candidates = ambiguous_field.get("candidates", [])
+
+            if candidates and len(candidates) > 1:
+                logger.info(f"[REPORT] Column ambiguity detected: {field_hint} has {len(candidates)} candidates")
+
+                # Sadece kolon isimlerini al (top 5)
+                column_options = [c.get("column_name", str(c)) for c in candidates[:5]]
+
+                return HITLQuestions.column_ambiguity(
+                    field_hint=field_hint,
+                    possible_columns=column_options,
+                    context=f"'{field_hint}' için birden fazla kolon bulundu."
+                )
+
+        # Value belirsizliği kontrolü
+        fuzzy_matches = resolution_metadata.get("fuzzy_matches", [])
+        if fuzzy_matches and len(fuzzy_matches) > 0:
+            # İlk fuzzy match'i al
+            fuzzy_match = fuzzy_matches[0]
+            field_hint = fuzzy_match.get("field_hint", "Bilinmeyen alan")
+            value_hint = fuzzy_match.get("value_hint", "")
+            matched_values = fuzzy_match.get("matched_values", [])
+
+            if matched_values and len(matched_values) > 1:
+                logger.info(f"[REPORT] Value ambiguity detected: '{value_hint}' has {len(matched_values)} matches")
+
+                # =====================================================================
+                # "DID YOU MEAN" PATTERN - Tek bir güçlü eşleşme varsa
+                # =====================================================================
+                best_match = matched_values[0] if matched_values else None
+                similarity_score = fuzzy_match.get("similarity_score", 0)
+
+                # Eğer tek bir güçlü eşleşme varsa (similarity > 0.7), "Did you mean" sor
+                if best_match and len(matched_values) == 1:
+                    logger.info(f"[REPORT] Single fuzzy match: '{value_hint}' → '{best_match}', asking 'did you mean'")
+                    return HITLQuestions.did_you_mean_field(
+                        user_input=value_hint,
+                        suggested_field=str(best_match),
+                        field_type="value"
+                    )
+
+                # Birden fazla eşleşme → Tam liste sun
+                # Top 5 değeri al
+                value_options = [str(v) for v in matched_values[:5]]
+
+                return HITLQuestions.filter_value_ambiguity(
+                    column=field_hint,
+                    value_hint=value_hint,
+                    possible_values=value_options
+                )
+
+    # =========================================================================
+    # RESULTS KONTROLÜ
+    # =========================================================================
     results = text2sql_output.get("results", [])
     logger.info(f"[REPORT] Checking results: {len(results)} rows")
 
@@ -416,7 +556,13 @@ def create_text2sql_node(text2sql_graph):
     from langchain_core.runnables import RunnableConfig
 
     async def text2sql_node(state: ReportState, config: RunnableConfig = None) -> Dict[str, Any]:
-        """Text2SQL graph'ı çağır with runtime config and context injection."""
+        """
+        Text2SQL graph'ı çağır with runtime config and context injection.
+
+        Metadata clarification'ları da handle eder:
+        - _selected_column: Kullanıcının seçtiği kolon
+        - _selected_value: Kullanıcının seçtiği değer
+        """
         user_query = get_last_user_message(state)
 
         if not user_query:
@@ -430,8 +576,81 @@ def create_text2sql_node(text2sql_graph):
             intent_type = state.get("_intent_type", "new_query")
             extracted_entities = state.get("_extracted_entities", {})
 
+            # Metadata clarification'ları al
+            selected_column = state.get("_selected_column")
+            selected_value = state.get("_selected_value")
+            clarification_type = state.get("_clarification_type")
+
+            # User preference'ı al
+            user_preference = state.get("_user_preference")
+            preference_type = state.get("_preference_type")
+
             # Delta-SQL için query enhancement
             enhanced_query = user_query
+
+            # =========================================================================
+            # USER PREFERENCE INJECTION
+            # =========================================================================
+            if user_preference and preference_type:
+                logger.info(f"[REPORT] User preference detected: {user_preference} (type: {preference_type})")
+
+                # Tarih aralığı tercihi
+                if preference_type == "date_range":
+                    date_filter_hint = ""
+                    if "7 gün" in user_preference:
+                        date_filter_hint = "Son 7 günlük veri (DATEADD kullan)"
+                    elif "30 gün" in user_preference:
+                        date_filter_hint = "Son 30 günlük veri (DATEADD kullan)"
+                    elif "bu ay" in user_preference.lower():
+                        date_filter_hint = "Bu ayki veriler (MONTH ve YEAR filtresi)"
+                    elif "bu yıl" in user_preference.lower():
+                        date_filter_hint = "Bu yılki veriler (YEAR filtresi)"
+                    elif "tüm" in user_preference.lower():
+                        date_filter_hint = "Tüm veriler (tarih filtresi yok)"
+
+                    if date_filter_hint:
+                        enhanced_query = f"""{user_query}
+
+KULLANICI TERCİHİ: {date_filter_hint}"""
+
+                # Konum tercihi
+                elif "şehir" in user_preference.lower() or "istanbul" in user_preference.lower() or "ankara" in user_preference.lower():
+                    city = None
+                    if "istanbul" in user_preference.lower():
+                        city = "İstanbul"
+                    elif "ankara" in user_preference.lower():
+                        city = "Ankara"
+                    elif "izmir" in user_preference.lower():
+                        city = "İzmir"
+
+                    if city:
+                        enhanced_query = f"""{user_query}
+
+KULLANICI TERCİHİ: Sadece {city} şehri için (BranchCityName veya CustomerCityName = '{city}')"""
+
+                logger.info(f"[REPORT] Query enhanced with user preference")
+
+
+            # =========================================================================
+            # METADATA CLARIFICATION INJECTION
+            # =========================================================================
+            if clarification_type == "column" and selected_column:
+                logger.info(f"[REPORT] Column clarification detected: using column '{selected_column}'")
+                # Sorguya column clarification hint'i ekle
+                enhanced_query = f"""{user_query}
+
+ÖNEMLİ NOT: Kullanıcı belirsiz alan için '{selected_column}' kolonunu seçti. Bu kolonu kullan."""
+
+            elif clarification_type == "value" and selected_value:
+                logger.info(f"[REPORT] Value clarification detected: using value '{selected_value}'")
+                # Sorguya value clarification hint'i ekle
+                enhanced_query = f"""{user_query}
+
+ÖNEMLİ NOT: Kullanıcı filtre değeri olarak '{selected_value}' seçti. Bu değeri kullan."""
+
+            # =========================================================================
+            # CONTEXT INJECTION (Modification intents)
+            # =========================================================================
 
             # Eğer modify_* intent ise ve context varsa, sorguyu zenginleştir
             if active_context and intent_type in ["modify_filter", "modify_aggregation", "modify_columns", "modify_order"]:
@@ -1018,6 +1237,11 @@ def route_after_intent(state: ReportState) -> str:
     if intent_type == "rollback":
         logger.info("[REPORT] Routing to rollback")
         return "rollback"
+
+    # Metadata clarification sonrası retry
+    if intent_type == "retry_with_clarification":
+        logger.info("[REPORT] Routing to process_query (retry with user clarification)")
+        return "process_query"
 
     # new_query, modify_filter, modify_aggregation, modify_order, modify_columns
     # hepsi process_query'ye gidiyor (text2sql ile işlenecek)

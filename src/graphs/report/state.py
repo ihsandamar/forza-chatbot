@@ -166,6 +166,12 @@ class ReportState(TypedDict):
     _modification_action: Optional[str]             # "add", "remove", "expand", etc.
     _selected_table: Optional[str]                  # User-selected table from HITL
     _selected_filter_value: Optional[str]           # User-selected filter value from HITL
+    _selected_column: Optional[str]                 # User-selected column from metadata ambiguity
+    _selected_value: Optional[str]                  # User-selected value from metadata ambiguity
+    _clarification_type: Optional[str]              # "column", "value", "table", etc.
+    _user_preference: Optional[str]                 # User preference (date range, location, category)
+    _preference_type: Optional[str]                 # "date_range", "location", "category", "general"
+    _use_exact_input: Optional[bool]                # True if user rejected "did you mean" suggestion
 
 
 # =============================================================================

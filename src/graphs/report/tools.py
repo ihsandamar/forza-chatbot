@@ -152,6 +152,99 @@ class HITLQuestions:
     """Önceden tanımlı HITL soru şablonları."""
 
     @staticmethod
+    def ask_user_preferences(report_type: str) -> Dict[str, Any]:
+        """
+        Rapor parametreleri için kullanıcı tercihlerini sor.
+
+        Built-in HITL pattern: Kullanıcıya rapor öncesi tercihlerini sor.
+
+        Args:
+            report_type: Rapor tipi (sales, customer, product, vb.)
+
+        Returns:
+            Clarification request with preference options
+        """
+        preference_options = {
+            "sales": {
+                "question": "Satış raporu için tercihleriniz neler?",
+                "options": [
+                    "Son 7 gün",
+                    "Son 30 gün",
+                    "Bu ay",
+                    "Bu yıl",
+                    "Tüm zamanlar"
+                ],
+                "context": "Tarih aralığını seçin"
+            },
+            "customer": {
+                "question": "Müşteri raporu için konum tercihiniz?",
+                "options": [
+                    "Tüm şehirler",
+                    "Sadece İstanbul",
+                    "Sadece Ankara",
+                    "Sadece İzmir",
+                    "Diğer"
+                ],
+                "context": "Hangi bölge için rapor istiyorsunuz?"
+            },
+            "product": {
+                "question": "Ürün raporu için kategori tercihiniz?",
+                "options": [
+                    "Tüm kategoriler",
+                    "En çok satanlar",
+                    "En az satanlar",
+                    "Belirli kategori",
+                    "Stok durumuna göre"
+                ],
+                "context": "Hangi ürünleri görmek istiyorsunuz?"
+            }
+        }
+
+        pref = preference_options.get(report_type, {
+            "question": "Rapor tercihleri nedir?",
+            "options": ["Standart rapor", "Detaylı rapor", "Özet rapor"],
+            "context": "Rapor detay seviyesini seçin"
+        })
+
+        return create_clarification_request(
+            question=pref["question"],
+            options=pref["options"],
+            context=pref["context"]
+        )
+
+    @staticmethod
+    def did_you_mean_field(
+        user_input: str,
+        suggested_field: str,
+        field_type: str = "column"
+    ) -> Dict[str, Any]:
+        """
+        "Did you mean" stilinde alan önerisi.
+
+        Fuzzy matching sonrası kullanıcıya öneri sun.
+
+        Args:
+            user_input: Kullanıcının yazdığı
+            suggested_field: Önerilen alan adı
+            field_type: "column" veya "value"
+
+        Returns:
+            Clarification request
+        """
+        if field_type == "column":
+            question = f"'{user_input}' için şunu mu demek istediniz: '{suggested_field}'?"
+            options = ["Evet, doğru", "Hayır, farklı bir şey"]
+        else:
+            question = f"'{user_input}' değeri için '{suggested_field}' kullanılsın mı?"
+            options = ["Evet", "Hayır, tam olarak '{user_input}' olsun"]
+
+        return create_clarification_request(
+            question=question,
+            options=options,
+            context=f"Fuzzy matching: '{user_input}' → '{suggested_field}'"
+        )
+
+    @staticmethod
     def table_ambiguity(tables: List[str]) -> Dict[str, Any]:
         """
         Tablo belirsizliği sorusu.
@@ -169,8 +262,35 @@ class HITLQuestions:
         )
 
     @staticmethod
+    def column_ambiguity(
+        field_hint: str,
+        possible_columns: List[str],
+        context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Kolon belirsizliği sorusu.
+
+        Text2SQL'de kullanıcının söylediği alan için birden fazla
+        olası kolon bulunduğunda sorulur.
+
+        Args:
+            field_hint: Kullanıcının söylediği alan adı
+            possible_columns: Olası kolon isimleri
+            context: Ek bağlam
+
+        Returns:
+            Clarification request
+        """
+        return create_clarification_request(
+            question=f"'{field_hint}' için hangi kolonu kullanmak istiyorsunuz?",
+            options=possible_columns[:5],  # Max 5 seçenek
+            context=context or f"'{field_hint}' için birden fazla kolon bulundu."
+        )
+
+    @staticmethod
     def filter_value_ambiguity(
         column: str,
+        value_hint: str,
         possible_values: List[str]
     ) -> Dict[str, Any]:
         """
@@ -178,15 +298,19 @@ class HITLQuestions:
 
         Args:
             column: Kolon adı
+            value_hint: Kullanıcının söylediği değer
             possible_values: Olası değerler
 
         Returns:
             Clarification request
         """
+        question_text = f"'{value_hint}' için hangi değeri kullanmak istiyorsunuz?"
+        context_text = f"'{column}' kolonunda '{value_hint}' için birden fazla eşleşme bulundu."
+
         return create_clarification_request(
-            question=f"'{column}' için hangi değeri kullanmak istiyorsunuz?",
+            question=question_text,
             options=possible_values[:5],  # Max 5 seçenek
-            context=f"'{column}' kolonu için birden fazla eşleşme bulundu."
+            context=context_text
         )
 
     @staticmethod

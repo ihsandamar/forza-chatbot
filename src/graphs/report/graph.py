@@ -42,6 +42,14 @@ from typing import Optional
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+try:
+    from langgraph.types import interrupt, Command
+    HAS_INTERRUPT = True
+except ImportError:
+    # Fallback for older LangGraph versions
+    HAS_INTERRUPT = False
+    interrupt = None
+    Command = None
 
 from src.models.llm import LLM
 
@@ -246,10 +254,12 @@ def build_report_graph(
         "checkpointer": checkpointer
     }
 
-    # HITL interrupt configuration
+    # HITL configuration - NO interrupt_before (using command-based pattern)
     if enable_hitl:
-        compile_kwargs["interrupt_before"] = ["ask_user"]
-        logger.info("[REPORT] HITL enabled with interrupt_before=['ask_user']")
+        if HAS_INTERRUPT:
+            logger.info("[REPORT] HITL enabled with interrupt() command-based pattern")
+        else:
+            logger.warning("[REPORT] interrupt() not available, using message-based HITL")
 
     compiled = graph.compile(**compile_kwargs)
 
@@ -265,13 +275,12 @@ def build_report_graph(
 
 async def _ask_user_node(state: ReportState) -> dict:
     """
-    HITL ask_user node.
+    HITL ask_user node - Command-based pattern.
 
-    Bu node interrupt_before ile çalışır.
-    Graph bu node'a geldiğinde durur ve kullanıcı input bekler.
+    Bu node interrupt() kullanarak kullanıcı input'u bekler.
+    interrupt_before yerine, node içinde interrupt() çağrılır.
 
-    Resume edildiğinde, kullanıcı yanıtı state["user_clarification"]
-    olarak gelir ve process_clarification node'u işler.
+    Kullanıcı Command(resume=...) ile cevap verir.
     """
     pending_question = state.get("pending_question")
 
@@ -281,11 +290,32 @@ async def _ask_user_node(state: ReportState) -> dict:
 
     # Format message for user
     message = format_interrupt_message(pending_question)
-    logger.info(f"[REPORT] HITL: {message[:100]}...")
+    logger.info(f"[REPORT] HITL question: {message[:100]}...")
 
-    # Graph burada durur (interrupt_before)
-    # Kullanıcı yanıtı geldiğinde state["user_clarification"] ile resume edilir
-    return {}
+    # Command-based HITL pattern
+    if HAS_INTERRUPT and interrupt:
+        # Use interrupt() to pause and wait for user input via Command(resume=...)
+        logger.info("[REPORT] Using interrupt() for command-based HITL")
+        user_response = interrupt(message)
+        logger.info(f"[REPORT] User response received via interrupt: {user_response}")
+
+        # Set user_clarification with the response
+        return {
+            "user_clarification": user_response,
+            "pending_question": None,
+            "waiting_for_user_input": False
+        }
+    else:
+        # Fallback: Message-based HITL (old pattern)
+        # Graph will return to user, expecting next message as clarification
+        logger.info("[REPORT] Using message-based HITL (fallback)")
+
+        # Add HITL question as AI message
+        from langchain_core.messages import AIMessage
+        return {
+            "messages": [AIMessage(content=message)],
+            "waiting_for_user_input": True
+        }
 
 
 # =============================================================================
