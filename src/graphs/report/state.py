@@ -71,6 +71,23 @@ class PendingQuestion(TypedDict):
 
 
 # =============================================================================
+# BUSINESS CONTEXT - Business insights ve kullanıcı hedefleri
+# =============================================================================
+
+class BusinessContext(TypedDict):
+    """
+    Business context tracking - Kullanıcının business hedeflerini ve insights'ı takip eder.
+
+    LLM-driven report agent için business-aware conversation management.
+    """
+    business_question: str                      # Kullanıcının business sorusu
+    key_insights: List[str]                     # Veriden çıkarılan önemli bulgular
+    data_summary: str                           # Verinin natural language özeti
+    suggested_follow_ups: List[str]             # Akıllı takip soruları
+    user_goal: Optional[str]                    # Çıkarılan kullanıcı hedefi
+
+
+# =============================================================================
 # REDUCER FUNCTIONS - State güncellemeleri için
 # =============================================================================
 
@@ -158,6 +175,11 @@ class ReportState(TypedDict):
     no_records_message: Optional[str]
 
     # -------------------------------------------------------------------------
+    # Business Context: LLM-driven business insights
+    # -------------------------------------------------------------------------
+    business_context: Optional[BusinessContext]     # Business insights ve kullanıcı hedefleri
+
+    # -------------------------------------------------------------------------
     # Internal: Intent classification results (runtime fields)
     # -------------------------------------------------------------------------
     _intent_type: Optional[str]                     # IntentType enum value
@@ -173,6 +195,13 @@ class ReportState(TypedDict):
     _preference_type: Optional[str]                 # "date_range", "location", "category", "general"
     _use_exact_input: Optional[bool]                # True if user rejected "did you mean" suggestion
     _viz_decision: Optional[Dict[str, Any]]         # Visualization decision (from report graph, not viz graph)
+
+    # -------------------------------------------------------------------------
+    # LLM Reasoning Traces: Debugging ve monitoring için
+    # -------------------------------------------------------------------------
+    _intent_reasoning: Optional[str]                # Intent understanding LLM reasoning
+    _viz_reasoning: Optional[str]                   # Visualization decision LLM reasoning
+    _response_reasoning: Optional[str]              # Response generation LLM reasoning
 
 
 # =============================================================================

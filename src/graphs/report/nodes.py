@@ -256,12 +256,13 @@ async def immediate_acknowledgment_node(state: ReportState) -> Dict[str, Any]:
     }
 
 
-def create_intent_classifier_node(llm: BaseChatModel):
+def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = True):
     """
     Intent classifier node factory.
 
     Args:
         llm: Language model for classification
+        enable_fast_path: Enable fast-path pattern matching (Phase 1 optimization)
 
     Returns:
         Node function
@@ -276,8 +277,9 @@ def create_intent_classifier_node(llm: BaseChatModel):
         """
         Kullanıcı mesajını sınıflandır.
 
+        OPTIMIZATION (Phase 1): Fast-path pattern matching before LLM.
         Context varken HER ZAMAN LLM classifier kullanır (daha doğru analiz).
-        Context yokken önce simple classifier dener.
+        Context yokken önce fast-path, sonra simple classifier, en son LLM.
         """
         user_message = get_last_user_message(state)
         if not user_message:
@@ -285,8 +287,54 @@ def create_intent_classifier_node(llm: BaseChatModel):
 
         logger.info(f"[REPORT] Classifying intent: {user_message[:50]}...")
 
+        user_lower = user_message.lower()
         active_context = state.get("active_query_context")
         has_context = active_context is not None
+
+        # =====================================================================
+        # PHASE 1 OPTIMIZATION: FAST-PATH PATTERN MATCHING
+        # =====================================================================
+        if enable_fast_path and not has_context:
+            # FAST PATH 1: Explicit rollback
+            rollback_keywords = ["geri al", "iptal", "undo", "vazgeç", "önceki"]
+            if any(kw in user_lower for kw in rollback_keywords):
+                logger.info("[REPORT] ⚡ Fast path: ROLLBACK")
+                return {
+                    "_intent_type": "rollback",
+                    "_confidence": 1.0,
+                    "_extracted_entities": {},
+                    "_intent_reasoning": "Fast path: Explicit rollback pattern"
+                }
+
+            # FAST PATH 2: Explicit visualization
+            viz_keywords = ["grafik yap", "chart", "bar chart", "pasta grafik", "çubuk grafik", "grafik çiz", "grafiğe dönüştür"]
+            if any(kw in user_lower for kw in viz_keywords):
+                logger.info("[REPORT] ⚡ Fast path: VISUALIZE")
+                return {
+                    "_intent_type": "visualize",
+                    "_confidence": 0.95,
+                    "_extracted_entities": {},
+                    "_intent_reasoning": "Fast path: Explicit visualization request"
+                }
+
+            # FAST PATH 3: Simple new query (basic keywords, no complex context)
+            simple_query_keywords = ["göster", "listele", "rapor", "getir", "bul", "say"]
+            if any(kw in user_lower for kw in simple_query_keywords):
+                # Check if query is truly simple (short, no complex phrases)
+                if len(user_message.split()) <= 8:
+                    logger.info("[REPORT] ⚡ Fast path: Simple NEW_QUERY")
+                    return {
+                        "_intent_type": "new_query",
+                        "_confidence": 0.85,
+                        "_extracted_entities": {},
+                        "_intent_reasoning": "Fast path: Simple query pattern"
+                    }
+
+            logger.debug("[REPORT] No fast-path match, proceeding to classifier")
+
+        # =====================================================================
+        # STANDARD CLASSIFICATION PATH
+        # =====================================================================
 
         # Context varsa HER ZAMAN LLM classifier kullan
         # Çünkü "burdaki", "peki bunun" gibi ifadeleri anlamak için context gerekli
@@ -1458,3 +1506,367 @@ def route_after_results(state: ReportState) -> str:
 
     # Success → Go to visualization decision
     return "decide_visualization"
+
+
+# =============================================================================
+# LLM-ENHANCED NODE FACTORIES (New Architecture)
+# =============================================================================
+
+def create_conversation_aware_intent_node(conversation_manager):
+    """
+    Factory for LLM-powered intent understanding node.
+
+    Uses ConversationManager instead of IntentClassifier for:
+    - Full LLM intent understanding (not just classification)
+    - Business context reasoning
+    - Smart clarification generation
+
+    Args:
+        conversation_manager: ConversationManager instance
+
+    Returns:
+        Enhanced intent classification node
+    """
+    async def conversation_aware_intent_node(state: ReportState) -> Dict[str, Any]:
+        """
+        LLM-powered intent understanding with conversation awareness.
+        """
+        user_message = get_last_user_message(state)
+        if not user_message:
+            return {"error": "No user message found"}
+
+        logger.info(f"[REPORT] [LLM] Understanding intent: {user_message[:50]}...")
+
+        active_context = state.get("active_query_context")
+        messages = state.get("messages", [])
+        business_context = state.get("business_context")
+
+        try:
+            # Use ConversationManager for enhanced understanding
+            intent = await conversation_manager.understand_intent(
+                user_message=user_message,
+                active_context=active_context,
+                conversation_history=messages,
+                business_context=business_context
+            )
+
+            logger.info(f"[REPORT] [LLM] Intent: {intent.intent_type}, Confidence: {intent.confidence:.2f}")
+            logger.debug(f"[REPORT] [LLM] Reasoning: {intent.reasoning[:100]}...")
+
+            # Check clarification
+            if intent.requires_clarification:
+                logger.info("[REPORT] [LLM] Clarification required")
+                return create_clarification_request(
+                    question=intent.clarification_question or "Lütfen açıklayın:",
+                    options=intent.clarification_options or ["Devam et", "İptal"],
+                    context=f"Intent: {intent.intent_type.value}"
+                )
+
+            # Return enhanced intent info
+            return {
+                "_intent_type": intent.intent_type.value,
+                "_confidence": intent.confidence,
+                "_extracted_entities": intent.extracted_entities,
+                "_intent_reasoning": intent.reasoning  # NEW: LLM reasoning trace
+            }
+
+        except Exception as e:
+            logger.error(f"[REPORT] [LLM] Intent understanding error: {e}")
+            # Fallback to simple classification
+            return {
+                "_intent_type": "new_query",
+                "_confidence": 0.5,
+                "_extracted_entities": {},
+                "_intent_reasoning": f"Error: {e}"
+            }
+
+    return conversation_aware_intent_node
+
+
+def create_business_insights_node(business_context_tracker):
+    """
+    Factory for business insights extraction node.
+
+    Extracts business-level insights from query results.
+
+    Args:
+        business_context_tracker: BusinessContextTracker instance
+
+    Returns:
+        Business insights extraction node
+    """
+    async def extract_business_insights_node(state: ReportState) -> Dict[str, Any]:
+        """
+        Extract business insights from query results.
+        """
+        text2sql_output = state.get("text2sql_output")
+        if not text2sql_output or text2sql_output.get("error"):
+            logger.info("[REPORT] [LLM] No valid results for business insights")
+            return {}
+
+        user_message = get_last_user_message(state)
+        results = text2sql_output.get("results", [])
+        active_context = state.get("active_query_context")
+        previous_business_context = state.get("business_context")
+
+        if not results:
+            logger.info("[REPORT] [LLM] Empty results, skipping insights")
+            return {}
+
+        logger.info(f"[REPORT] [LLM] Extracting business insights from {len(results)} results...")
+
+        try:
+            business_context = await business_context_tracker.extract_insights(
+                user_query=user_message or "",
+                data_results=results,
+                active_context=active_context,
+                previous_business_context=previous_business_context
+            )
+
+            logger.info(f"[REPORT] [LLM] Extracted {len(business_context['key_insights'])} insights")
+
+            return {
+                "business_context": business_context
+            }
+
+        except Exception as e:
+            logger.error(f"[REPORT] [LLM] Business insights extraction error: {e}")
+            return {}
+
+    return extract_business_insights_node
+
+
+def create_llm_viz_decision_node(report_interpreter):
+    """
+    Factory for LLM-assisted visualization decision node.
+
+    Replaces rule-based decide_visualization_node with LLM reasoning.
+
+    Args:
+        report_interpreter: ReportInterpreter instance
+
+    Returns:
+        LLM-powered visualization decision node
+    """
+    async def decide_visualization_llm_node(state: ReportState) -> Dict[str, Any]:
+        """
+        LLM-powered visualization decision.
+        """
+        text2sql_output = state.get("text2sql_output")
+        if not text2sql_output or text2sql_output.get("error"):
+            logger.info("[REPORT] [LLM] No valid results for visualization decision")
+            return {}
+
+        user_query = get_last_user_message(state) or ""
+        results = text2sql_output.get("results", [])
+        active_context = state.get("active_query_context")
+
+        logger.info(f"[REPORT] [LLM] Deciding visualization for {len(results)} results...")
+
+        try:
+            interpretation = await report_interpreter.interpret_results(
+                user_query=user_query,
+                data_results=results,
+                active_context=active_context
+            )
+
+            logger.info(f"[REPORT] [LLM] Decision: {interpretation.output_type} (needs_graph={interpretation.needs_graph})")
+            logger.debug(f"[REPORT] [LLM] Reasoning: {interpretation.reason}")
+
+            return {
+                "_viz_decision": interpretation.dict(),
+                "_viz_reasoning": interpretation.reasoning  # NEW: LLM reasoning trace
+            }
+
+        except Exception as e:
+            logger.error(f"[REPORT] [LLM] Visualization decision error: {e}")
+            # Fallback to rule-based
+            return await decide_visualization_node(state)
+
+    return decide_visualization_llm_node
+
+
+def create_parallel_insights_viz_node(business_tracker, report_interpreter):
+    """
+    Factory for parallel insights + viz decision node.
+
+    PHASE 1 OPTIMIZATION: Run business insights and viz decision in PARALLEL
+    instead of sequential. Expected savings: ~700ms.
+
+    Args:
+        business_tracker: BusinessContextTracker instance (optional)
+        report_interpreter: ReportInterpreter instance (optional)
+
+    Returns:
+        Parallel execution node
+    """
+    import asyncio
+    import time
+
+    async def parallel_insights_viz_node(state: ReportState) -> Dict[str, Any]:
+        """
+        Run business insights and viz decision in PARALLEL.
+
+        This node replaces the sequential execution of:
+        1. extract_business_insights → decide_visualization
+
+        With parallel execution:
+        1. extract_business_insights + decide_visualization (concurrent)
+
+        Expected savings: ~700ms (from ~1.5s sequential to ~0.8s parallel)
+        """
+        text2sql_output = state.get("text2sql_output")
+        if not text2sql_output or text2sql_output.get("error"):
+            logger.info("[REPORT] No valid results for parallel processing")
+            return {}
+
+        user_message = get_last_user_message(state) or ""
+        results = text2sql_output.get("results", [])
+        active_context = state.get("active_query_context")
+        previous_business_context = state.get("business_context")
+
+        if not results:
+            logger.info("[REPORT] Empty results, skipping parallel processing")
+            return {}
+
+        # Prepare tasks
+        tasks = []
+        task_names = []
+
+        # Task 1: Business insights (if enabled)
+        if business_tracker:
+            async def extract_insights():
+                try:
+                    return await business_tracker.extract_insights(
+                        user_query=user_message,
+                        data_results=results,
+                        active_context=active_context,
+                        previous_business_context=previous_business_context
+                    )
+                except Exception as e:
+                    logger.error(f"[REPORT] Business insights extraction error: {e}")
+                    return None
+
+            tasks.append(extract_insights())
+            task_names.append("business_insights")
+
+        # Task 2: Viz decision (if enabled)
+        if report_interpreter:
+            async def decide_viz():
+                try:
+                    return await report_interpreter.interpret_results(
+                        user_query=user_message,
+                        data_results=results,
+                        active_context=active_context
+                    )
+                except Exception as e:
+                    logger.error(f"[REPORT] Viz decision error: {e}")
+                    return None
+
+            tasks.append(decide_viz())
+            task_names.append("viz_decision")
+
+        if not tasks:
+            logger.info("[REPORT] No parallel tasks to run")
+            return {}
+
+        # Execute in PARALLEL
+        logger.info(f"[REPORT] ⚡ Running {len(tasks)} tasks in PARALLEL: {task_names}")
+        start_time = time.time()
+
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        elapsed = time.time() - start_time
+        logger.info(f"[REPORT] ⚡ Parallel execution completed in {elapsed:.2f}s (saved ~{max(0, len(tasks) * 0.7 - elapsed):.2f}s)")
+
+        # Build return dict
+        ret = {}
+
+        for i, (task_name, result) in enumerate(zip(task_names, results_list)):
+            if isinstance(result, Exception):
+                logger.error(f"[REPORT] Task {task_name} failed: {result}")
+                continue
+
+            if result is None:
+                logger.warning(f"[REPORT] Task {task_name} returned None")
+                continue
+
+            if task_name == "business_insights":
+                ret["business_context"] = result
+                logger.info(f"[REPORT] ✓ Business insights extracted: {len(result.get('key_insights', []))} insights")
+            elif task_name == "viz_decision":
+                ret["_viz_decision"] = result.dict()
+                ret["_viz_reasoning"] = result.reasoning
+                logger.info(f"[REPORT] ✓ Viz decision: {result.output_type} (needs_graph={result.needs_graph})")
+
+        return ret
+
+    return parallel_insights_viz_node
+
+
+def create_natural_response_node(response_generator):
+    """
+    Factory for natural language response generation node.
+
+    Replaces template-based build_response_node with LLM generation.
+
+    Args:
+        response_generator: ResponseGenerator instance
+
+    Returns:
+        Natural response generation node
+    """
+    async def build_natural_response_node(state: ReportState) -> Dict[str, Any]:
+        """
+        Generate natural language response with insights.
+        """
+        user_query = get_last_user_message(state) or ""
+        viz_output = state.get("visualization_output")
+        text2sql_output = state.get("text2sql_output")
+        business_context = state.get("business_context")
+        viz_decision = state.get("_viz_decision")
+        error = state.get("error")
+        no_records = state.get("no_records_message")
+
+        logger.info("[REPORT] [LLM] Generating natural language response...")
+
+        try:
+            # Extract data results
+            data_results = None
+            if text2sql_output and not text2sql_output.get("error"):
+                data_results = text2sql_output.get("results", [])
+
+            # Generate response
+            response = await response_generator.generate_response(
+                user_query=user_query,
+                data_results=data_results,
+                business_context=business_context,
+                visualization_info=viz_decision,
+                error=error,
+                no_records_message=no_records
+            )
+
+            logger.info(f"[REPORT] [LLM] Generated response: {len(response)} chars")
+
+            # Handle visualization output (Plotly HTML)
+            plotly_html = viz_output.get("plotly_html_snippet") if viz_output else None
+            if plotly_html and viz_decision and viz_decision.get("needs_graph"):
+                import base64
+                html_full = f'''<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0">{plotly_html}</body></html>'''
+                html_b64 = base64.b64encode(html_full.encode('utf-8')).decode('ascii')
+                iframe = f'<iframe src="data:text/html;charset=utf-8;base64,{html_b64}" width="100%" height="500" frameborder="0"></iframe>'
+                response = f"{response}\n\n📈 **Grafik:**\n{iframe}"
+
+            return {
+                "messages": [AIMessage(content=response)],
+                "_response_reasoning": "LLM-generated natural response"  # NEW: Reasoning trace
+            }
+
+        except Exception as e:
+            logger.error(f"[REPORT] [LLM] Response generation error: {e}")
+            # Fallback to template-based
+            return await build_response_node(state)
+
+    return build_natural_response_node
