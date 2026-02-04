@@ -163,6 +163,30 @@ class ReportState(TypedDict):
     user_clarification: Optional[str]               # Kullanıcının cevabı
 
     # -------------------------------------------------------------------------
+    # Query: User query (for merged Text2SQL nodes)
+    # -------------------------------------------------------------------------
+    user_query: Optional[str]                       # Kullanıcı sorgusu (merged mode için)
+
+    # -------------------------------------------------------------------------
+    # Text2SQL State Fields (for merged Text2SQL nodes)
+    # -------------------------------------------------------------------------
+    parsed_intent: Optional[Dict[str, Any]]         # Parsed intent from sql_architect
+    enriched_metadata: Optional[Dict[str, Any]]     # Column-specific metadata
+    resolved_steps: Optional[List[Dict[str, Any]]]  # Resolved query steps
+    resolution_metadata: Optional[Dict[str, Any]]   # Resolution metadata
+    sql_queries: Optional[List[str]]                # Generated SQL queries
+    results: Optional[List[Dict[str, Any]]]         # SQL execution results
+    final_response: Optional[str]                   # Final response text
+    schema_metadata: Optional[Dict[str, Any]]       # Runtime-discovered schema metadata
+    business_rules: Optional[Dict[str, Any]]        # Loaded business rules
+    retry_count: Optional[int]                      # Self-healing retry counter
+    sql_error_history: Optional[List[Dict[str, Any]]]  # History of SQL errors
+    business_rules_context: Optional[str]           # LLM context for business rules
+    merged_sql_components: Optional[Dict[str, Any]] # Merged SQL components
+    applied_business_rules: Optional[List[Dict[str, Any]]]  # Applied business rules
+    detected_tables: Optional[List[str]]            # Detected table names
+
+    # -------------------------------------------------------------------------
     # Processing: İşlem çıktıları
     # -------------------------------------------------------------------------
     text2sql_output: Optional[Dict[str, Any]]

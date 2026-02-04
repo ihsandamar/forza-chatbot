@@ -86,56 +86,86 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 def build_report_graph(
-    text2sql_graph,
-    visualization_graph,
+    text2sql_graph=None,  # Optional when enable_merged_text2sql=True
+    visualization_graph=None,
     llm: Optional[LLM] = None,
+    text2sql_node_kit=None,  # NEW: NodeKit for merged Text2SQL nodes
     enable_hitl: bool = True,
     enable_llm_conversation: bool = True,
     enable_business_insights: bool = True,
     enable_llm_interpretation: bool = True,
     enable_natural_response: bool = True,
     enable_semantic_cache: bool = True,  # OPTIMIZATION: Enable by default for Phase 1
+    enable_merged_text2sql: bool = True,  # NEW: Enable hybrid merge optimization
     checkpointer=None,
     config_schema=None
 ) -> StateGraph:
     """
     Build the stateful report generation graph with LLM-driven architecture.
 
+    NEW: Supports merged Text2SQL nodes for better performance (hybrid merge optimization).
+    When enable_merged_text2sql=True, Text2SQL nodes are embedded directly into
+    Report Agent graph, eliminating graph boundary overhead (~300-400ms).
+
     Args:
-        text2sql_graph: Compiled text2sql graph
+        text2sql_graph: Compiled text2sql graph (optional if enable_merged_text2sql=True)
         visualization_graph: Compiled visualization graph
         llm: Language model for intent classification (optional)
+        text2sql_node_kit: GenericText2SQLNodeKit for merged nodes (required if enable_merged_text2sql=True)
         enable_hitl: Enable HITL features (interrupt_before)
         enable_llm_conversation: Enable LLM-powered conversation management
         enable_business_insights: Enable business insights extraction
         enable_llm_interpretation: Enable LLM-powered visualization interpretation
         enable_natural_response: Enable natural language response generation
-        enable_semantic_cache: Enable semantic caching for LLM calls (opt-in, adds embedding cost)
+        enable_semantic_cache: Enable semantic caching for LLM calls
+        enable_merged_text2sql: Enable Text2SQL node merge (hybrid optimization)
         checkpointer: State checkpointer (default: MemorySaver)
         config_schema: Configuration schema for runtime config (optional)
-                      If not provided, uses GenericSQLAssistantConfiguration
+                      If not provided, uses ReportAgentConfiguration
 
     Returns:
         Compiled StateGraph with optional LLM-driven enhancements
+
+    Runtime Config Example:
+        config = {
+            "configurable": {
+                "table_name": "MasterReportDocumentTable",
+                "query": "SELECT * FROM ...",
+                "column_metadata": {...},
+                "enable_business_insights": True
+            }
+        }
+        result = await graph.ainvoke(input_state, config=config)
     """
     logger.info("[REPORT] Building stateful report graph...")
     logger.info(f"[REPORT] Feature flags: llm_conversation={enable_llm_conversation}, "
                 f"business_insights={enable_business_insights}, "
                 f"llm_interpretation={enable_llm_interpretation}, "
                 f"natural_response={enable_natural_response}, "
-                f"semantic_cache={enable_semantic_cache}")
+                f"semantic_cache={enable_semantic_cache}, "
+                f"merged_text2sql={enable_merged_text2sql}")
 
-    # Import config schema if not provided
+    # Import and set config schema
     if config_schema is None:
-        from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
-        config_schema = GenericSQLAssistantConfiguration
+        from .configuration import ReportAgentConfiguration
+        config_schema = ReportAgentConfiguration
+        logger.info("[REPORT] Using ReportAgentConfiguration for runtime config")
 
     # Create graph with enhanced state and config schema
     graph = StateGraph(ReportState, config_schema=config_schema)
 
+    # Validate parameters
+    if enable_merged_text2sql and text2sql_node_kit is None:
+        raise ValueError("text2sql_node_kit required when enable_merged_text2sql=True")
+    if not enable_merged_text2sql and text2sql_graph is None:
+        raise ValueError("text2sql_graph required when enable_merged_text2sql=False")
+
     # Create node factories
-    text2sql_node = create_text2sql_node(text2sql_graph)
-    visualization_node = create_visualization_node(visualization_graph)
+    if not enable_merged_text2sql:
+        text2sql_node = create_text2sql_node(text2sql_graph)
+
+    if visualization_graph:
+        visualization_node = create_visualization_node(visualization_graph)
 
     # =========================================================================
     # INITIALIZE LLM-DRIVEN COMPONENTS (if enabled)
@@ -263,6 +293,23 @@ def build_report_graph(
         smart_router = route_after_intent
         logger.info("[REPORT] Using simple rule-based router (no LLM)")
 
+    # =========================================================================
+    # CREATE TEXT2SQL NODES (Merged or Separate)
+    # =========================================================================
+    text2sql_nodes = {}
+
+    if enable_merged_text2sql:
+        logger.info("[REPORT] ⚡ Creating MERGED Text2SQL nodes (hybrid optimization)")
+
+        # Import node factories
+        from src.graphs.generic_text2sql.node_factories import create_all_text2sql_nodes
+
+        # Create all Text2SQL node factories
+        text2sql_nodes = create_all_text2sql_nodes(text2sql_node_kit)
+
+        logger.info(f"[REPORT] ✓ Created {len(text2sql_nodes)} merged Text2SQL nodes")
+        logger.info(f"[REPORT] Nodes: {list(text2sql_nodes.keys())}")
+
     # -------------------------------------------------------------------------
     # ADD NODES
     # -------------------------------------------------------------------------
@@ -281,7 +328,27 @@ def build_report_graph(
 
     # Query processing
     graph.add_node("extract_query", extract_query_node)
-    graph.add_node("text2sql", text2sql_node)
+
+    # Text2SQL nodes - Merged or Separate
+    if enable_merged_text2sql:
+        # MERGED MODE: Add Text2SQL nodes directly to graph
+        logger.info("[REPORT] ⚡ Adding merged Text2SQL nodes to graph...")
+
+        graph.add_node("create_table", text2sql_nodes["create_table"])
+        graph.add_node("sql_architect", text2sql_nodes["sql_architect"])
+        graph.add_node("retrieve_business_rules", text2sql_nodes["retrieve_business_rules"])
+        graph.add_node("metadata_enrichment", text2sql_nodes["metadata_enrichment"])
+        graph.add_node("value_resolver", text2sql_nodes["value_resolver"])
+        graph.add_node("sql_query_builder", text2sql_nodes["sql_query_builder"])
+        graph.add_node("sql_executor", text2sql_nodes["sql_executor"])
+        graph.add_node("cleanup_table", text2sql_nodes["cleanup_table"])
+
+        logger.info("[REPORT] ✓ Text2SQL nodes added: 8 nodes merged")
+    else:
+        # SEPARATE MODE: Single text2sql node that invokes separate graph
+        graph.add_node("text2sql", text2sql_node)
+        logger.info("[REPORT] Text2SQL node added (separate graph mode)")
+
     graph.add_node("check_results", check_results_node)
 
     # Business insights extraction (LLM-driven)
@@ -295,7 +362,11 @@ def build_report_graph(
     graph.add_node("rollback", rollback_node)
 
     # Visualization rendering (only renders, no decision)
-    graph.add_node("visualization", visualization_node)
+    if visualization_graph:
+        graph.add_node("visualization", visualization_node)
+        logger.info("[REPORT] Visualization node added")
+    else:
+        logger.info("[REPORT] Visualization disabled (no visualization_graph provided)")
 
     # Response generation (natural language or template-based)
     graph.add_node("build_response", response_node)
@@ -353,9 +424,34 @@ def build_report_graph(
             }
         )
 
-    # Query processing flow
-    graph.add_edge("extract_query", "text2sql")
-    graph.add_edge("text2sql", "check_results")
+    # =========================================================================
+    # QUERY PROCESSING FLOW - Merged or Separate Text2SQL
+    # =========================================================================
+
+    if enable_merged_text2sql:
+        # MERGED MODE: Text2SQL nodes embedded in Report Agent
+        logger.info("[REPORT] ⚡ Wiring MERGED Text2SQL flow...")
+
+        # Text2SQL flow: extract_query → create_table → sql_architect → ...
+        graph.add_edge("extract_query", "create_table")
+        graph.add_edge("create_table", "sql_architect")
+        graph.add_edge("sql_architect", "retrieve_business_rules")
+        graph.add_edge("retrieve_business_rules", "metadata_enrichment")
+        graph.add_edge("metadata_enrichment", "value_resolver")
+        graph.add_edge("value_resolver", "sql_query_builder")
+        graph.add_edge("sql_query_builder", "sql_executor")
+        graph.add_edge("sql_executor", "cleanup_table")
+        graph.add_edge("cleanup_table", "check_results")
+
+        logger.info("[REPORT] ✓ Text2SQL flow wired: 8 nodes, ~300-400ms overhead eliminated")
+    else:
+        # SEPARATE MODE: Single text2sql node (backward compatibility)
+        logger.info("[REPORT] Wiring SEPARATE Text2SQL flow (backward compatibility)...")
+
+        graph.add_edge("extract_query", "text2sql")
+        graph.add_edge("text2sql", "check_results")
+
+        logger.info("[REPORT] ✓ Text2SQL flow wired: separate graph mode")
 
     # check_results → conditional routing (with business insights if enabled)
     # =========================================================================
@@ -460,32 +556,36 @@ def build_report_graph(
             )
 
     # decide_visualization → conditional routing (check needs_graph)
-    def route_after_viz_decision(state: ReportState) -> str:
-        """Route based on needs_graph decision."""
-        viz_decision = state.get("_viz_decision", {})
-        needs_graph = viz_decision.get("needs_graph", False)
+    if visualization_graph:
+        def route_after_viz_decision(state: ReportState) -> str:
+            """Route based on needs_graph decision."""
+            viz_decision = state.get("_viz_decision", {})
+            needs_graph = viz_decision.get("needs_graph", False)
 
-        if needs_graph:
-            logger.info("[REPORT] Routing to visualization (graph needed)")
-            return "visualization"
-        else:
-            logger.info("[REPORT] Skipping visualization (no graph needed)")
-            return "build_response"
+            if needs_graph:
+                logger.info("[REPORT] Routing to visualization (graph needed)")
+                return "visualization"
+            else:
+                logger.info("[REPORT] Skipping visualization (no graph needed)")
+                return "build_response"
 
-    graph.add_conditional_edges(
-        "decide_visualization",
-        route_after_viz_decision,
-        {
-            "visualization": "visualization",
-            "build_response": "build_response"
-        }
-    )
+        graph.add_conditional_edges(
+            "decide_visualization",
+            route_after_viz_decision,
+            {
+                "visualization": "visualization",
+                "build_response": "build_response"
+            }
+        )
+
+        # Visualization → build_response
+        graph.add_edge("visualization", "build_response")
+    else:
+        # No visualization graph, always go to build_response
+        graph.add_edge("decide_visualization", "build_response")
 
     # Rollback → build_response
     graph.add_edge("rollback", "build_response")
-
-    # Visualization → build_response
-    graph.add_edge("visualization", "build_response")
 
     # build_response → END
     graph.add_edge("build_response", END)

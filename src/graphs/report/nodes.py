@@ -557,7 +557,8 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
     """
     Kullanıcı sorgusunu çıkar ve doğrula.
 
-    Messages'dan son HumanMessage'ı alır.
+    Messages'dan son HumanMessage'ı alır ve state'e kaydeder.
+    Merged Text2SQL nodes için user_query alanını doldurur.
     """
     user_query = get_last_user_message(state)
 
@@ -566,7 +567,9 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
         return {"error": "No user message found"}
 
     logger.info(f"[REPORT] Extracted query: {user_query[:100]}...")
-    return {}
+
+    # Set user_query for merged Text2SQL nodes
+    return {"user_query": user_query}
 
 
 async def check_results_node(state: ReportState) -> Dict[str, Any]:
@@ -577,23 +580,40 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
     2. Belirsizlik varsa kullanıcıya HITL sorusu sor
     3. Yoksa boş sonuç kontrolü yap
     4. Her şey OK ise context güncelle
-    """
-    text2sql_output = state.get("text2sql_output")
 
+    Supports both merged mode (direct state fields) and backward compatibility (text2sql_output).
+    """
     # Önceki node'dan gelen hatayı kontrol et
     prev_error = state.get("error")
     if prev_error:
         logger.warning(f"[REPORT] Previous error detected: {prev_error}")
         return {"error": prev_error}
 
-    if not text2sql_output:
-        logger.error("[REPORT] No text2sql_output in state")
+    # For merged mode: check direct state fields
+    # For backward compatibility: check text2sql_output
+    text2sql_output = state.get("text2sql_output")
+    results = state.get("results")
+    resolution_metadata = state.get("resolution_metadata")
+
+    # Determine which mode we're in
+    if results is not None:
+        # Merged mode: use direct state fields
+        logger.info("[REPORT] Using merged mode (direct state fields)")
+        data_results = results
+        data_resolution_metadata = resolution_metadata
+    elif text2sql_output:
+        # Backward compatibility mode: use text2sql_output
+        logger.info("[REPORT] Using backward compatibility mode (text2sql_output)")
+        data_results = text2sql_output.get("results", [])
+        data_resolution_metadata = text2sql_output.get("resolution_metadata")
+    else:
+        logger.error("[REPORT] No results found in state (neither merged nor text2sql_output)")
         return {"error": "Sorgu işlenemedi. Lütfen tekrar deneyin."}
 
     # =========================================================================
     # METADATA KONTROLÜ - Column/Value Belirsizliği
     # =========================================================================
-    resolution_metadata = text2sql_output.get("resolution_metadata")
+    resolution_metadata = data_resolution_metadata
 
     if resolution_metadata:
         logger.info(f"[REPORT] Checking resolution_metadata for ambiguities...")
@@ -658,8 +678,8 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
     # =========================================================================
     # RESULTS KONTROLÜ
     # =========================================================================
-    results = text2sql_output.get("results", [])
-    logger.info(f"[REPORT] Checking results: {len(results)} rows")
+    results = data_results
+    logger.info(f"[REPORT] Checking results: {len(results) if results else 0} rows")
 
     if not results or len(results) == 0:
         logger.info("[REPORT] Empty results, preparing recovery question")
@@ -675,7 +695,17 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
 
     # Sonuç varsa context'i güncelle
     active_context = state.get("active_query_context")
-    updated_context = update_active_context(active_context, text2sql_output)
+    # For merged mode, create a compatible dict for update_active_context
+    if text2sql_output:
+        updated_context = update_active_context(active_context, text2sql_output)
+    else:
+        # Merged mode: construct text2sql_output-like dict
+        text2sql_output_dict = {
+            "results": data_results,
+            "sql_queries": state.get("sql_queries", []),
+            "parsed_intent": state.get("parsed_intent")
+        }
+        updated_context = update_active_context(active_context, text2sql_output_dict)
 
     # Checkpoint oluştur
     user_message = get_last_user_message(state)
@@ -1153,18 +1183,30 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
     if error:
         return {"messages": [AIMessage(content=f"❌ Hata: {error}")]}
 
-    # Visualization yok - check if we have viz_decision and text2sql_output
+    # Visualization yok - check if we have viz_decision and results
     if not viz_output:
         viz_decision = state.get("_viz_decision")
+
+        # For merged mode: results are directly in state
+        # For backward compatibility: check text2sql_output
+        results = state.get("results")
         text2sql_output = state.get("text2sql_output")
 
-        # If we have viz_decision (needs_graph=false case), create output from text2sql
-        if viz_decision and text2sql_output:
+        # Get results from either merged mode or backward compatibility mode
+        if results:
+            data_results = results
+        elif text2sql_output:
+            data_results = text2sql_output.get("results", [])
+        else:
+            data_results = []
+
+        # If we have viz_decision (needs_graph=false case), create output
+        if viz_decision and data_results:
             viz_final = {
                 "summary": viz_decision.get("reason", "Sonuçlar hazır"),
                 "output_type": viz_decision.get("output_type", "table"),
                 "needs_graph": False,
-                "data": text2sql_output.get("results", [])
+                "data": data_results
             }
         else:
             return {"messages": [AIMessage(content="⚠️ Görselleştirme çıktısı bulunamadı")]}
@@ -1177,35 +1219,35 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
     needs_graph = viz_final.get("needs_graph", False)
     data = viz_final.get("data", [])
 
-    parts = [
-        "📊 Rapor Sonucu:",
-        f"• Tip: {output_type}",
-        f"• Veri: {len(data)} satır",
-        f"• {summary}"
-    ]
+    parts = []
 
-    # Context bilgisi ekle
-    if active_context:
-        parts.append(f"\n💾 Sorgu kaydedildi (v{len(state.get('query_history', []))})")
-
-    # Eğer grafik yoksa ama data varsa, liste/tablo formatında göster
+    # Eğer grafik yoksa ama data varsa, direkt sonuçları göster
     if not needs_graph and data:
-        parts.append("\n📋 Sonuçlar:")
-
         # Format data based on output_type
         if output_type == "single_value":
-            # Single value - just show it
+            # Single value - direkt göster, başlık yok
             if data and len(data) > 0:
                 value = list(data[0].values())[0] if data[0] else "N/A"
-                parts.append(f"• {value}")
+                parts.append(f"📊 **Sonuç:** {value}")
         elif output_type in ["simple_list", "table"]:
-            # List or table - show all rows
-            for i, row in enumerate(data[:10], 1):  # Limit to 10 rows
-                row_str = " | ".join([f"{k}: {v}" for k, v in row.items()])
+            # List or table - başlık ile göster
+            parts.append(f"📊 **Sonuçlar** ({len(data)} kayıt):\n")
+
+            # Show all rows (up to 50)
+            for i, row in enumerate(data[:50], 1):
+                row_str = " | ".join([f"**{k}:** {v}" for k, v in row.items()])
                 parts.append(f"{i}. {row_str}")
 
-            if len(data) > 10:
-                parts.append(f"\n... ve {len(data) - 10} satır daha")
+            if len(data) > 50:
+                parts.append(f"\n... ve {len(data) - 50} kayıt daha")
+    else:
+        # Fallback: eski format
+        parts = [
+            "📊 Rapor Sonucu:",
+            f"• Tip: {output_type}",
+            f"• Veri: {len(data)} satır",
+            f"• {summary}"
+        ]
 
     # Plotly HTML ekle
     plotly_html = viz_output.get("plotly_html_snippet") if viz_output else None
@@ -1831,10 +1873,17 @@ def create_natural_response_node(response_generator):
         logger.info("[REPORT] [LLM] Generating natural language response...")
 
         try:
-            # Extract data results
+            # Extract data results - support both merged mode and backward compatibility
             data_results = None
-            if text2sql_output and not text2sql_output.get("error"):
+
+            # Merged mode: check direct state fields first
+            if state.get("results") is not None:
+                data_results = state.get("results", [])
+                logger.info(f"[REPORT] [LLM] Using merged mode results: {len(data_results)} rows")
+            # Backward compatibility: check text2sql_output
+            elif text2sql_output and not text2sql_output.get("error"):
                 data_results = text2sql_output.get("results", [])
+                logger.info(f"[REPORT] [LLM] Using backward compatibility results: {len(data_results)} rows")
 
             # Generate response
             response = await response_generator.generate_response(

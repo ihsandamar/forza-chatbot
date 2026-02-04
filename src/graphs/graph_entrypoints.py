@@ -2,6 +2,7 @@ import asyncio
 from src.graphs.base_graph import BaseGraph
 from src.graphs.data_visualization.graph import build_visualization_graph
 from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
+from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
 from src.graphs.graph_repository import GraphRepository
 from src.graphs.routing.graph import RoutingGraph
 from src.graphs.supervisor.graph import create_supervisor_graph
@@ -125,8 +126,23 @@ def report_graph():
     config = _get_config()
     llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
 
-    # Build text2sql graph
-    text2sql = GenericText2SQLGraph(llm=llm).build_graph()
+    # Create runtime configuration for GenericText2SQL
+    # Empty values will be injected at runtime via RunnableConfig
+    text2sql_config = GenericSQLAssistantConfiguration(
+        report_name="",
+        description="",
+        table_name="MasterReportDocumentTable",
+        query="",
+        column_metadata={},
+        business_rules=[]
+    )
+
+    # Build text2sql graph with runtime config and get NodeKit for merged mode
+    text2sql_graph_instance = GenericText2SQLGraph(llm=llm, config=text2sql_config)
+    text2sql = text2sql_graph_instance.build_graph()
+
+    # Get NodeKit for merged Text2SQL nodes (hybrid optimization)
+    text2sql_node_kit = text2sql_graph_instance.node_kit
 
     # Build visualization graph
     visualization = build_visualization_graph(llm=llm)
@@ -136,5 +152,9 @@ def report_graph():
         text2sql_graph=text2sql,
         visualization_graph=visualization,
         llm=llm,  # CRITICAL: Enable LLM-based intent classification and smart routing
-        enable_hitl=True  # Enable Human-in-the-Loop features
+        text2sql_node_kit=text2sql_node_kit,  # NodeKit for merged Text2SQL nodes
+        config_schema=GenericSQLAssistantConfiguration,  # Runtime config schema for Text2SQL nodes
+        enable_hitl=True,  # Enable Human-in-the-Loop features
+        enable_natural_response=False,  # Disable LLM response generation, show data directly
+        enable_merged_text2sql=True  # Use merged mode (hybrid optimization)
     )
