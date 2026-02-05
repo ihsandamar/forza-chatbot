@@ -282,8 +282,8 @@ class ConversationManager:
         else:
             intent_json = await self._call_llm(prompt_vars)
 
-        # Parse result
-        intent = self._parse_llm_intent(intent_json, user_message)
+        # Parse result (pass active_context for smart fallback)
+        intent = self._parse_llm_intent(intent_json, user_message, active_context)
 
         logger.info(f"[CONVERSATION] Intent: {intent.intent_type}, Confidence: {intent.confidence:.2f}")
 
@@ -299,16 +299,31 @@ class ConversationManager:
             logger.error(f"[CONVERSATION] LLM call failed: {e}")
             return "{}"
 
-    def _parse_llm_intent(self, llm_response: str, user_message: str) -> ConversationIntent:
+    def _parse_llm_intent(self, llm_response: str, user_message: str, active_context: Optional[ActiveQueryContext] = None) -> ConversationIntent:
         """Parse LLM response into ConversationIntent."""
         try:
-            # Extract JSON from response
-            json_str = llm_response
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1].split("```")[0].strip()
-            elif "```" in json_str:
-                json_str = json_str.split("```")[1].split("```")[0].strip()
+            # Extract JSON from response - robust parsing
+            json_str = llm_response.strip()
 
+            # Remove markdown code blocks
+            if "```json" in json_str:
+                parts = json_str.split("```json")
+                if len(parts) > 1:
+                    json_str = parts[1].split("```")[0].strip()
+            elif "```" in json_str:
+                parts = json_str.split("```")
+                if len(parts) >= 3:  # Should have start, content, end
+                    json_str = parts[1].strip()
+                    # Remove language identifier if present
+                    if json_str.startswith("json\n"):
+                        json_str = json_str[5:]
+
+            # If still empty or invalid, log and fail
+            if not json_str or json_str == "{}":
+                logger.warning(f"[CONVERSATION] Empty JSON response from LLM")
+                raise ValueError("Empty JSON response")
+
+            logger.debug(f"[CONVERSATION] Parsing JSON: {json_str[:200]}...")
             data = json.loads(json_str)
 
             # Parse intent type
@@ -331,15 +346,27 @@ class ConversationManager:
 
         except Exception as e:
             logger.error(f"[CONVERSATION] Parse error: {e}")
-            # Fallback: new_query
+            logger.error(f"[CONVERSATION] LLM response was: {llm_response[:500]}")
+
+            # Smart fallback: Use SimpleIntentClassifier instead of blind "new_query"
+            logger.info("[CONVERSATION] Falling back to SimpleIntentClassifier after parse error")
+            from .intent import SimpleIntentClassifier
+            simple = SimpleIntentClassifier()
+
+            # Use actual active_context to determine intent
+            has_context = active_context is not None
+            logger.info(f"[CONVERSATION] Fallback with context: {has_context}")
+
+            simple_result = simple.classify(user_message, has_active_context=has_context)
+
             return ConversationIntent(
-                intent_type=IntentType.NEW_QUERY,
-                confidence=0.5,
-                requires_clarification=False,
-                clarification_question=None,
-                clarification_options=None,
-                extracted_entities={},
-                reasoning=f"Parse error: {str(e)}",
+                intent_type=simple_result.intent_type,
+                confidence=simple_result.confidence * 0.8,  # Reduce confidence since this is fallback
+                requires_clarification=simple_result.requires_clarification,
+                clarification_question=simple_result.clarification_question,
+                clarification_options=simple_result.clarification_options,
+                extracted_entities=simple_result.extracted_entities,
+                reasoning=f"Parse error fallback (SimpleClassifier): {str(e)}",
                 business_context_aware=False
             )
 

@@ -47,6 +47,50 @@ _business_rules_vector_store = None
 _value_resolver_service = None
 
 
+def _format_conversation_context(conversation_context: Optional[Dict[str, Any]]) -> str:
+    """
+    Format conversation context for SQL architect prompt (Phase 3).
+
+    Args:
+        conversation_context: Previous query context from Report Agent
+
+    Returns:
+        Formatted context string for LLM
+    """
+    if not conversation_context or not conversation_context.get("has_previous_query"):
+        return "This is a new query with no previous context."
+
+    context_parts = ["Previous Query Context:"]
+
+    # Previous SQL
+    prev_sql = conversation_context.get("previous_sql", "")
+    if prev_sql:
+        context_parts.append(f"\nPrevious SQL:\n{prev_sql[:200]}...")
+
+    # Previous filters
+    prev_filters = conversation_context.get("previous_filters", [])
+    if prev_filters:
+        filters_str = ", ".join([f"{f.get('column', '?')}={f.get('value', '?')}" for f in prev_filters[:3]])
+        context_parts.append(f"\nPrevious Filters: {filters_str}")
+
+    # Previous grouping
+    prev_grouping = conversation_context.get("previous_grouping", [])
+    if prev_grouping:
+        context_parts.append(f"\nPrevious Grouping: {', '.join(prev_grouping[:3])}")
+
+    # Result statistics
+    result_count = conversation_context.get("result_row_count", 0)
+    context_parts.append(f"\nPrevious Result Count: {result_count} rows")
+
+    # Conversation hints
+    context_parts.append("\n\nUser Intent Analysis:")
+    context_parts.append("- User is likely refining or modifying the previous query")
+    context_parts.append("- Consider reusing previous table/filters when appropriate")
+    context_parts.append("- Look for incremental changes (add filter, change limit, etc.)")
+
+    return "\n".join(context_parts)
+
+
 def _extract_config_value(config: Optional[RunnableConfig], state: dict, config_key: str, default_config, default_value=None):
     """
     Extract configuration value from RunnableConfig, state, or default config.
@@ -820,9 +864,15 @@ class GenericText2SQLNodeKit:
                 state["error"] = "Value resolution için parsed_intent gerekli"
                 return state
 
-            # Extract table name from config
-            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
-            logger.info(f"[VALUE_RESOLVER] Using table_name: {table_name}")
+            # Extract table name - CRITICAL: Check state first for session-based table name
+            # State has priority over RunnableConfig to use session-based table from create_master_table
+            table_name = state.get("table_name")
+            if not table_name:
+                # Fallback to config
+                table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+                logger.info(f"[VALUE_RESOLVER] Using table_name from config: {table_name}")
+            else:
+                logger.info(f"[VALUE_RESOLVER] Using table_name from state: {table_name}")
 
             # Get ValueResolverService with table name
             db_conn = get_db_connection_string(state)
@@ -961,9 +1011,19 @@ class GenericText2SQLNodeKit:
                 logger.warning(f"Skipping SQL generation due to critical error: {state['error']}")
                 return state
 
-            # Extract table name from config
-            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
-            logger.info(f"[SQL_QUERY_BUILDER] Using table_name: {table_name}")
+            # Extract table name - CRITICAL: Check state first for session-based table name
+            # State has priority over RunnableConfig to use session-based table from create_master_table
+            table_name = state.get("table_name")
+            if not table_name:
+                # Fallback to config
+                table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+                logger.info(f"[SQL_QUERY_BUILDER] Using table_name from config: {table_name}")
+            else:
+                logger.info(f"[SQL_QUERY_BUILDER] Using table_name from state: {table_name}")
+
+            # Escape table name for SQL Server (handle special chars like hyphens in session-based names)
+            escaped_table_name = f"[{table_name}]"
+            logger.info(f"[SQL_QUERY_BUILDER] Escaped table_name: {escaped_table_name}")
 
             resolved_steps = state["resolved_steps"]
 
@@ -993,7 +1053,7 @@ class GenericText2SQLNodeKit:
             chain = SQL_QUERY_BUILDER_PROMPT | llm
 
             response = await chain.ainvoke({
-                "table_name": table_name,
+                "table_name": escaped_table_name,
                 "resolved_steps": steps_json,
                 "enriched_metadata": metadata_text,
                 "business_rules_context": business_rules_context
@@ -1114,12 +1174,23 @@ class GenericText2SQLNodeKit:
             logger.info("=" * 80)
             logger.info("[SQL_ARCHITECT] Starting SQL Architect (collapsed architecture)...")
 
-            # Extract configuration using helper function
-            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+            # Extract table name - CRITICAL: Check state first for session-based table name
+            # State has priority over RunnableConfig to use session-based table from create_master_table
+            table_name = state.get("table_name")
+            if not table_name:
+                # Fallback to config
+                table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+                logger.info(f"[SQL_ARCHITECT] Using table_name from config: {table_name}")
+            else:
+                logger.info(f"[SQL_ARCHITECT] Using table_name from state: {table_name}")
+
+            # Escape table name for SQL Server (handle special chars like hyphens in session-based names)
+            escaped_table_name = f"[{table_name}]"
+
             column_metadata_dict = _extract_config_value(config, state, "column_metadata", self.config, None)
             business_rules_list = _extract_config_value(config, state, "business_rules", self.config, None)
 
-            logger.info(f"[SQL_ARCHITECT] Final table_name: {table_name}")
+            logger.info(f"[SQL_ARCHITECT] Escaped table_name: {escaped_table_name}")
             logger.info(f"[SQL_ARCHITECT] Final column_metadata: {len(column_metadata_dict) if column_metadata_dict else 0} columns")
             logger.info(f"[SQL_ARCHITECT] Final business_rules: {len(business_rules_list) if business_rules_list else 0} rules")
             logger.info("=" * 80)
@@ -1174,12 +1245,22 @@ class GenericText2SQLNodeKit:
 
             logger.debug(f"Architecting SQL for query: {state['user_query'][:100]}...")
 
-            # Single LLM call with collapsed architecture
+            # Phase 3: Extract conversation context
+            conversation_context = state.get("conversation_context")
+            context_text = _format_conversation_context(conversation_context)
+
+            if conversation_context:
+                logger.info(f"[SQL_ARCHITECT] ⚡ Phase 3: Using conversation context")
+                logger.info(f"[SQL_ARCHITECT] Previous table: {conversation_context.get('previous_table', 'N/A')}")
+                logger.info(f"[SQL_ARCHITECT] Previous filters: {len(conversation_context.get('previous_filters', []))}")
+                logger.info(f"[SQL_ARCHITECT] Result count: {conversation_context.get('result_row_count', 0)}")
+
+            # Single LLM call with collapsed architecture + Phase 3 context
             llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
             chain = SQL_ARCHITECT_PROMPT | llm
 
             # table_name already extracted via helper function with proper fallbacks
-            logger.info(f"[SQL_ARCHITECT] Using table_name for LLM: {table_name}")
+            logger.info(f"[SQL_ARCHITECT] Using table_name for LLM: {escaped_table_name}")
 
             response = await chain.ainvoke({
                 "user_query": state["user_query"],
@@ -1187,9 +1268,10 @@ class GenericText2SQLNodeKit:
                 "current_datetime": current_datetime,
                 "current_year": current_year,
                 "current_month": current_month,
-                "table_name": table_name,
+                "table_name": escaped_table_name,
                 "schema_metadata": schema_text,
-                "business_rules": business_rules_text
+                "business_rules": business_rules_text,
+                "conversation_context": context_text  # Phase 3: Add context
             })
 
             # Parse JSON response using robust parser
@@ -1333,9 +1415,40 @@ class GenericText2SQLNodeKit:
 
         Table name and creation SQL are loaded from assistant configuration.
         All subsequent queries will run against this temp table.
+
+        Phase 2: Supports table reuse for delta execution.
+        If _reuse_table=True, skips table creation and reuses existing table.
+
+        Phase 4: Session-based table naming and TTL management via TableRegistry.
         """
         logger.info("=" * 80)
         logger.info("[CREATE_MASTER_TABLE] Starting table creation...")
+
+        # Phase 4: Get session ID for session-based table management
+        session_id = config.get("configurable", {}).get("thread_id") if config else None
+
+        # Phase 2: Check for table reuse flag
+        reuse_table = state.get("_reuse_table", False)
+
+        # Phase 4: Check table registry for existing table
+        from src.graphs.generic_text2sql.table_registry import get_table_registry
+        registry = get_table_registry()
+
+        if reuse_table and session_id:
+            existing_table = await registry.check_table_exists(session_id)
+            if existing_table:
+                logger.info(
+                    f"[CREATE_MASTER_TABLE] ⚡ Phase 4: Reusing table {existing_table.table_name} "
+                    f"(TTL refreshed, queries={existing_table.query_count})"
+                )
+                logger.info("[CREATE_MASTER_TABLE] ✓ Table creation skipped (~500ms saved)")
+                logger.info("=" * 80)
+                state["_table_reused"] = True
+                # Store reused table name in state for other nodes to use
+                state["table_name"] = existing_table.table_name
+                logger.info(f"[CREATE_MASTER_TABLE] Stored reused table_name in state: {existing_table.table_name}")
+                return state
+
         logger.info(f"[CREATE_MASTER_TABLE] config parameter: {config is not None}")
         logger.info(f"[CREATE_MASTER_TABLE] config.configurable exists: {config and 'configurable' in config}")
         if config and "configurable" in config:
@@ -1345,6 +1458,8 @@ class GenericText2SQLNodeKit:
 
         # Extract configuration values using helper function
         table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+        logger.info(f"[CREATE_MASTER_TABLE] Using table name: {table_name}")
+
         query = _extract_config_value(config, state, "query", self.config, None)
 
         logger.info(f"[CREATE_MASTER_TABLE] Final table_name: {table_name}")
@@ -1392,12 +1507,29 @@ class GenericText2SQLNodeKit:
 
                 logger.info(f"[CREATE_MASTER_TABLE] SQL script loaded: {len(master_table_sql)} characters")
 
+            # No table name replacement needed - using base name directly
+            logger.info(f"[CREATE_MASTER_TABLE] Using base table name in SQL: {table_name}")
+
             # Execute SQL asynchronously
             import asyncio
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(_db_executor, _execute_sql_script, master_table_sql, db_conn)
 
             logger.info(f"[CREATE_MASTER_TABLE] {table_name} created successfully")
+
+            # Store session-based table name in state for other nodes to use
+            state["table_name"] = table_name
+            logger.info(f"[CREATE_MASTER_TABLE] Stored table_name in state: {table_name}")
+
+            # Phase 4: Register table in registry
+            if session_id:
+                # Get document count from state if available
+                document_count = len(state.get("documents", []))
+                metadata = await registry.register_table(session_id, table_name, document_count)
+                logger.info(
+                    f"[CREATE_MASTER_TABLE] Phase 4: Table registered in registry "
+                    f"(ttl={metadata.ttl_seconds}s)"
+                )
 
         except Exception as e:
             logger.error(f"[CREATE_MASTER_TABLE] Error creating master table: {e}", exc_info=True)
@@ -1411,17 +1543,45 @@ class GenericText2SQLNodeKit:
         Drop master table at the end of the graph.
 
         Cleanup temp table to free resources. Table name is loaded from configuration.
+
+        Phase 2: Skips cleanup if table is being reused for conversation.
+        Table will be cleaned up on session end or timeout.
+
+        Phase 4: TTL-managed tables are handled by TableRegistry background cleanup.
+        Only immediate cleanup for non-session tables.
         """
+        # Phase 4: Get session ID
+        session_id = config.get("configurable", {}).get("thread_id") if config else None
+
+        # Phase 2: Check for table reuse flag
+        reuse_table = state.get("_reuse_table", False)
+
+        if reuse_table and session_id:
+            # Phase 4: Refresh TTL instead of cleanup
+            from src.graphs.generic_text2sql.table_registry import get_table_registry
+            registry = get_table_registry()
+
+            existing_table = await registry.check_table_exists(session_id)
+            if existing_table:
+                logger.info(
+                    f"[CLEANUP_MASTER_TABLE] ⚡ Phase 4: Skipping cleanup (TTL-managed) "
+                    f"(table={existing_table.table_name}, ttl={existing_table.ttl_remaining():.0f}s)"
+                )
+                logger.info("[CLEANUP_MASTER_TABLE] ✓ Table cleanup skipped (~200ms saved)")
+                logger.info("[CLEANUP_MASTER_TABLE] Table will be cleaned up by TTL background task")
+                return state
+
         # Extract table name using helper function
         table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+
         logger.info(f"[CLEANUP_MASTER_TABLE] Dropping {table_name}...")
 
         try:
             # Get DB connection string
             db_conn = get_db_connection_string(state)
 
-            # Drop table SQL
-            cleanup_sql = f"DROP TABLE IF EXISTS {table_name};"
+            # Drop table SQL - escape table name with square brackets for SQL Server
+            cleanup_sql = f"DROP TABLE IF EXISTS [{table_name}];"
 
             # Execute SQL asynchronously
             import asyncio
@@ -1429,6 +1589,14 @@ class GenericText2SQLNodeKit:
             await loop.run_in_executor(_db_executor, _execute_sql_script, cleanup_sql, db_conn)
 
             logger.info(f"[CLEANUP_MASTER_TABLE] {table_name} dropped successfully")
+
+            # Phase 4: Unregister from table registry
+            if session_id:
+                from src.graphs.generic_text2sql.table_registry import get_table_registry
+                registry = get_table_registry()
+                unregistered = await registry.unregister_table(session_id)
+                if unregistered:
+                    logger.info(f"[CLEANUP_MASTER_TABLE] Phase 4: Table unregistered from registry")
 
         except Exception as e:
             logger.warning(f"[CLEANUP_MASTER_TABLE] Error dropping master table (may not exist): {e}")
@@ -1462,8 +1630,15 @@ class GenericText2SQLNodeKit:
             # Get vector store instance
             vector_store = get_business_rules_vector_store()
 
-            # Extract table name using helper function
-            table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+            # Extract table name - CRITICAL: Check state first for session-based table name
+            # State has priority over RunnableConfig to use session-based table from create_master_table
+            table_name = state.get("table_name")
+            if not table_name:
+                # Fallback to config
+                table_name = _extract_config_value(config, state, "table_name", self.config, "MasterReportDocumentTable")
+                logger.info(f"[RETRIEVE_BUSINESS_RULES] Using table_name from config: {table_name}")
+            else:
+                logger.info(f"[RETRIEVE_BUSINESS_RULES] Using table_name from state: {table_name}")
 
             # Extract detected tables from parsed_intent if available
             detected_tables = state.get("detected_tables")

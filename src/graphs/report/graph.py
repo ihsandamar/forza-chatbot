@@ -59,6 +59,7 @@ from .nodes import (
     create_intent_classifier_node,
     process_user_clarification_node,
     extract_query_node,
+    delta_sql_modifier_node,  # Phase 2: Delta SQL execution
     check_results_node,
     decide_visualization_node,
     create_text2sql_node,
@@ -66,6 +67,7 @@ from .nodes import (
     rollback_node,
     build_response_node,
     route_after_intent,
+    route_after_intent_smart,  # Phase 1: Smart routing with execution mode detection
     create_route_after_intent,
     route_after_results,
     # LLM-enhanced factories
@@ -179,20 +181,26 @@ def build_report_graph(
     if llm:
         llm_chat = llm.get_chat()
 
-        # Semantic Cache (opt-in, requires embeddings)
+        # Phase 4: Conversational Semantic Cache with multi-level lookup
         if enable_semantic_cache:
             try:
-                from .semantic_cache import SemanticCache
+                from .conversational_cache import ConversationalSemanticCache, set_conversational_cache
                 # Try to get embeddings from LLM
                 if hasattr(llm, 'get_embeddings'):
                     embeddings = llm.get_embeddings()
-                    semantic_cache = SemanticCache(
+                    semantic_cache = ConversationalSemanticCache(
                         embeddings=embeddings,
-                        threshold=0.95,
-                        ttl=3600,
-                        max_size=2000  # OPTIMIZATION: Increased from 1000 to 2000 for Phase 1
+                        session_threshold=0.85,  # Phase 4: More lenient for session cache
+                        global_threshold=0.92,   # Phase 4: Stricter for global cache
+                        session_ttl=3600,
+                        global_ttl=7200,
+                        max_session_size=100,
+                        max_global_size=2000
                     )
-                    logger.info("[REPORT] Semantic cache enabled with max_size=2000")
+                    # Set global instance for external access
+                    set_conversational_cache(semantic_cache)
+                    logger.info("[REPORT] Phase 4: Conversational semantic cache enabled "
+                              "(session_threshold=0.85, global_threshold=0.92)")
                 else:
                     logger.warning("[REPORT] Semantic cache requested but embeddings not available")
             except Exception as e:
@@ -284,14 +292,13 @@ def build_report_graph(
         response_node = build_response_node
         logger.info("[REPORT] Using template-based response generation")
 
-    # Router
+    # Router (Phase 1: Smart routing with execution mode detection)
     if llm:
-        llm_chat = llm.get_chat()
-        smart_router = create_route_after_intent(llm_chat)
-        logger.info("[REPORT] Using LLM-based smart router")
+        logger.info("[REPORT] Using Phase 1 smart router (execution mode detection)")
+        smart_router = route_after_intent_smart
     else:
-        smart_router = route_after_intent
         logger.info("[REPORT] Using simple rule-based router (no LLM)")
+        smart_router = route_after_intent
 
     # =========================================================================
     # CREATE TEXT2SQL NODES (Merged or Separate)
@@ -328,6 +335,9 @@ def build_report_graph(
 
     # Query processing
     graph.add_node("extract_query", extract_query_node)
+
+    # Phase 2: Delta SQL modifier node
+    graph.add_node("delta_sql_modifier", delta_sql_modifier_node)
 
     # Text2SQL nodes - Merged or Separate
     if enable_merged_text2sql:
@@ -430,11 +440,57 @@ def build_report_graph(
 
     if enable_merged_text2sql:
         # MERGED MODE: Text2SQL nodes embedded in Report Agent
-        logger.info("[REPORT] ⚡ Wiring MERGED Text2SQL flow...")
+        logger.info("[REPORT] ⚡ Wiring MERGED Text2SQL flow with Phase 2 delta execution...")
 
-        # Text2SQL flow: extract_query → create_table → sql_architect → ...
+        # FIXED: Always create table first, then route based on execution mode
         graph.add_edge("extract_query", "create_table")
-        graph.add_edge("create_table", "sql_architect")
+
+        # Phase 2: Conditional routing AFTER table creation
+        def route_after_create_table(state: ReportState) -> str:
+            """
+            Route based on execution mode (Phase 2) - AFTER table is created.
+
+            Returns:
+                "delta_sql_modifier" - Delta execution (skip 6 nodes: sql_architect to sql_query_builder)
+                "sql_architect" - Full execution (all nodes)
+            """
+            execution_mode = state.get("_execution_mode", "full")
+            delta_fallback = state.get("_delta_fallback", False)
+
+            # If delta fallback flag set, go to full flow
+            if delta_fallback:
+                logger.info("[REPORT] [ROUTING] Delta fallback → sql_architect (full flow)")
+                return "sql_architect"
+
+            # Route based on execution mode
+            if execution_mode == "delta":
+                logger.info("[REPORT] [ROUTING] Delta mode → delta_sql_modifier (skip 6 nodes)")
+                return "delta_sql_modifier"
+            else:
+                logger.info(f"[REPORT] [ROUTING] {execution_mode} mode → sql_architect (full flow)")
+                return "sql_architect"
+
+        # Phase 2: Conditional edge from create_table (AFTER table creation!)
+        graph.add_conditional_edges(
+            "create_table",
+            route_after_create_table,
+            {
+                "delta_sql_modifier": "delta_sql_modifier",  # Phase 2: Delta flow
+                "sql_architect": "sql_architect"              # Full flow
+            }
+        )
+
+        # Phase 2: Delta flow bypasses 6 nodes, goes directly to sql_executor
+        graph.add_conditional_edges(
+            "delta_sql_modifier",
+            lambda s: "sql_architect" if s.get("_delta_fallback") else "sql_executor",
+            {
+                "sql_executor": "sql_executor",   # Phase 2: Skip to executor
+                "sql_architect": "sql_architect"   # Fallback to full flow
+            }
+        )
+
+        # Full Text2SQL flow (unchanged from sql_architect onwards)
         graph.add_edge("sql_architect", "retrieve_business_rules")
         graph.add_edge("retrieve_business_rules", "metadata_enrichment")
         graph.add_edge("metadata_enrichment", "value_resolver")
@@ -443,7 +499,9 @@ def build_report_graph(
         graph.add_edge("sql_executor", "cleanup_table")
         graph.add_edge("cleanup_table", "check_results")
 
-        logger.info("[REPORT] ✓ Text2SQL flow wired: 8 nodes, ~300-400ms overhead eliminated")
+        logger.info("[REPORT] ✓ Phase 2: Delta execution flow wired (FIXED)")
+        logger.info("[REPORT]   - Delta path: extract_query → create_table → delta_sql_modifier → sql_executor (6 nodes skipped)")
+        logger.info("[REPORT]   - Full path: extract_query → create_table → sql_architect → ... → check_results (8 nodes)")
     else:
         # SEPARATE MODE: Single text2sql node (backward compatibility)
         logger.info("[REPORT] Wiring SEPARATE Text2SQL flow (backward compatibility)...")

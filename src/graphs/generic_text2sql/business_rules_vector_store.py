@@ -26,6 +26,42 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def preload_embedding_model(model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> bool:
+    """
+    Preload embedding model to local cache to avoid HuggingFace timeouts.
+
+    This function downloads the model once during startup, so subsequent
+    initializations can use the cached version without internet access.
+
+    Args:
+        model_name: Name of the SentenceTransformer model
+
+    Returns:
+        True if model is available, False otherwise
+    """
+    try:
+        import os
+        from sentence_transformers import SentenceTransformer
+
+        logger.info(f"[EMBEDDING] Preloading model: {model_name}...")
+
+        # Set longer timeout for initial download
+        os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"  # 5 minutes
+
+        # Try to load model (will download if not cached)
+        model = SentenceTransformer(model_name)
+
+        logger.info(f"[EMBEDDING] ✅ Model loaded successfully: {model_name}")
+        logger.info(f"[EMBEDDING] Model cached at: {model.cache_folder}")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"[EMBEDDING] ❌ Failed to preload model: {e}")
+        logger.warning("[EMBEDDING] Business rules retrieval may be slower on first use")
+        return False
+
+
 class BusinessRulesVectorStore:
     """
     İş kurallarını vector store'da tutan ve semantic search yapan sınıf.
@@ -54,10 +90,33 @@ class BusinessRulesVectorStore:
             anonymized_telemetry=False
         ))
 
-        # Embedding function
-        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=embedding_model
-        )
+        # Embedding function with offline-first strategy
+        # Model cache: ~/.cache/huggingface/hub/
+        # If model is cached, it won't try to download from HuggingFace
+        try:
+            import os
+            # Set HuggingFace to prefer offline mode (use cached models)
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name=embedding_model
+            )
+
+            # Reset offline mode after initialization
+            if os.environ.get("HF_HUB_OFFLINE") == "1":
+                del os.environ["HF_HUB_OFFLINE"]
+
+        except Exception as e:
+            logger.warning(f"Failed to load embedding model in offline mode: {e}")
+            logger.info("Attempting to load with online mode (may download model)...")
+
+            # Fallback: try with online mode and increased timeout
+            import os
+            os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"  # 5 minutes timeout
+
+            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name=embedding_model
+            )
 
         # Collections
         self.rules_collection = None

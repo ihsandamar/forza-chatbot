@@ -26,6 +26,7 @@ from .state import (
 )
 from .intent import IntentClassifier, IntentClassification, IntentType, SimpleIntentClassifier
 from .tools import HITLQuestions, create_clarification_request
+from .delta_parser import AdvancedDeltaParser, SQLModifier
 
 logger = logging.getLogger(__name__)
 
@@ -248,11 +249,32 @@ async def immediate_acknowledgment_node(state: ReportState) -> Dict[str, Any]:
     Kullanıcıya hızlı geri bildirim ver.
 
     İşlem başladığını belirten mesaj gönderir.
+
+    Phase 1: Session tracking ve conversation turn counter başlatır.
+    Phase 4: Performance tracker başlatır.
     """
     logger.info("[REPORT] Sending immediate acknowledgment")
 
+    # Phase 1: Initialize session tracking
+    session_id = state.get("session_id")
+    conversation_turn = state.get("conversation_turn", 0)
+
+    # Increment turn counter
+    new_turn = conversation_turn + 1
+
+    logger.info(f"[REPORT] [SESSION] Turn {new_turn}")
+    if session_id:
+        logger.info(f"[REPORT] [SESSION] ID: {session_id}")
+
+    # Phase 4: Initialize performance tracker
+    from .performance_tracker import PerformanceTracker
+    tracker = PerformanceTracker()
+    logger.info("[REPORT] Phase 4: Performance tracker initialized")
+
     return {
-        "messages": [AIMessage(content="🔄 Sorgunuz işleniyor...")]
+        "messages": [AIMessage(content="🔄 Sorgunuz işleniyor...")],
+        "conversation_turn": new_turn,
+        "_performance_tracker": tracker
     }
 
 
@@ -559,6 +581,8 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
 
     Messages'dan son HumanMessage'ı alır ve state'e kaydeder.
     Merged Text2SQL nodes için user_query alanını doldurur.
+
+    Phase 1: Conversation context oluşturur ve Text2SQL nodes'a geçer.
     """
     user_query = get_last_user_message(state)
 
@@ -568,8 +592,614 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
 
     logger.info(f"[REPORT] Extracted query: {user_query[:100]}...")
 
-    # Set user_query for merged Text2SQL nodes
-    return {"user_query": user_query}
+    # Phase 1: Build conversation context for Text2SQL nodes
+    active_context = state.get("active_query_context")
+    conversation_context = _build_conversation_context(active_context, state)
+
+    if conversation_context:
+        logger.info(f"[REPORT] [CONTEXT] Built conversation context: {list(conversation_context.keys())}")
+
+    # Phase 1: Determine execution mode
+    current_intent = state.get("_intent_type", "new_query")
+    last_intent = state.get("last_intent")
+    confidence = state.get("_confidence", 0.0)
+
+    execution_mode = _determine_execution_mode(
+        intent_type=current_intent,
+        active_context=active_context,
+        last_intent=last_intent,
+        confidence=confidence
+    )
+
+    logger.info(f"[REPORT] [EXTRACT_QUERY] Execution mode: {execution_mode}")
+
+    return {
+        "user_query": user_query,
+        "conversation_context": conversation_context,
+        "last_intent": current_intent,
+        "_execution_mode": execution_mode
+    }
+
+
+def _build_conversation_context(
+    active_context: Optional[Dict[str, Any]],
+    state: ReportState
+) -> Optional[Dict[str, Any]]:
+    """
+    Build conversation context for Text2SQL nodes (Phase 1).
+
+    Context includes:
+    - Previous table
+    - Previous filters
+    - Previous columns
+    - Result statistics
+    - Execution metadata
+
+    Returns:
+        Conversation context dict or None if no active context
+    """
+    if not active_context:
+        return None
+
+    context = {
+        "has_previous_query": True,
+        "previous_table": active_context.get("current_table", ""),
+        "previous_sql": active_context.get("current_sql", ""),
+        "previous_filters": active_context.get("applied_filters", []),
+        "previous_grouping": active_context.get("grouping_columns", []),
+        "previous_ordering": active_context.get("order_by_columns", []),
+        "result_row_count": active_context.get("result_row_count", 0),
+        "last_execution_time": active_context.get("last_execution_time", ""),
+        "confidence_score": active_context.get("confidence_score", 0.0)
+    }
+
+    # Add query history summary
+    query_history = state.get("query_history", [])
+    if query_history:
+        context["query_count"] = len(query_history)
+        context["last_version"] = query_history[-1].get("version", 0) if query_history else 0
+
+    return context
+
+
+# =============================================================================
+# PHASE 2: DELTA SQL EXECUTION
+# =============================================================================
+
+async def delta_sql_modifier_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Delta SQL modifier - Modify existing SQL instead of rebuilding (Phase 4).
+
+    Handles incremental changes with semantic column name resolution:
+    - Filter additions/removals/modifications
+    - Column additions/removals (with semantic name resolution)
+    - Aggregation changes
+    - Ordering changes
+    - Limit changes
+
+    Phase 4 improvements:
+    - Uses AdvancedDeltaParser for LLM-based parsing
+    - Uses SQLModifier with ValueResolver for semantic column name resolution
+    - Prevents "Invalid column name" errors by resolving semantic names to DB columns
+
+    This node BYPASSES:
+    - create_table (reuses existing)
+    - sql_architect
+    - retrieve_business_rules
+    - metadata_enrichment
+    - value_resolver
+    - sql_query_builder
+
+    Goes directly to sql_executor, saving ~60-70% latency.
+
+    Returns:
+        Updated state with modified SQL queries
+    """
+    logger.info("=" * 80)
+    logger.info("[DELTA_SQL] Starting delta SQL modification (Phase 4 optimization)")
+
+    try:
+        # Get active context and user query
+        active_context = state.get("active_query_context")
+        user_query = state.get("user_query", "")
+        intent_type = state.get("_intent_type", "")
+
+        if not active_context:
+            logger.error("[DELTA_SQL] No active context - cannot perform delta update")
+            return {"error": "Delta execution requires previous query context"}
+
+        base_sql = active_context.get("current_sql", "")
+        if not base_sql:
+            logger.error("[DELTA_SQL] No base SQL found in active context")
+            return {"error": "No previous SQL found for delta update"}
+
+        logger.info(f"[DELTA_SQL] Base SQL: {base_sql[:200]}...")
+        logger.info(f"[DELTA_SQL] Intent: {intent_type}")
+        logger.info(f"[DELTA_SQL] User query: {user_query[:100]}...")
+
+        # Get or initialize value resolver for column name resolution
+        value_resolver = state.get("value_resolver")
+        if not value_resolver:
+            logger.warning("[DELTA_SQL] No value_resolver in state - initializing new instance")
+            try:
+                from src.graphs.generic_text2sql.value_resolver_service import ValueResolverService
+                from src.config import get_config
+                import os
+
+                config = get_config()
+                db_connection_string = os.getenv("DATABASE_URL") or config.get("database", {}).get("connection_string")
+                session_id = state.get("session_id", "default")
+                table_name = active_context.get("current_table", "MasterReportDocumentTable")
+
+                # Check if session-specific table exists
+                if session_id and session_id != "default":
+                    table_name_with_session = f"{table_name}_{session_id}"
+                else:
+                    table_name_with_session = table_name
+
+                value_resolver = ValueResolverService(
+                    db_connection_string=db_connection_string,
+                    table_name=table_name_with_session
+                )
+                # Initialize semantic mappings
+                value_resolver._init_column_semantic_mapping()
+                logger.info(f"[DELTA_SQL] ✅ ValueResolver initialized for table: {table_name_with_session}")
+            except Exception as e:
+                logger.error(f"[DELTA_SQL] ❌ Failed to initialize value_resolver: {e}")
+                value_resolver = None
+
+        # Get column metadata for accurate column name resolution
+        column_metadata = state.get("schema_metadata") or state.get("column_metadata")
+        if column_metadata:
+            logger.info(f"[DELTA_SQL] Using {len(column_metadata)} columns for validation")
+        else:
+            logger.warning("[DELTA_SQL] No column metadata available - may produce invalid SQL")
+
+        # Parse user intent for delta changes (with column metadata and value resolver)
+        delta_changes = await _parse_delta_changes(
+            user_query,
+            intent_type,
+            active_context,
+            column_metadata,
+            value_resolver
+        )
+
+        if not delta_changes:
+            logger.warning("[DELTA_SQL] Could not parse delta changes, falling back to full execution")
+            return {"_delta_fallback": True}
+
+        # Apply delta modifications with value resolver
+        modified_sql = _apply_sql_delta(base_sql, delta_changes, active_context, value_resolver)
+
+        logger.info(f"[DELTA_SQL] Modified SQL: {modified_sql[:200]}...")
+        logger.info(f"[DELTA_SQL] ✓ Delta modification completed")
+        logger.info("=" * 80)
+
+        # Return with flags for downstream nodes
+        return {
+            "sql_queries": [modified_sql],
+            "_skip_table_creation": True,      # Reuse existing table
+            "_reuse_table": True,              # Signal to executor
+            "_delta_execution": True,          # Track delta execution
+            "_delta_changes": delta_changes    # Store for debugging
+        }
+
+    except Exception as e:
+        logger.error(f"[DELTA_SQL] Error during delta modification: {e}", exc_info=True)
+        logger.warning("[DELTA_SQL] Falling back to full execution")
+        return {"_delta_fallback": True}
+
+
+async def _parse_delta_changes(
+    user_query: str,
+    intent_type: str,
+    active_context: Dict[str, Any],
+    column_metadata: Optional[Dict[str, str]] = None,
+    value_resolver = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Parse user query to extract delta changes (Phase 4: LLM-based with semantic resolution).
+
+    Uses LLM to understand delta modifications and resolves semantic column names
+    to actual database columns to prevent "Invalid column name" errors.
+
+    Phase 4 improvements:
+    - Uses AdvancedDeltaParser for structured parsing
+    - Resolves semantic column names (e.g., "Tutar" → "RowAmount")
+    - Better confidence scoring for fallback decisions
+
+    Args:
+        user_query: User's modification request
+        intent_type: Intent type (modify_filter, modify_aggregation, etc.)
+        active_context: Previous query context
+        column_metadata: Available column names and descriptions
+        value_resolver: ValueResolverService for semantic column name resolution
+
+    Returns:
+        Dict with delta changes or None if cannot parse
+    """
+    from langchain_openai import ChatOpenAI
+
+    logger.info("[DELTA_SQL] ⚡ Phase 4: Using LLM-based delta parsing with semantic resolution")
+
+    # Phase 4: Use AdvancedDeltaParser for structured parsing
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    parser = AdvancedDeltaParser(llm)
+
+    try:
+        # Use AdvancedDeltaParser to parse delta changes
+        delta_changes = await parser.parse_advanced_delta(
+            user_query=user_query,
+            active_context=active_context,
+            intent_type=intent_type
+        )
+
+        if not delta_changes or delta_changes.get("modification_type") == "unknown":
+            logger.warning("[DELTA_SQL] AdvancedDeltaParser returned unknown modification type")
+            return await _fallback_pattern_matching(user_query, intent_type)
+
+        confidence = delta_changes.get("confidence", 0.0)
+        logger.info(f"[DELTA_SQL] ⚡ Phase 4 parsing confidence: {confidence:.2f}")
+
+        # Resolve semantic column names using ValueResolver
+        if value_resolver:
+            delta_changes = _resolve_delta_column_names(delta_changes, value_resolver)
+
+        # Validate confidence threshold
+        if confidence < 0.6:
+            logger.warning(f"[DELTA_SQL] Low confidence ({confidence:.2f}), falling back")
+            return None
+
+        logger.info(f"[DELTA_SQL] ✓ LLM parsed: {len(delta_changes.get('filters_to_add', []))} filters, "
+                   f"limit={delta_changes.get('limit_change')}")
+
+        return delta_changes
+
+    except Exception as e:
+        logger.warning(f"[DELTA_SQL] LLM parsing failed: {e}, trying pattern matching fallback")
+
+        # Fallback to Phase 2 pattern matching
+        return _parse_delta_changes_pattern_matching(user_query, intent_type)
+
+
+def _parse_delta_changes_pattern_matching(
+    user_query: str,
+    intent_type: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Fallback pattern matching parser (Phase 2 method).
+
+    Returns:
+        Dict with delta changes or None
+    """
+    user_query_lower = user_query.lower()
+    delta_changes = {
+        "type": intent_type,
+        "filters_to_add": [],
+        "filters_to_remove": [],
+        "columns_to_add": [],
+        "columns_to_remove": [],
+        "ordering_change": None,
+        "limit_change": None,
+        "parsing_method": "pattern_matching"
+    }
+
+    # Filter additions
+    if any(keyword in user_query_lower for keyword in ["sadece", "için", "ile", "where"]):
+        logger.info("[DELTA_SQL] Pattern: Detected filter addition")
+        delta_changes["filters_to_add"].append({
+            "raw_query": user_query,
+            "extraction_method": "pattern_matching"
+        })
+
+    # Limit changes
+    if any(keyword in user_query_lower for keyword in ["top", "ilk", "en çok", "limit"]):
+        import re
+        match = re.search(r'\b(\d+)\b', user_query)
+        if match:
+            limit = int(match.group(1))
+            delta_changes["limit_change"] = limit
+            logger.info(f"[DELTA_SQL] Pattern: Detected limit change: {limit}")
+
+    # Ordering changes
+    if any(keyword in user_query_lower for keyword in ["sırala", "büyükten", "küçükten", "order"]):
+        delta_changes["ordering_change"] = user_query
+        logger.info("[DELTA_SQL] Pattern: Detected ordering change")
+
+    # If no changes detected, return None
+    if not any([
+        delta_changes["filters_to_add"],
+        delta_changes["filters_to_remove"],
+        delta_changes["columns_to_add"],
+        delta_changes["columns_to_remove"],
+        delta_changes["ordering_change"],
+        delta_changes["limit_change"]
+    ]):
+        return None
+
+    return delta_changes
+
+
+def _apply_sql_delta(
+    base_sql: str,
+    delta_changes: Dict[str, Any],
+    active_context: Dict[str, Any],
+    value_resolver = None
+) -> str:
+    """
+    Apply delta changes to base SQL (Phase 4: With SQLModifier and semantic resolution).
+
+    Phase 4 improvements:
+    - Uses SQLModifier for robust SQL manipulation
+    - Resolves semantic column names to prevent "Invalid column name" errors
+    - Handles complex aggregation and column operations
+
+    Args:
+        base_sql: Original SQL query
+        delta_changes: Parsed delta changes from AdvancedDeltaParser
+        active_context: Active query context
+        value_resolver: ValueResolverService for column name resolution
+
+    Returns:
+        Modified SQL query
+    """
+    import re
+    modified_sql = base_sql
+    parsing_method = delta_changes.get("parsing_method", "unknown")
+
+    logger.info(f"[DELTA_SQL] Applying delta changes (method: {parsing_method})")
+
+    # Initialize SQLModifier with value_resolver
+    sql_modifier = SQLModifier(value_resolver)
+
+    # Phase 4: Apply column additions using SQLModifier
+    columns_to_add = delta_changes.get("columns_to_add", [])
+    if columns_to_add:
+        logger.info(f"[DELTA_SQL] ⚡ Phase 4: Adding {len(columns_to_add)} columns")
+        modified_sql = sql_modifier.add_columns(modified_sql, columns_to_add)
+
+    # Phase 4: Apply column removals using SQLModifier
+    columns_to_remove = delta_changes.get("columns_to_remove", [])
+    if columns_to_remove:
+        logger.info(f"[DELTA_SQL] ⚡ Phase 4: Removing {len(columns_to_remove)} columns")
+        modified_sql = sql_modifier.remove_columns(modified_sql, columns_to_remove)
+
+    # Phase 4: Apply aggregation changes using SQLModifier
+    aggregation_changes = delta_changes.get("aggregation_changes", {})
+    if aggregation_changes:
+        logger.info("[DELTA_SQL] ⚡ Phase 4: Applying aggregation changes")
+        modified_sql = sql_modifier.modify_aggregations(modified_sql, aggregation_changes)
+
+    # Phase 4: Apply structured filter additions (from LLM)
+    filters_to_add = delta_changes.get("filters_to_add", [])
+    if filters_to_add and isinstance(filters_to_add[0], dict) and "column" in filters_to_add[0]:
+        # Phase 3: Structured filters from LLM
+        logger.info(f"[DELTA_SQL] ⚡ Phase 3: Applying {len(filters_to_add)} structured filters")
+
+        for filter_def in filters_to_add:
+            column = filter_def.get("column")
+            operator = filter_def.get("operator", "=")
+            value = filter_def.get("value")
+
+            if not column or not value:
+                continue
+
+            filter_clause = f"{column} {operator} '{value}'"
+
+            # Add WHERE clause
+            if "WHERE" in modified_sql.upper():
+                # Find WHERE position and add AND
+                where_match = re.search(r'\bWHERE\b', modified_sql, re.IGNORECASE)
+                if where_match:
+                    pos = where_match.end()
+                    modified_sql = modified_sql[:pos] + f" {filter_clause} AND " + modified_sql[pos:]
+            else:
+                # Add WHERE clause before ORDER BY or at end
+                if "ORDER BY" in modified_sql.upper():
+                    modified_sql = re.sub(
+                        r'\bORDER BY\b',
+                        f"WHERE {filter_clause} ORDER BY",
+                        modified_sql,
+                        count=1,
+                        flags=re.IGNORECASE
+                    )
+                else:
+                    modified_sql += f" WHERE {filter_clause}"
+
+            logger.info(f"[DELTA_SQL] ✓ Added filter: {filter_clause}")
+
+    elif filters_to_add:
+        # Fallback: Phase 2 pattern matching for filters
+        logger.info("[DELTA_SQL] Using Phase 2 pattern matching for filters")
+        raw_query = filters_to_add[0].get("raw_query", "")
+        cities = ["istanbul", "ankara", "izmir", "bursa", "antalya"]
+        for city in cities:
+            if city in raw_query.lower():
+                if "WHERE" in modified_sql.upper():
+                    modified_sql = modified_sql.replace(" WHERE ", f" WHERE Sehir = '{city.title()}' AND ")
+                else:
+                    if "ORDER BY" in modified_sql.upper():
+                        modified_sql = modified_sql.replace(" ORDER BY", f" WHERE Sehir = '{city.title()}' ORDER BY")
+                    else:
+                        modified_sql += f" WHERE Sehir = '{city.title()}'"
+                logger.info(f"[DELTA_SQL] Added filter: Sehir = '{city.title()}'")
+                break
+
+    # Apply limit changes
+    limit_change = delta_changes.get("limit_change")
+    if limit_change:
+        if "TOP" in modified_sql.upper():
+            modified_sql = re.sub(r'TOP\s+\d+', f'TOP {limit_change}', modified_sql, flags=re.IGNORECASE)
+            logger.info(f"[DELTA_SQL] ✓ Updated limit: TOP {limit_change}")
+        else:
+            modified_sql = modified_sql.replace("SELECT", f"SELECT TOP {limit_change}", 1)
+            logger.info(f"[DELTA_SQL] ✓ Added limit: TOP {limit_change}")
+
+    # Phase 3: Apply ordering changes (structured from LLM)
+    ordering_change = delta_changes.get("ordering_change")
+    if ordering_change and isinstance(ordering_change, dict):
+        column = ordering_change.get("column")
+        direction = ordering_change.get("direction", "ASC")
+
+        if column:
+            order_clause = f"ORDER BY {column} {direction}"
+
+            if "ORDER BY" in modified_sql.upper():
+                # Replace existing ORDER BY
+                modified_sql = re.sub(
+                    r'ORDER BY\s+\S+\s+(ASC|DESC)?',
+                    order_clause,
+                    modified_sql,
+                    count=1,
+                    flags=re.IGNORECASE
+                )
+            else:
+                # Add ORDER BY at end
+                modified_sql += f" {order_clause}"
+
+            logger.info(f"[DELTA_SQL] ✓ Applied ordering: {order_clause}")
+
+    return modified_sql
+
+
+def _resolve_delta_column_names(delta_changes: Dict[str, Any], value_resolver) -> Dict[str, Any]:
+    """
+    Resolve semantic column names in delta changes to actual database columns.
+
+    This prevents "Invalid column name" errors by ensuring all column references
+    use actual database column names instead of semantic/natural language names.
+
+    Args:
+        delta_changes: Delta changes from parser
+        value_resolver: ValueResolverService instance
+
+    Returns:
+        Delta changes with resolved column names
+    """
+    logger.info("[DELTA_SQL] Resolving semantic column names...")
+
+    # Resolve filters_to_add
+    filters_to_add = delta_changes.get("filters_to_add", [])
+    for filter_def in filters_to_add:
+        if "column" in filter_def:
+            original = filter_def["column"]
+            resolved = value_resolver.resolve_column_name(original)
+            if resolved and resolved != original:
+                logger.info(f"[DELTA_SQL]   Filter column: '{original}' → '{resolved}'")
+                filter_def["column"] = resolved
+
+    # Resolve columns_to_add
+    columns_to_add = delta_changes.get("columns_to_add", [])
+    for col_def in columns_to_add:
+        if "name" in col_def:
+            original = col_def["name"]
+            resolved = value_resolver.resolve_column_name(original)
+            if resolved and resolved != original:
+                logger.info(f"[DELTA_SQL]   Add column: '{original}' → '{resolved}'")
+                col_def["name"] = resolved
+
+    # Resolve columns_to_remove
+    columns_to_remove = delta_changes.get("columns_to_remove", [])
+    resolved_removals = []
+    for col_name in columns_to_remove:
+        resolved = value_resolver.resolve_column_name(col_name)
+        if resolved and resolved != col_name:
+            logger.info(f"[DELTA_SQL]   Remove column: '{col_name}' → '{resolved}'")
+            resolved_removals.append(resolved)
+        else:
+            resolved_removals.append(col_name)
+    delta_changes["columns_to_remove"] = resolved_removals
+
+    # Resolve aggregation_changes new_grouping
+    agg_changes = delta_changes.get("aggregation_changes", {})
+    if agg_changes and "new_grouping" in agg_changes:
+        new_grouping = agg_changes["new_grouping"]
+        resolved_grouping = []
+        for col_name in new_grouping:
+            resolved = value_resolver.resolve_column_name(col_name)
+            if resolved and resolved != col_name:
+                logger.info(f"[DELTA_SQL]   GROUP BY column: '{col_name}' → '{resolved}'")
+                resolved_grouping.append(resolved)
+            else:
+                resolved_grouping.append(col_name)
+        agg_changes["new_grouping"] = resolved_grouping
+
+    # Resolve ordering_change column
+    ordering_change = delta_changes.get("limit_offset_changes", {}).get("ordering_change")
+    if isinstance(ordering_change, dict) and "column" in ordering_change:
+        original = ordering_change["column"]
+        resolved = value_resolver.resolve_column_name(original)
+        if resolved and resolved != original:
+            logger.info(f"[DELTA_SQL]   ORDER BY column: '{original}' → '{resolved}'")
+            ordering_change["column"] = resolved
+
+    logger.info("[DELTA_SQL] ✅ Column name resolution completed")
+    return delta_changes
+
+
+async def _fallback_pattern_matching(user_query: str, intent_type: str) -> Optional[Dict[str, Any]]:
+    """
+    Fallback to simple pattern matching when LLM parsing fails.
+
+    This is a simplified version that handles basic delta operations
+    without semantic column resolution.
+
+    Args:
+        user_query: User's modification request
+        intent_type: Intent type
+
+    Returns:
+        Basic delta changes or None
+    """
+    logger.info("[DELTA_SQL] Using fallback pattern matching")
+
+    user_query_lower = user_query.lower()
+
+    delta_changes = {
+        "type": intent_type,
+        "filters_to_add": [],
+        "filters_to_remove": [],
+        "columns_to_add": [],
+        "columns_to_remove": [],
+        "ordering_change": None,
+        "limit_change": None,
+        "parsing_method": "pattern_matching"
+    }
+
+    # Filter additions
+    if any(keyword in user_query_lower for keyword in ["sadece", "için", "ile", "where"]):
+        logger.info("[DELTA_SQL] Pattern: Detected filter addition")
+        delta_changes["filters_to_add"].append({
+            "raw_query": user_query,
+            "extraction_method": "pattern_matching"
+        })
+
+    # Limit changes
+    if any(keyword in user_query_lower for keyword in ["top", "ilk", "en çok", "limit"]):
+        import re
+        match = re.search(r'\b(\d+)\b', user_query)
+        if match:
+            limit = int(match.group(1))
+            delta_changes["limit_change"] = limit
+            logger.info(f"[DELTA_SQL] Pattern: Detected limit change: {limit}")
+
+    # Ordering changes
+    if any(keyword in user_query_lower for keyword in ["sırala", "büyükten", "küçükten", "order"]):
+        delta_changes["ordering_change"] = user_query
+        logger.info("[DELTA_SQL] Pattern: Detected ordering change")
+
+    # If no changes detected, return None
+    if not any([
+        delta_changes["filters_to_add"],
+        delta_changes["filters_to_remove"],
+        delta_changes["columns_to_add"],
+        delta_changes["columns_to_remove"],
+        delta_changes["ordering_change"],
+        delta_changes["limit_change"]
+    ]):
+        return None
+
+    return delta_changes
 
 
 async def check_results_node(state: ReportState) -> Dict[str, Any]:
@@ -1260,6 +1890,36 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
         iframe = f'<iframe src="data:text/html;charset=utf-8;base64,{html_b64}" width="100%" height="500" frameborder="0"></iframe>'
         parts.append(f"\n📈 Grafik:\n{iframe}")
 
+    # Phase 4: Finalize performance tracking
+    tracker = state.get("_performance_tracker")
+    if tracker:
+        tracker.finish()
+        summary = tracker.get_summary()
+
+        # Store metrics in state
+        result = {
+            "messages": [AIMessage(content="\n".join(parts))],
+            "_node_timings": summary["node_timings"],
+            "_total_latency": summary["total_duration_ms"],
+            "_token_usage": summary["token_usage"],
+            "_cache_stats": summary["cache_stats"]
+        }
+
+        # Store session metrics for API access
+        session_id = state.get("session_id")
+        if session_id:
+            from src.api.routes.metrics import store_session_metrics
+            store_session_metrics(session_id, summary)
+
+        logger.info(
+            f"[REPORT] Phase 4: Performance summary - "
+            f"Duration: {summary['total_duration_ms']:.0f}ms, "
+            f"Tokens: {summary['token_usage']['total']}, "
+            f"Cache hits: {summary['cache_stats']['hits']}"
+        )
+
+        return result
+
     return {"messages": [AIMessage(content="\n".join(parts))]}
 
 
@@ -1525,6 +2185,103 @@ def route_after_intent(state: ReportState) -> str:
     # hepsi process_query'ye gidiyor (text2sql ile işlenecek)
     logger.info(f"[REPORT] Routing to process_query (intent: {intent_type})")
     return "process_query"
+
+
+def route_after_intent_smart(state: ReportState) -> str:
+    """
+    Smart routing with execution mode detection (Phase 1).
+
+    Determines execution path based on:
+    - Intent type
+    - Conversation context
+    - Active query context
+    - Confidence scores
+
+    Returns:
+        Next node name: "extract_query" | "ask_user" | "rollback" | "visualize_direct"
+    """
+    # HITL bekliyor mu?
+    if state.get("waiting_for_user_input"):
+        logger.info("[REPORT] [SMART_ROUTER] Routing to ask_user (waiting for input)")
+        return "ask_user"
+
+    intent_type = state.get("_intent_type", "new_query")
+    confidence = state.get("_confidence", 0.0)
+    active_context = state.get("active_query_context")
+    last_intent = state.get("last_intent")
+
+    logger.info(f"[REPORT] [SMART_ROUTER] Intent: {intent_type}, Confidence: {confidence:.2f}")
+
+    # Rollback
+    if intent_type == "rollback":
+        logger.info("[REPORT] [SMART_ROUTER] → rollback")
+        return "rollback"
+
+    # Visualize existing data (skip Text2SQL)
+    if intent_type == "visualize":
+        logger.info("[REPORT] [SMART_ROUTER] → visualize_direct (skip Text2SQL)")
+        return "visualize_direct"
+
+    # For Phase 1, all queries go to process_query (which routes to extract_query)
+    # extract_query_node will determine execution mode
+    logger.info("[REPORT] [SMART_ROUTER] → process_query")
+    return "process_query"
+
+
+def _determine_execution_mode(
+    intent_type: str,
+    active_context: Optional[Dict[str, Any]],
+    last_intent: Optional[str],
+    confidence: float
+) -> str:
+    """
+    Determine execution mode based on conversation context (Phase 1).
+
+    Execution Modes:
+    - "full": Complete query execution (new query, no context)
+    - "delta": Incremental update (refinement with context) [Phase 2]
+    - "reuse": Reuse existing data (visualization change only) [Phase 2]
+
+    Phase 1: Detection only (returns "full" or marks for future delta)
+    Phase 2: Will implement delta/reuse flows
+
+    Returns:
+        Execution mode: "full" | "delta" | "reuse"
+    """
+    # No active context → Full execution
+    if not active_context:
+        logger.debug("[EXECUTION_MODE] No active context → full")
+        return "full"
+
+    # Low confidence → Full execution (safer)
+    if confidence < 0.7:
+        logger.debug(f"[EXECUTION_MODE] Low confidence ({confidence:.2f}) → full")
+        return "full"
+
+    # Intent types that suggest delta execution (Phase 2 will use this)
+    delta_intents = {
+        "modify_filter",
+        "modify_aggregation",
+        "modify_columns",
+        "modify_order",
+        "add_filter",
+        "remove_filter",
+        "expand_query",
+        "refine_query"
+    }
+
+    if intent_type in delta_intents:
+        logger.debug(f"[EXECUTION_MODE] Delta intent '{intent_type}' detected → delta (Phase 2)")
+        return "delta"  # Phase 2 will use this
+
+    # Visualization change only
+    if intent_type == "visualize" and last_intent in ["new_query", "modify_filter"]:
+        logger.debug("[EXECUTION_MODE] Visualization change → reuse (Phase 2)")
+        return "reuse"  # Phase 2 will use this
+
+    # Default: Full execution
+    logger.debug(f"[EXECUTION_MODE] Intent '{intent_type}' → full")
+    return "full"
 
 
 def route_after_results(state: ReportState) -> str:

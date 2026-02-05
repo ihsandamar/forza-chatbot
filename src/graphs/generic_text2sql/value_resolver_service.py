@@ -29,6 +29,10 @@ class ValueResolverService:
         # Cache storage
         self.cache: Dict[str, Dict] = {}
 
+        # Semantic column name mapping (Turkish/natural language → DB column)
+        self.column_semantic_map: Dict[str, str] = {}
+        self.column_reverse_map: Dict[str, List[str]] = {}  # DB column → semantic aliases
+
     def _parse_mssql_dsn(self, dsn: str) -> str:
         """mssql+pyodbc DSN'yi pyodbc connection string'e çevir"""
         # mssql+pyodbc://user:pass@host:port/database?driver=DRIVER
@@ -104,8 +108,8 @@ class ValueResolverService:
             conn = pyodbc.connect(self.db_conn)
             cursor = conn.cursor()
 
-            # Count distinct values
-            query = f"SELECT COUNT(DISTINCT {column}) FROM {self.table_name} WHERE {column} IS NOT NULL"
+            # Count distinct values - Escape table name for SQL Server
+            query = f"SELECT COUNT(DISTINCT {column}) FROM [{self.table_name}] WHERE {column} IS NOT NULL"
             cursor.execute(query)
             distinct_count = cursor.fetchone()[0]
 
@@ -166,6 +170,7 @@ class ValueResolverService:
         1. Tablo şemasını keşfet (string kolonlar)
         2. Her kolon için cache stratejisi belirle
         3. full_cache stratejisi olan kolonları cache'e yükle
+        4. Semantik kolon mapping'ini hazırla
         """
         logger.info(f"ValueResolver baslatiliyor (table: {self.table_name})...")
 
@@ -189,6 +194,9 @@ class ValueResolverService:
                 await self._load_to_cache(column)
                 cache_count += 1
 
+        # 4. Semantik kolon mapping'ini hazırla
+        self._init_column_semantic_mapping()
+
         logger.info(f"ValueResolver hazir! ({cache_count}/{len(columns)} columns cached)")
     
     async def _load_to_cache(self, column: str):
@@ -197,7 +205,7 @@ class ValueResolverService:
 
         query = f"""
             SELECT DISTINCT TOP {config['max']} {column}
-            FROM {self.table_name}
+            FROM [{self.table_name}]
             WHERE {column} IS NOT NULL
         """
 
@@ -368,7 +376,7 @@ class ValueResolverService:
 
         query = f"""
             SELECT DISTINCT TOP {config['max']} {column}
-            FROM {self.table_name}
+            FROM [{self.table_name}]
             WHERE {column} LIKE '%{search_term}%'
         """
 
@@ -460,14 +468,180 @@ class ValueResolverService:
     async def _ensure_cache_fresh(self, column: str):
         """Cache'in güncel olduğundan emin ol"""
         cached = self.cache.get(column)
-        
+
         if not cached:
             await self._load_to_cache(column)
             return
-        
+
         ttl = timedelta(minutes=cached["ttl"])
         if datetime.now() - cached["fetched_at"] > ttl:
             await self._load_to_cache(column)
+
+    def _init_column_semantic_mapping(self):
+        """
+        Initialize semantic column name mapping.
+        Maps Turkish/natural language column names to actual database columns.
+
+        This prevents errors like "Invalid column name 'RowAmount'" by ensuring
+        semantic column names (e.g., "Tutar", "SatisTutari") are resolved to
+        actual DB columns (e.g., "RowAmount").
+        """
+        # Semantic mapping: natural language → DB column name
+        semantic_aliases = {
+            # Tutar/Amount related
+            "tutar": "RowAmount",
+            "satistutar": "RowAmount",
+            "satistutari": "RowAmount",
+            "satis_tutar": "RowAmount",
+            "amount": "RowAmount",
+            "rowamount": "RowAmount",
+            "toplam": "RowAmount",
+            "toplamtutar": "RowAmount",
+            "totalamount": "RowAmount",
+            "revenue": "RowAmount",
+
+            # Miktar/Quantity related
+            "miktar": "Quantity",
+            "adet": "Quantity",
+            "quantity": "Quantity",
+            "qty": "Quantity",
+
+            # Tarih/Date related
+            "tarih": "DocumentDate",
+            "tarihsaat": "DocumentDate",
+            "date": "DocumentDate",
+            "datetime": "DocumentDate",
+            "documentdate": "DocumentDate",
+
+            # Şube/Branch related
+            "sube": "BranchName",
+            "subeadi": "BranchName",
+            "sube_adi": "BranchName",
+            "branch": "BranchName",
+            "branchname": "BranchName",
+
+            # Ürün/Product related
+            "urun": "ProductName",
+            "urunadi": "ProductName",
+            "urun_adi": "ProductName",
+            "product": "ProductName",
+            "productname": "ProductName",
+
+            # Kategori/Category related
+            "kategori": "CategoryName",
+            "kategoriadi": "CategoryName",
+            "kategori_adi": "CategoryName",
+            "category": "CategoryName",
+            "categoryname": "CategoryName",
+
+            # Şehir/City related
+            "sehir": "BranchCityName",
+            "sehiradi": "BranchCityName",
+            "sehir_adi": "BranchCityName",
+            "city": "BranchCityName",
+            "cityname": "BranchCityName",
+            "branchcity": "BranchCityName",
+            "branchcityname": "BranchCityName",
+
+            # Müşteri/Customer related
+            "musteri": "CustomerName",
+            "musteriadi": "CustomerName",
+            "musteri_adi": "CustomerName",
+            "customer": "CustomerName",
+            "customername": "CustomerName",
+
+            # Kasiyer/Cashier related
+            "kasiyer": "CashierName",
+            "cashier": "CashierName",
+            "cashiername": "CashierName",
+
+            # İndirim/Discount related
+            "indirim": "DiscountAmountTotal",
+            "indirimimtutar": "DiscountAmountTotal",
+            "discount": "DiscountAmountTotal",
+            "discountamounttotal": "DiscountAmountTotal",
+        }
+
+        # Normalize keys (lowercase, remove underscores/spaces)
+        for alias, db_column in semantic_aliases.items():
+            normalized_alias = self._normalize_turkish(alias.replace("_", "").replace(" ", ""))
+            self.column_semantic_map[normalized_alias] = db_column
+
+            # Reverse mapping
+            if db_column not in self.column_reverse_map:
+                self.column_reverse_map[db_column] = []
+            self.column_reverse_map[db_column].append(alias)
+
+        logger.info(f"[VALUE_RESOLVER] Semantic column mapping initialized: {len(self.column_semantic_map)} aliases")
+
+    def resolve_column_name(self, semantic_name: str) -> Optional[str]:
+        """
+        Resolve semantic/natural language column name to actual DB column.
+
+        Args:
+            semantic_name: Natural language column name (e.g., "Tutar", "SatisTutari")
+
+        Returns:
+            Actual database column name (e.g., "RowAmount") or None if not found
+
+        Examples:
+            >>> resolver.resolve_column_name("Tutar")
+            "RowAmount"
+            >>> resolver.resolve_column_name("SatisTutari")
+            "RowAmount"
+            >>> resolver.resolve_column_name("RowAmount")
+            "RowAmount"  # Already a DB column
+        """
+        # Normalize input
+        normalized = self._normalize_turkish(semantic_name.replace("_", "").replace(" ", ""))
+
+        # Check semantic map
+        db_column = self.column_semantic_map.get(normalized)
+
+        if db_column:
+            logger.debug(f"[VALUE_RESOLVER] Resolved '{semantic_name}' → '{db_column}'")
+            return db_column
+
+        # Check if already a DB column (exact match)
+        if semantic_name in self.column_config:
+            logger.debug(f"[VALUE_RESOLVER] '{semantic_name}' is already a DB column")
+            return semantic_name
+
+        # Fuzzy match against actual DB columns (case-insensitive)
+        from rapidfuzz import process, fuzz
+        db_columns = list(self.column_config.keys())
+
+        if not db_columns:
+            logger.warning(f"[VALUE_RESOLVER] No columns available for fuzzy matching '{semantic_name}'")
+            return None
+
+        match = process.extractOne(
+            semantic_name,
+            db_columns,
+            scorer=fuzz.ratio,
+            score_cutoff=85  # High threshold for column names
+        )
+
+        if match:
+            matched_column = match[0]
+            score = match[1]
+            logger.info(f"[VALUE_RESOLVER] Fuzzy matched '{semantic_name}' → '{matched_column}' (score: {score})")
+            return matched_column
+
+        logger.warning(f"[VALUE_RESOLVER] Could not resolve column name: '{semantic_name}'")
+        return None
+
+    def get_column_aliases(self, db_column: str) -> List[str]:
+        """
+        Get all semantic aliases for a database column.
+
+        Args:
+            db_column: Database column name
+
+        Returns:
+            List of semantic aliases
+        """
+        return self.column_reverse_map.get(db_column, [])
 
 
 # ============================================

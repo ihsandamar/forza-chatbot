@@ -591,6 +591,9 @@ Mevcut Kolonlar:
 ### İŞ KURALLARI (DEĞİŞTİRİLEMEZ KANUNLAR)
 {business_rules}
 
+### KONUŞMA BAĞLAMI (Phase 3: Context-Aware SQL) ⚡
+{conversation_context}
+
 ## KULLANICI SORUSU
 {user_query}
 
@@ -601,11 +604,12 @@ Mevcut Kolonlar:
 Önce kullanıcının sorusunu analiz et ve düşünce sürecini yaz:
 
 1. Kullanıcı hangi bilgileri görmek istiyor?
-2. Hangi filtreleme koşulları var?
-3. Hesaplama/toplama var mı?
-4. Gruplama gerekiyor mu?
-5. Bu sorgu için hangi İŞ KURALLARI geçerli? (ÇOK ÖNEMLİ!)
-6. Tarih ifadeleri var mı? Bunları nasıl çözeceğim?
+2. **[Phase 3] Önceki sorguyla ilişkisi var mı? Bir modifikasyon mu yapıyor?**
+3. Hangi filtreleme koşulları var? **[Phase 3] Önceki filtreler korunmalı mı?**
+4. Hesaplama/toplama var mı?
+5. Gruplama gerekiyor mu?
+6. Bu sorgu için hangi İŞ KURALLARI geçerli? (ÇOK ÖNEMLİ!)
+7. Tarih ifadeleri var mı? Bunları nasıl çözeceğim?
 
 **ADIM 2: YAPIYA DÖNÜŞTÜR**
 

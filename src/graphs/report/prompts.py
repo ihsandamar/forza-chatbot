@@ -27,20 +27,59 @@ INTENT_UNDERSTANDING_TEMPLATE = """Kullanıcı mesajı: {user_message}
 
 {context_info}
 
-Analiz et:
-1. Intent: new_query, modify_filter, modify_aggregation, visualize, rollback, clarify?
-2. Confidence: 0.0-1.0
-3. Clarification gerekli mi? Neden?
-4. Extracted entities (tablo, kolon, filtre, zaman, vb.)
+Analiz et ve doğru intent type'ı seç:
+
+**Intent Types:**
+1. **new_query**: Tamamen yeni bir sorgu (önceki context'ten bağımsız)
+   - Örnek: "Bugünkü satışları göster", "Hangi ürünler en çok satıldı?"
+   - Context yoksa VEYA kullanıcı yeni bir konu açtıysa
+
+2. **modify_filter**: Mevcut sorguya filtre ekle/çıkar/değiştir
+   - Örnek: "Sadece İstanbul şubesi", "Dünü de ekle", "Ankara hariç"
+   - MUTLAKA context olmalı + filtre değişikliği içermeli
+
+3. **modify_aggregation**: Gruplama/toplama değiştir
+   - Örnek: "Şubelere göre grupla", "Toplamı göster", "Ortalama al"
+   - MUTLAKA context olmalı + aggregation değişikliği içermeli
+
+4. **modify_columns**: Gösterilen kolonları değiştir
+   - Örnek: "Müşteri adını da göster", "Sadece tutarı göster"
+   - MUTLAKA context olmalı + kolon değişikliği içermeli
+
+5. **modify_order**: Sıralamayı değiştir
+   - Örnek: "Büyükten küçüğe sırala", "Tarihe göre sırala"
+   - MUTLAKA context olmalı + sıralama değişikliği içermeli
+
+6. **visualize**: Sadece görselleştirme değiştir (veri aynı)
+   - Örnek: "Bunu bar chart yap", "Pasta grafik olarak göster"
+   - MUTLAKA context olmalı + sadece chart type değişmeli
+
+7. **rollback**: Önceki versiyona dön
+   - Örnek: "Geri al", "Önceki haline dön", "İptal"
+
+8. **clarify**: Belirsiz, daha fazla bilgi gerekiyor
+   - Örnek: "Göster", "Değiştir" (neyi?)
+
+**KRİTİK KURALLAR:**
+- Context YOKSA → modify_* intent'ler ASLA kullanılmaz, sadece new_query olabilir
+- Context VARSA + "sadece", "ekle", "çıkar", "hariç" gibi kelimeler → modify_filter
+- Context VARSA + "grafik", "chart", "görsel" → visualize
+- Belirsizse → clarify (confidence < 0.7)
+
+Confidence:
+- 0.9-1.0: Çok net (örnek: "Sadece İstanbul" + context var)
+- 0.7-0.9: Net (örnek: "Bugünkü satışlar")
+- 0.5-0.7: Belirsiz (örnek: "Göster")
+- 0.0-0.5: Çok belirsiz (örnek: "Ne yapabiliriz?")
 
 JSON döndür:
 {{
-    "intent_type": "...",
-    "confidence": 0.0,
+    "intent_type": "new_query|modify_filter|modify_aggregation|modify_columns|modify_order|visualize|rollback|clarify",
+    "confidence": 0.95,
     "requires_clarification": false,
     "clarification_question": null,
     "extracted_entities": {{}},
-    "reasoning": "..."
+    "reasoning": "Context var mı? Hangi kelimeler kullanılmış? Intent neden bu?"
 }}"""
 
 

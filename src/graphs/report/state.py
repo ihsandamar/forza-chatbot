@@ -221,6 +221,34 @@ class ReportState(TypedDict):
     _viz_decision: Optional[Dict[str, Any]]         # Visualization decision (from report graph, not viz graph)
 
     # -------------------------------------------------------------------------
+    # Conversation Tracking (Phase 1)
+    # -------------------------------------------------------------------------
+    session_id: Optional[str]                       # Thread/session ID for conversation tracking
+    conversation_turn: Optional[int]                # Turn counter in conversation
+    last_intent: Optional[str]                      # Previous intent type for context
+    conversation_context: Optional[Dict[str, Any]]  # Previous query context for Text2SQL
+
+    # -------------------------------------------------------------------------
+    # Execution Optimization (Phase 1)
+    # -------------------------------------------------------------------------
+    _execution_mode: Optional[str]                  # "full" | "delta" | "reuse" - execution strategy
+    _reuse_table: Optional[bool]                    # Reuse master table flag
+    _skip_table_creation: Optional[bool]            # Skip create_table node flag
+    _delta_changes: Optional[Dict[str, Any]]        # Delta modifications for SQL
+
+    # -------------------------------------------------------------------------
+    # Cache Tracking (Phase 1)
+    # -------------------------------------------------------------------------
+    _cache_hits: Optional[List[str]]                # Which caches hit (for monitoring)
+    _token_usage: Optional[Dict[str, int]]          # Token tracking per node
+
+    # -------------------------------------------------------------------------
+    # Performance Metrics (Phase 1)
+    # -------------------------------------------------------------------------
+    _node_timings: Optional[Dict[str, float]]       # Latency per node (ms)
+    _total_latency: Optional[float]                 # End-to-end latency (ms)
+
+    # -------------------------------------------------------------------------
     # LLM Reasoning Traces: Debugging ve monitoring için
     # -------------------------------------------------------------------------
     _intent_reasoning: Optional[str]                # Intent understanding LLM reasoning
