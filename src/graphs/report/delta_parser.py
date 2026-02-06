@@ -59,7 +59,8 @@ class AdvancedDeltaParser:
         self,
         user_query: str,
         active_context: Dict[str, Any],
-        intent_type: str
+        intent_type: str,
+        schema_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Parse complex delta changes with structured output.
@@ -68,6 +69,7 @@ class AdvancedDeltaParser:
             user_query: User's modification request
             active_context: Active SQL context with current SQL
             intent_type: Intent classification
+            schema_metadata: Table schema with available columns (CRITICAL!)
 
         Returns:
             Dictionary with:
@@ -81,8 +83,8 @@ class AdvancedDeltaParser:
         """
         current_sql = active_context.get("sql_query", "")
 
-        # Build prompt for LLM
-        prompt = self._build_parsing_prompt(user_query, current_sql, intent_type)
+        # Build prompt for LLM with schema context
+        prompt = self._build_parsing_prompt(user_query, current_sql, intent_type, schema_metadata)
 
         try:
             # Call LLM
@@ -114,16 +116,57 @@ class AdvancedDeltaParser:
         self,
         user_query: str,
         current_sql: str,
-        intent_type: str
+        intent_type: str,
+        schema_metadata: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Build prompt for delta parsing."""
+        """Build prompt for delta parsing with schema context."""
+
+        # Build available columns section from schema metadata
+        available_columns_section = ""
+        if schema_metadata:
+            columns = []
+
+            # Extract column names from schema_metadata
+            # schema_metadata can be a dict or list depending on source
+            if isinstance(schema_metadata, dict):
+                # If dict with column_name keys
+                for col_name, col_info in schema_metadata.items():
+                    if isinstance(col_info, dict):
+                        col_type = col_info.get("type", "unknown")
+                        col_desc = col_info.get("description", "")
+                        columns.append(f"  - {col_name} ({col_type}): {col_desc}")
+                    else:
+                        columns.append(f"  - {col_name}")
+            elif isinstance(schema_metadata, list):
+                # If list of column dicts
+                for col in schema_metadata:
+                    if isinstance(col, dict):
+                        col_name = col.get("column_name") or col.get("name", "")
+                        col_type = col.get("type", "")
+                        if col_name:
+                            columns.append(f"  - {col_name} ({col_type})")
+                    else:
+                        columns.append(f"  - {col}")
+
+            if columns:
+                available_columns_section = f"""
+## ⚠️ AVAILABLE COLUMNS IN TABLE (USE ONLY THESE!)
+```
+{chr(10).join(columns)}
+```
+
+**CRITICAL**: You MUST use ONLY the column names listed above. Do NOT invent or guess column names!
+If user mentions a concept not in the list, find the closest matching column or return low confidence.
+
+"""
+
         prompt = f"""Kullanıcının SQL sorgusu değişikliği talebini analiz et ve yapısal JSON formatında çıktı ver.
 
 ## MEVCUT SQL SORGUSU
 ```sql
 {current_sql}
 ```
-
+{available_columns_section}
 ## KULLANICI DEĞİŞİKLİK TALEBİ
 "{user_query}"
 

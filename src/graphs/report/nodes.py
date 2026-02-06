@@ -981,10 +981,49 @@ async def delta_sql_modifier_node(state: ReportState) -> Dict[str, Any]:
 
         # Get column metadata for accurate column name resolution
         column_metadata = state.get("schema_metadata") or state.get("column_metadata")
+
+        # CRITICAL: If no schema metadata in state, fetch from database
+        if not column_metadata:
+            logger.warning("[DELTA_SQL] No schema_metadata in state - fetching from database")
+            try:
+                from src.graphs.generic_text2sql.schema_discovery import get_schema_discovery_service
+                import os
+
+                db_connection_string = os.getenv("DATABASE_URL")
+                table_name = active_context.get("current_table", "MasterReportDocumentTable")
+                session_id = state.get("session_id", "default")
+
+                # Check for session-specific table
+                if session_id and session_id != "default":
+                    table_name_with_session = f"{table_name}_{session_id}"
+                else:
+                    table_name_with_session = table_name
+
+                # Fetch schema from database
+                schema_service = await get_schema_discovery_service(db_connection_string)
+                table_metadata = await schema_service.discover_table_schema(table_name_with_session)
+
+                if table_metadata and table_metadata.columns:
+                    # Convert to column metadata dict
+                    column_metadata = {
+                        col.column_name: {
+                            "type": col.data_type,
+                            "description": col.description or ""
+                        }
+                        for col in table_metadata.columns
+                    }
+                    logger.info(f"[DELTA_SQL] ✅ Fetched {len(column_metadata)} columns from database")
+                else:
+                    logger.error(f"[DELTA_SQL] ❌ Failed to fetch schema for table: {table_name_with_session}")
+
+            except Exception as e:
+                logger.error(f"[DELTA_SQL] ❌ Error fetching schema metadata: {e}")
+                column_metadata = None
+
         if column_metadata:
             logger.info(f"[DELTA_SQL] Using {len(column_metadata)} columns for validation")
         else:
-            logger.warning("[DELTA_SQL] No column metadata available - may produce invalid SQL")
+            logger.error("[DELTA_SQL] ❌ CRITICAL: No column metadata available - SQL may be invalid!")
 
         # Parse user intent for delta changes (with column metadata and value resolver)
         delta_changes = await _parse_delta_changes(
@@ -1058,11 +1097,12 @@ async def _parse_delta_changes(
     parser = AdvancedDeltaParser(llm)
 
     try:
-        # Use AdvancedDeltaParser to parse delta changes
+        # Use AdvancedDeltaParser to parse delta changes WITH SCHEMA METADATA
         delta_changes = await parser.parse_advanced_delta(
             user_query=user_query,
             active_context=active_context,
-            intent_type=intent_type
+            intent_type=intent_type,
+            schema_metadata=column_metadata  # CRITICAL: Pass table schema!
         )
 
         if not delta_changes or delta_changes.get("modification_type") == "unknown":
