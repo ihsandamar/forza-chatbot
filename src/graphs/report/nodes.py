@@ -2283,129 +2283,49 @@ async def build_response_node(state: ReportState) -> Dict[str, Any]:
     """
     Final response oluştur.
 
-    Visualization output'u formatla ve kullanıcıya gönder.
+    Basit:
+    - data_visualization'dan gelirse HTML döndür
+    - sql_execution'dan gelirse result döndür
     """
-    viz_output = state.get("visualization_output")
+    # Hata kontrolü
     error = state.get("error")
-    no_records = state.get("no_records_message")
-    active_context = state.get("active_query_context")
-
-    # Boş sonuç mesajı
-    if no_records:
-        return {"messages": [AIMessage(content=f"ℹ️ {no_records}")]}
-
-    # Hata mesajı
     if error:
         return {"messages": [AIMessage(content=f"❌ Hata: {error}")]}
 
-    # Visualization yok - check if we have viz_decision and results
-    if not viz_output:
-        viz_decision = state.get("_viz_decision")
+    no_records = state.get("no_records_message")
+    if no_records:
+        return {"messages": [AIMessage(content=f"ℹ️ {no_records}")]}
 
-        # For merged mode: results are directly in state
-        # For backward compatibility: check text2sql_output
-        results = state.get("results")
-        text2sql_output = state.get("text2sql_output")
-
-        # Get results from either merged mode or backward compatibility mode
-        if results:
-            data_results = results
-        elif text2sql_output:
-            data_results = text2sql_output.get("results", [])
-        else:
-            data_results = []
-
-        # If we have viz_decision (needs_graph=false case), create output
-        if viz_decision and data_results:
-            viz_final = {
-                "summary": viz_decision.get("reason", "Sonuçlar hazır"),
-                "output_type": viz_decision.get("output_type", "table"),
-                "needs_graph": False,
-                "data": data_results
-            }
-        else:
-            return {"messages": [AIMessage(content="⚠️ Görselleştirme çıktısı bulunamadı")]}
-    else:
-        # Response oluştur
-        viz_final = viz_output.get("visualization_output", {})
-
-    summary = viz_final.get("summary", "Rapor hazır")
-    output_type = viz_final.get("output_type", "table")
-    needs_graph = viz_final.get("needs_graph", False)
-    data = viz_final.get("data", [])
-
-    parts = []
-
-    # Eğer grafik yoksa ama data varsa, direkt sonuçları göster
-    if not needs_graph and data:
-        # Format data based on output_type
-        if output_type == "single_value":
-            # Single value - direkt göster, başlık yok
-            if data and len(data) > 0:
-                value = list(data[0].values())[0] if data[0] else "N/A"
-                parts.append(f"📊 **Sonuç:** {value}")
-        elif output_type in ["simple_list", "table"]:
-            # List or table - başlık ile göster
-            parts.append(f"📊 **Sonuçlar** ({len(data)} kayıt):\n")
-
-            # Show all rows (up to 50)
-            for i, row in enumerate(data[:50], 1):
-                row_str = " | ".join([f"**{k}:** {v}" for k, v in row.items()])
-                parts.append(f"{i}. {row_str}")
-
-            if len(data) > 50:
-                parts.append(f"\n... ve {len(data) - 50} kayıt daha")
-    else:
-        # Fallback: eski format
-        parts = [
-            "📊 Rapor Sonucu:",
-            f"• Tip: {output_type}",
-            f"• Veri: {len(data)} satır",
-            f"• {summary}"
-        ]
-
-    # Plotly HTML ekle
-    plotly_html = viz_output.get("plotly_html_snippet") if viz_output else None
-    if plotly_html and needs_graph:
-        import base64
-        html_full = f'''<!DOCTYPE html>
+    # Data visualization'dan gelen HTML var mı?
+    viz_output = state.get("visualization_output")
+    if viz_output:
+        plotly_html = viz_output.get("plotly_html_snippet")
+        if plotly_html:
+            # HTML döndür
+            import base64
+            html_full = f'''<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="margin:0">{plotly_html}</body></html>'''
-        html_b64 = base64.b64encode(html_full.encode('utf-8')).decode('ascii')
-        iframe = f'<iframe src="data:text/html;charset=utf-8;base64,{html_b64}" width="100%" height="500" frameborder="0"></iframe>'
-        parts.append(f"\n📈 Grafik:\n{iframe}")
+            html_b64 = base64.b64encode(html_full.encode('utf-8')).decode('ascii')
+            iframe = f'<iframe src="data:text/html;charset=utf-8;base64,{html_b64}" width="100%" height="500" frameborder="0"></iframe>'
+            return {"messages": [AIMessage(content=f"📈 Grafik:\n{iframe}")]}
 
-    # Phase 4: Finalize performance tracking
-    tracker = state.get("_performance_tracker")
-    if tracker:
-        tracker.finish()
-        summary = tracker.get_summary()
+    # SQL execution'dan gelen result var mı?
+    results = state.get("results")
+    if results:
+        # Results'ı formatla ve döndür
+        parts = [f"📊 **Sonuçlar** ({len(results)} kayıt):\n"]
+        for i, row in enumerate(results[:50], 1):
+            row_str = " | ".join([f"**{k}:** {v}" for k, v in row.items()])
+            parts.append(f"{i}. {row_str}")
 
-        # Store metrics in state
-        result = {
-            "messages": [AIMessage(content="\n".join(parts))],
-            "_node_timings": summary["node_timings"],
-            "_total_latency": summary["total_duration_ms"],
-            "_token_usage": summary["token_usage"],
-            "_cache_stats": summary["cache_stats"]
-        }
+        if len(results) > 50:
+            parts.append(f"\n... ve {len(results) - 50} kayıt daha")
 
-        # Store session metrics for API access
-        session_id = state.get("session_id")
-        if session_id:
-            from src.api.routes.metrics import store_session_metrics
-            store_session_metrics(session_id, summary)
+        return {"messages": [AIMessage(content="\n".join(parts))]}
 
-        logger.info(
-            f"[REPORT] Phase 4: Performance summary - "
-            f"Duration: {summary['total_duration_ms']:.0f}ms, "
-            f"Tokens: {summary['token_usage']['total']}, "
-            f"Cache hits: {summary['cache_stats']['hits']}"
-        )
-
-        return result
-
-    return {"messages": [AIMessage(content="\n".join(parts))]}
+    # Hiçbir şey yoksa
+    return {"messages": [AIMessage(content="⚠️ Sonuç bulunamadı")]}
 
 
 # =============================================================================
