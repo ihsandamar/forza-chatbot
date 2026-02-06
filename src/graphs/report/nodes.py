@@ -564,34 +564,39 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
             intent_detector = create_intent_detector()
             ambiguity = await intent_detector.detect_ambiguity(temp_state, stage="intent")
 
-            # Check if HITL should be triggered
+            # ⚠️ CRITICAL: Check if HITL should be triggered
             max_clarifications = HITL_CONFIG.get("max_clarification_count", 3)
             if ambiguity and should_trigger_hitl(temp_state, ambiguity, max_clarifications):
-                logger.info(f"[REPORT] Ambiguity detected: {ambiguity.ambiguity_type}")
+                logger.warning(
+                    f"[REPORT] ⚠️ AMBIGUITY DETECTED: {ambiguity.ambiguity_type} - "
+                    f"TRIGGERING HITL (This is critical for understanding user intent!)"
+                )
 
                 # Track ambiguity metrics
                 _track_ambiguity_metric(ambiguity.ambiguity_type, "detected")
 
-            # Build user-friendly question
-            question_builder = HITLQuestionBuilder()
-            question_template = question_builder.build_question(ambiguity)
+                # Build user-friendly question
+                question_builder = HITLQuestionBuilder()
+                question_template = question_builder.build_question(ambiguity)
 
-            # Increment clarification count
-            new_clarification_count = temp_state.get("clarification_count", 0) + 1
+                # Increment clarification count
+                new_clarification_count = temp_state.get("clarification_count", 0) + 1
 
-            # Create HITL request
-            pending_question = question_template.to_pending_question()
+                # Create HITL request
+                pending_question = question_template.to_pending_question()
 
-            return {
-                "pending_question": pending_question,
-                "waiting_for_user_input": True,
-                "ambiguity_context": ambiguity,
-                "clarification_count": new_clarification_count,
-                "user_query": user_message,
-                "_intent_type": classification.intent_type.value,
-                "_confidence": classification.confidence,
-                "_extracted_entities": classification.extracted_entities
-            }
+                logger.info(f"[REPORT] HITL question prepared: {pending_question['question'][:100]}...")
+
+                return {
+                    "pending_question": pending_question,
+                    "waiting_for_user_input": True,
+                    "ambiguity_context": ambiguity,
+                    "clarification_count": new_clarification_count,
+                    "user_query": user_message,
+                    "_intent_type": classification.intent_type.value,
+                    "_confidence": classification.confidence,
+                    "_extracted_entities": classification.extracted_entities
+                }
 
             # Check for auto-resolvable ambiguities
             if ambiguity and ambiguity.auto_resolvable:

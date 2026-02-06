@@ -162,28 +162,62 @@ Sadece aktif context YOKSA veya kullanıcı açıkça yeni bir konu başlatıyor
 - "X raporu getir", "Y listele" (tamamen farklı konu)
 - "Yeni rapor", "Başka bir şey"
 
-### ⚠️ CONTEXT AMBİGUİTY (Belirsizlik Durumu)
+### ⚠️ CONTEXT AMBİGUİTY (Belirsizlik Durumu) - EN KRİTİK!
 
-**ÖZEL DURUM**: Context VAR + Sorgu yeni gibi görünüyor + Ama ilişkili olabilir
+**⚠️ ÇÖZÜLMEZ KURAL**: Context VAR + Kullanıcı yeni analiz istiyor + Açık referans YOK → MUTLAKA SOR!
 
-Örnek Senaryo:
-- Önceki sorgu: "Son 3 yılda Ankara'daki satışlar"
-- Şimdiki sorgu: "Hangi kategoriden ne kadar satış olmuş"
+**NEDEN KRİTİK?**: Kullanıcının amacını yanlış anlamak tüm sonuçları değiştirir!
+- Yanlış: "Ankara için kategoriler" yerine "Tüm Türkiye için kategoriler" göstermek
+- Doğru: Kullanıcıya sormak ve kesin olmak!
 
-❓ Belirsizlik: "Ankara + Son 3 yıl" filtrelerini koruyup kategorilere mi bakacak, yoksa YENİ sorgu mu?
+**Örnek Senaryolar (MUTLAKA SORULMALI):**
 
-Bu durumda:
-1. `requires_clarification = true`
-2. `clarification_question`: "Önceki filtreleri (Ankara, Son 3 yıl) koruyarak kategorilere göre mi görmek istiyorsunuz?"
-3. `clarification_options`: ["Evet, önceki filtrelerle devam et", "Hayır, yeni sorgu (tüm veriler)"]
-4. `confidence`: 0.5-0.7 arası (belirsiz)
+Senaryo A:
+- Context: "Ankara'daki satışlar"
+- User: "Hangi kategoriden satış olmuş?"
+- ❌ Varsayma: "Tüm Türkiye için kategoriler"
+- ✅ Sor: "Ankara için mi, tüm veriler için mi?"
 
-**Context Ambiguity Tespiti İçin Kontrol Listesi:**
-✅ Context'te filtre/süzme VAR mı? (örn: şehir, tarih, kategori)
-✅ Yeni sorgu farklı bir boyut istiyor mu? (örn: önceki şehir bazlıydı, şimdi kategori bazlı istiyor)
-✅ Context referansı YOK mu? ("burdaki", "bunun" gibi kelimeler yok)
+Senaryo B:
+- Context: "Kategorilere göre satışlar"
+- User: "Toplamları göster"
+- ❌ Varsayma: "Tüm kategorilerin toplamı"
+- ✅ Sor: "Mevcut kategoriler için mi, tüm veriler için mi?"
 
-→ HEPSİ EVETse: requires_clarification = TRUE
+Senaryo C:
+- Context: "Son 3 yıl + İstanbul"
+- User: "Şubelere göre analiz et"
+- ❌ Varsayma: "Tüm şubeler"
+- ✅ Sor: "İstanbul şubeleri için mi, tüm şubeler için mi?"
+
+**Context Ambiguity Tespiti İçin SIKI Kontrol:**
+1. ✅ Context'te FİLTRE/GRUPLAMA VAR mı?
+2. ✅ Kullanıcı yeni analiz/soru soruyor mu? ("hangi", "göster", "toplam", vb.)
+3. ✅ Açık context referansı YOK mu? ("burdaki", "bunun", "şunun" yok)
+4. ✅ Açık modifikasyon ifadesi YOK mu? ("sadece", "ekle", "çıkar" yok)
+
+→ HEPSİ EVETse: **MUTLAKA** requires_clarification = TRUE, confidence ≤ 0.5
+
+**Yanıt Formatı (Context Ambiguity için):**
+```json
+{{
+  "intent_type": "new_query",
+  "confidence": 0.5,  // ⚠️ DÜŞÜK OLMALI!
+  "requires_clarification": true,  // ⚠️ MUTLAKA TRUE!
+  "clarification_question": "Sen ne yapmak istiyorsun?",
+  "clarification_options": [
+    "Mevcut filtrelerle devam et (...)",
+    "Yeni sorgu başlat (TÜM VERİLER için ...)"
+  ],
+  "extracted_entities": {{
+    "context_ambiguous": true,
+    "previous_filters": [...],
+    "new_dimension": "..."
+  }}
+}}
+```
+
+⚠️ UNUTMA: Şüphe varsa SOR! Varsaymaktan iyidir!
 
 ## KARAR MATRİSİ
 
@@ -208,22 +242,22 @@ Eğer intent modify_filter ise, extracted_entities şöyle olmalı:
 
 ## ÖRNEK CLASSIFICATION (Context Ambiguity)
 
-**Senaryo 1: Context Ambiguity**
+**Senaryo 1: Context Ambiguity (MOST CRITICAL!)**
 ```
 Context: Ankara + Son 3 yıl filtreleri var
 User: "Hangi kategoriden ne kadar satış olmuş"
-→ Belirsiz! Ankara için mi, tüm veriler için mi?
+→ ⚠️ BELİRSİZ! Ankara için mi, tüm veriler için mi? → MUTLAKA SOR!
 ```
 Yanıt:
 ```json
 {{
   "intent_type": "new_query",
-  "confidence": 0.6,
+  "confidence": 0.5,
   "requires_clarification": true,
-  "clarification_question": "Önceki filtreleri (Ankara, Son 3 yıl) koruyarak kategorilere göre mi görmek istiyorsunuz?",
+  "clarification_question": "Sen ne yapmak istiyorsun? Mevcut filtrelerle devam mı edeceksin yoksa yeni sorgu mu başlatacaksın?",
   "clarification_options": [
-    "Evet, Ankara + Son 3 yıl için kategorilere göre göster",
-    "Hayır, tüm veriler için kategorilere göre göster"
+    "Mevcut filtrelerle devam et (Ankara + Son 3 yıl için kategorilere göre göster)",
+    "Yeni sorgu başlat (TÜM VERİLER için kategorilere göre göster)"
   ],
   "extracted_entities": {{
     "context_ambiguous": true,
@@ -232,6 +266,8 @@ Yanıt:
   }}
 }}
 ```
+
+⚠️ ÖNEMLİ: Context ambiguity durumunda confidence MUTLAKA düşük olmalı (≤0.5) ve requires_clarification=true olmalı!
 
 **Senaryo 2: Açık Context Reference (Ambiguity YOK)**
 ```

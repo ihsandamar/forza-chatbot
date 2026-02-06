@@ -100,82 +100,129 @@ class IntentStageDetector(AmbiguityDetector):
         user_query: str
     ) -> Optional[AmbiguityContext]:
         """
-        Detect context ambiguity - unclear if user wants to continue with filters.
+        Detect context ambiguity - CRITICAL for understanding user intent.
 
-        Detection criteria (ALL must be true):
+        ⚠️ AGGRESIVE DETECTION: Better to ask than assume!
+
+        Detection criteria:
         1. Active context exists
-        2. Context has filters applied
-        3. New dimension detected (different from current grouping)
-        4. No explicit context reference ("burdaki", "bunun", etc.)
-        5. Intent classified as new_query
+        2. Context has filters OR grouping OR any previous state
+        3. Query doesn't explicitly reference context ("burdaki", "bunun")
+        4. Query is not a clear modification ("sadece", "ekle", "çıkar")
+        5. Intent is new_query OR confidence < 0.8
 
-        Example:
+        KEY PRINCIPLE: If there's ANY doubt about whether user wants to
+        continue with context, ASK! This prevents major misunderstandings.
+
+        Example 1 (MUST ASK):
             Context: Ankara + Son 3 yıl
             Query: "Hangi kategoriden satış olmuş?"
-            → Ambiguous: Ankara için mi, tüm veriler için mi?
+            → AMBIGUOUS! Ankara için mi, tüm veriler için mi? → ASK!
+
+        Example 2 (MUST ASK):
+            Context: Kategorilere göre satışlar
+            Query: "Toplamları göster"
+            → AMBIGUOUS! Mevcut kategoriler için mi, tüm veriler için mi? → ASK!
+
+        Example 3 (NO AMBIGUITY):
+            Context: Ankara
+            Query: "Burdaki kategorilere göre göster"
+            → CLEAR! "Burdaki" = context devam
 
         Args:
             state: Current ReportState
             user_query: User's query
 
         Returns:
-            AmbiguityContext if detected, None otherwise
+            AmbiguityContext if ANY doubt exists, None only if crystal clear
         """
         # Check 1: Active context exists?
         context = state.get("active_query_context")
         if not context:
             return None
 
-        # Check 2: Has filters?
+        # Check 2: Has filters OR grouping OR previous SQL?
         filters = context.get("applied_filters", [])
-        if not filters:
+        grouping = context.get("grouping_columns", [])
+        previous_sql = context.get("current_sql", "")
+
+        # If no meaningful context, no ambiguity
+        if not filters and not grouping and not previous_sql:
             return None
 
-        # Check 3: Intent is new_query?
-        intent_type = state.get("_intent_type", "")
-        if intent_type != "new_query":
-            return None
-
-        # Check 4: No context reference?
+        # Check 3: Explicit context reference? (No ambiguity if user says "burdaki")
         if self._has_context_reference(user_query):
             return None
 
-        # Check 5: New dimension detected?
-        # Extract entities from state
-        extracted_entities = state.get("_extracted_entities", {})
-        new_dimension = extracted_entities.get("new_dimension")
-
-        # If no explicit new_dimension, try to detect from query
-        if not new_dimension:
-            new_dimension = self._detect_new_dimension(user_query, context)
-
-        if not new_dimension:
+        # Check 4: Clear modification keywords? (No ambiguity if clear modification)
+        modification_keywords = [
+            "sadece", "için", "ekle", "çıkar", "filtrele",
+            "değiştir", "kaldır", "sil", "ekleme"
+        ]
+        query_lower = user_query.lower()
+        if any(kw in query_lower for kw in modification_keywords):
+            # User is clearly modifying, not creating new query
             return None
 
-        # All criteria met - context ambiguity detected!
-        logger.info(
-            f"[CONTEXT_AMBIGUITY] Detected: filters={len(filters)}, "
-            f"new_dimension={new_dimension}, no_reference=True"
+        # Check 5: Intent and confidence
+        intent_type = state.get("_intent_type", "")
+        confidence = state.get("_confidence", 0.0)
+
+        # CRITICAL: If intent is new_query OR low confidence → AMBIGUOUS!
+        is_new_query = intent_type == "new_query"
+        is_low_confidence = confidence < 0.8  # ⚠️ Lowered from 0.7 to 0.8 (more aggressive)
+
+        if not is_new_query and not is_low_confidence:
+            # Intent is clear modification with high confidence
+            return None
+
+        # Check 6: Query seems to ask for different analysis?
+        # This includes ANY query that doesn't explicitly modify existing filters
+        query_asks_for_analysis = any(word in query_lower for word in [
+            "hangi", "ne kadar", "toplam", "ortalama", "maksimum",
+            "minimum", "göster", "listele", "bul", "analiz"
+        ])
+
+        if not query_asks_for_analysis:
+            # Query is not asking for analysis, might be clear modification
+            return None
+
+        # ⚠️ ALL CHECKS PASSED - CONTEXT AMBIGUITY DETECTED!
+        # Better to ask than assume user's intent!
+
+        logger.warning(
+            f"[CONTEXT_AMBIGUITY] ⚠️ DETECTED! "
+            f"Context has {len(filters)} filters, {len(grouping)} grouping. "
+            f"Query: '{user_query}' - Intent: {intent_type}, Confidence: {confidence:.2f}"
         )
+
+        # Detect what user might be asking about
+        new_dimension = self._detect_new_dimension(user_query, context)
 
         # Build metadata
         metadata = build_context_ambiguity_metadata(
             state,
-            new_dimension=new_dimension
+            new_dimension=new_dimension or "analiz"
         )
         metadata["has_context_reference"] = False
+        metadata["user_query_type"] = "analysis_request"
+        metadata["confidence"] = confidence
 
         # Get context summary
         context_summary = self._get_active_context_summary(state)
+
+        logger.info(
+            f"[CONTEXT_AMBIGUITY] Context summary: {context_summary}"
+        )
 
         return AmbiguityContext(
             ambiguity_type=AmbiguityType.CONTEXT,
             user_query=user_query,
             active_context_summary=context_summary,
-            candidates=["keep_filters", "clear_filters"],
+            candidates=["keep_context", "new_query"],
             metadata=metadata,
             detection_stage="intent",
-            auto_resolvable=False  # Always ask user for context ambiguity
+            auto_resolvable=False  # ⚠️ NEVER auto-resolve context ambiguity!
         )
 
     def _detect_new_dimension(
@@ -184,35 +231,56 @@ class IntentStageDetector(AmbiguityDetector):
         context: Dict[str, Any]
     ) -> Optional[str]:
         """
-        Detect if query mentions a new dimension not in current grouping.
+        Detect if query mentions a dimension/metric.
 
         Args:
             query: User query
             context: Active query context
 
         Returns:
-            New dimension name (e.g., "kategori", "ürün") or None
+            Dimension name or "analiz" if general analysis
         """
         query_lower = query.lower()
         current_grouping = context.get("grouping_columns", [])
 
-        # Dimension keywords
+        # Dimension keywords (semantic analysis)
         dimension_keywords = {
             "kategori": "CategoryName",
             "ürün": "ProductName",
             "müşteri": "CustomerName",
             "şehir": "BranchCityName",
             "şube": "BranchName",
+            "branch": "BranchName",
             "tarih": "DocumentDate",
             "ay": "DocumentDate",
             "yıl": "DocumentDate",
+            "gün": "DocumentDate",
+            "zaman": "DocumentDate",
+            "dönem": "DocumentDate",
         }
 
+        # Metric keywords (aggregation requests)
+        metric_keywords = [
+            "toplam", "tutar", "miktar", "adet", "sayı",
+            "ortalama", "maksimum", "minimum", "en yüksek", "en düşük"
+        ]
+
+        # Check for dimension
         for keyword, column in dimension_keywords.items():
             if keyword in query_lower:
                 # Check if not already in grouping
                 if column not in current_grouping:
                     return keyword
+
+        # Check for metric (aggregation request)
+        for metric in metric_keywords:
+            if metric in query_lower:
+                return "toplam/analiz"
+
+        # Check for analysis questions
+        analysis_keywords = ["hangi", "ne kadar", "nasıl", "nerede", "kimden"]
+        if any(kw in query_lower for kw in analysis_keywords):
+            return "analiz"
 
         return None
 

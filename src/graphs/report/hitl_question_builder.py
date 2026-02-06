@@ -156,23 +156,26 @@ class HITLQuestionBuilder:
 
     def _build_context_question(self, ctx: AmbiguityContext) -> QuestionTemplate:
         """
-        Build context ambiguity question.
+        Build context ambiguity question - CRITICAL for user understanding.
+
+        ⚠️ CLEAR & DIRECT: User must understand what they're choosing!
 
         Example:
             User: "Hangi kategoriden satış olmuş?"
             Context: Ankara + Son 3 yıl filters
 
             Question:
-                ❓ Önceki filtreleri koruyarak mı görmek istiyorsunuz?
+                ❓ Sen ne yapmak istiyorsun?
 
-                💡 Şu anda 'Ankara, Son 3 yıl' filtreleri aktif.
-                    Yeni sorgunuz 'kategori' bazında bir analiz istiyor.
+                💡 Şu anda 'Ankara, Son 3 yıl' filtreleriyle çalışıyorsun.
+                    Yeni sorgun bu filtrelerle mi devam edecek, yoksa sıfırdan
+                    yeni bir sorgu mu başlatacaksın?
 
-                📌 Mevcut Durum: Ankara | Son 3 yıl | 125 satır
+                📌 Mevcut Filtreler: Ankara | Son 3 yıl | 125 satır
 
                 Seçenekler:
-                  1. Evet, Ankara + Son 3 yıl için kategorilere göre göster
-                  2. Hayır, TÜM VERİLER için kategorilere göre göster
+                  1. Mevcut filtrelerle devam et (Ankara + Son 3 yıl için göster)
+                  2. Yeni sorgu başlat (TÜM VERİLER için göster)
 
         Args:
             ctx: AmbiguityContext with type=CONTEXT
@@ -182,39 +185,48 @@ class HITLQuestionBuilder:
         """
         metadata = ctx.metadata
         filters = metadata.get("applied_filters", [])
-        new_dimension = metadata.get("new_dimension", "yeni boyutta")
+        new_dimension = metadata.get("new_dimension", "analiz")
         row_count = metadata.get("result_row_count", 0)
 
         # Format filter summary
         filter_summary = format_filter_summary(filters)
 
-        # Build title
-        title = "Önceki filtreleri koruyarak mı görmek istiyorsunuz?"
+        # Build title - DIRECT & CLEAR
+        title = "Sen ne yapmak istiyorsun?"
 
-        # Build explanation
+        # Build explanation - DETAILED
         explanation = (
-            f"Şu anda '{filter_summary}' filtreleri aktif.\n"
-            f"    Yeni sorgunuz '{new_dimension}' bazında bir analiz istiyor."
+            f"Şu anda '{filter_summary}' filtreleriyle çalışıyorsun.\n"
+            f"    Yeni sorgun ('{new_dimension}') bu filtrelerle mi devam edecek,\n"
+            f"    yoksa sıfırdan yeni bir sorgu mu başlatacaksın?"
         )
 
         # Build context summary
         context_summary = ctx.active_context_summary or f"{filter_summary} | {row_count} satır"
 
-        # Build options
-        option_yes = f"Evet, {filter_summary} için {new_dimension} bazında göster"
-        option_no = f"Hayır, TÜM VERİLER için {new_dimension} bazında göster"
+        # Build options - CRYSTAL CLEAR
+        option_continue = (
+            f"Mevcut filtrelerle devam et "
+            f"({filter_summary} için {new_dimension} göster)"
+        )
 
-        options = [option_yes, option_no]
+        option_new = (
+            f"Yeni sorgu başlat "
+            f"(TÜM VERİLER için {new_dimension} göster)"
+        )
+
+        options = [option_continue, option_new]
 
         return QuestionTemplate(
             title=title,
             explanation=explanation,
-            context_summary=context_summary,
+            context_summary=f"Mevcut Filtreler: {context_summary}",
             options=options,
             metadata={
                 "ambiguity_type": AmbiguityType.CONTEXT,
                 "filters": filters,
-                "new_dimension": new_dimension
+                "new_dimension": new_dimension,
+                "critical": True  # Mark as critical question
             }
         )
 
