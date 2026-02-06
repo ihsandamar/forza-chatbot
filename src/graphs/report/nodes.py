@@ -2202,6 +2202,7 @@ def create_visualization_node(visualization_graph):
             logger.info(f"[REPORT] No graph needed: {viz_decision.get('reason')}")
             # Return formatted output without calling visualization graph
             output_type = viz_decision.get("output_type", "table")
+            user_query = get_last_user_message(state) or ""
 
             formatted_output = {
                 "summary": viz_decision.get("reason", "Sonuçlar hazır"),
@@ -2209,7 +2210,8 @@ def create_visualization_node(visualization_graph):
                 "needs_graph": False,
                 "data": results,
                 "sql_query": sql_query,
-                "metadata": metadata
+                "metadata": metadata,
+                "user_query": user_query  # Include user query for context
             }
 
             return {
@@ -2220,14 +2222,20 @@ def create_visualization_node(visualization_graph):
         logger.info("[REPORT] Invoking visualization graph (render only)...")
 
         try:
+            # Get user query for visualization context
+            user_query = get_last_user_message(state) or ""
+
             # Prepare input with decision
             viz_input = {
                 "results": results,
                 "sql_query": sql_query,
                 "metadata": metadata,
+                "user_query": user_query,  # CRITICAL: Pass user intent to viz graph
                 # Pass decision to visualization graph
                 "_viz_decision": viz_decision
             }
+
+            logger.debug(f"[REPORT] Passing user_query to viz graph: {user_query[:50]}...")
 
             # Pass runtime config to visualization graph
             result = await visualization_graph.ainvoke(viz_input, config)
