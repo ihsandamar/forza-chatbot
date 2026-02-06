@@ -398,7 +398,7 @@ def build_report_graph(
             {
                 "ask_user": "ask_user",
                 "rollback": "rollback",
-                "visualize_direct": "decide_visualization",  # Skip text2sql for chart conversion
+                "visualize_direct": "visualization",  # Skip text2sql AND decide → direct to viz
                 "process_query": "extract_query"
             }
         )
@@ -429,7 +429,7 @@ def build_report_graph(
             hitl_disabled_router,
             {
                 "rollback": "rollback",
-                "visualize_direct": "decide_visualization",
+                "visualize_direct": "visualization",  # Skip decide → direct to viz
                 "extract_query": "extract_query"
             }
         )

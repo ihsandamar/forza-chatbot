@@ -2188,8 +2188,17 @@ def create_visualization_node(visualization_graph):
         if not results:
             return {"error": "No results to visualize", "visualization_output": None}
 
+        # Auto-create viz_decision if missing (visualize_direct path)
+        if not viz_decision:
+            logger.info("[REPORT] [VISUALIZE_DIRECT] No viz_decision → creating default bar_chart decision")
+            viz_decision = {
+                "needs_graph": True,
+                "output_type": "bar_chart",
+                "reason": "Kullanıcı görselleştirme istedi"
+            }
+
         # Check if graph is needed
-        if viz_decision and not viz_decision.get("needs_graph"):
+        if not viz_decision.get("needs_graph"):
             logger.info(f"[REPORT] No graph needed: {viz_decision.get('reason')}")
             # Return formatted output without calling visualization graph
             output_type = viz_decision.get("output_type", "table")
