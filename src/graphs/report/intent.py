@@ -665,15 +665,35 @@ class SimpleIntentClassifier:
                         extracted_entities["filter_value"] = icin_match.group(1)
 
         # Öncelikli kontrol: "Grafiğe dönüştür" pattern'i (text2sql atlanacak)
+        # SPECIAL CASE: "bunu" + "grafik" kombinasyonu (typo-tolerant)
+        if has_active_context:
+            # Check for "bunu" + any visualization keyword
+            has_bunu = "bunu" in message_lower
+            has_viz_keyword = any(kw in message_lower for kw in ["grafik", "chart", "görsel", "çubuk", "pasta", "çizgi"])
+
+            if has_bunu and has_viz_keyword:
+                logger.info("[INTENT] 'bunu' + visualization keyword detected → VISUALIZE")
+                return IntentClassification(
+                    intent_type=IntentType.VISUALIZE,
+                    confidence=0.95,
+                    requires_clarification=False,
+                    clarification_question=None,
+                    clarification_options=None,
+                    extracted_entities={"convert_to_chart": True}
+                )
+
+        # Detailed keyword check (exact matching)
         visualize_convert_keywords = [
             "grafiğe dönüştür", "grafik yap", "grafik göster", "chart yap",
             "çubuk grafik yap", "pasta grafik yap", "çizgi grafik yap",
-            "bunu grafiğe", "bunu çubuk", "bunu pasta", "bunu çizgi"
+            "bunu grafiğe", "bunu çubuk", "bunu pasta", "bunu çizgi",
+            "grafik olarak", "grafikle", "chart olarak", "chartla",
+            "görselleştir", "görsel olarak", "grafik ver", "chart ver"
         ]
 
         if has_active_context and any(kw in message_lower for kw in visualize_convert_keywords):
             # Context var + "grafiğe dönüştür" = VISUALIZE intent
-            logger.info("[INTENT] Visualize convert detected (skip text2sql, go direct to viz)")
+            logger.info("[INTENT] Visualize convert keyword detected (skip text2sql, go direct to viz)")
             return IntentClassification(
                 intent_type=IntentType.VISUALIZE,
                 confidence=0.95,

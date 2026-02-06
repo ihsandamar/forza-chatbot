@@ -194,14 +194,36 @@ async def decide_visualization_node(state: ReportState) -> Dict[str, Any]:
 
     Karar logic'i artık report graph'ta.
     Visualization graph sadece render yapar.
-    """
-    text2sql_output = state.get("text2sql_output")
 
-    if not text2sql_output or text2sql_output.get("error"):
-        logger.info("[REPORT] No text2sql output for visualization decision")
+    IMPORTANT: Supports both "visualize_direct" and "normal" paths:
+    - visualize_direct: Uses active_query_context.result_sample
+    - normal: Uses text2sql_output.results
+    """
+    # Check if this is visualize_direct path (no text2sql_output)
+    text2sql_output = state.get("text2sql_output")
+    active_context = state.get("active_query_context")
+
+    # Get results from appropriate source
+    results = None
+    if text2sql_output and not text2sql_output.get("error"):
+        results = text2sql_output.get("results", [])
+        logger.debug("[REPORT] Using results from text2sql_output")
+    elif active_context and active_context.get("result_sample"):
+        results = active_context.get("result_sample", [])
+        logger.info("[REPORT] [VISUALIZE_DIRECT] Using results from active_query_context")
+    else:
+        logger.warning("[REPORT] No results available for visualization decision")
         return {}
 
-    results = text2sql_output.get("results", [])
+    if not results or len(results) == 0:
+        logger.info("[REPORT] No results for visualization")
+        return {
+            "_viz_decision": {
+                "needs_graph": False,
+                "output_type": "table",
+                "reason": "Sonuç yok"
+            }
+        }
 
     if not results or len(results) == 0:
         logger.info("[REPORT] No results for visualization")
@@ -230,7 +252,7 @@ async def decide_visualization_node(state: ReportState) -> Dict[str, Any]:
     user_query_lower = user_query.lower()
 
     chart_type_keywords = {
-        "bar": ["çubuk", "bar", "막대"],
+        "bar": ["çubuk", "bar", "막대", "grafik olarak", "grafik ver", "grafik yap", "grafikle", "chart olarak", "chart ver"],
         "line": ["çizgi", "line", "trend"],
         "pie": ["pasta", "pie", "daire", "oran"],
         "scatter": ["scatter", "dağılım"],
@@ -854,7 +876,12 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
         enriched_query = _enrich_query_with_context(user_query, active_context)
         logger.info(f"[REPORT] [CONTEXTUAL_FULL] Enriched query: {enriched_query[:150]}...")
 
-        return {
+        # ⚠️ CRITICAL: Preserve context filters if explicitly requested
+        preserve_context = state.get("_preserve_context", False)
+        context_filters_to_keep = state.get("_context_filters_to_keep", [])
+        context_grouping_to_keep = state.get("_context_grouping_to_keep", [])
+
+        result = {
             "user_query": enriched_query,  # Enriched query for full SQL generation
             "conversation_context": conversation_context,
             "last_intent": current_intent,
@@ -862,6 +889,18 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
             "_reuse_table": True,       # Reuse existing table for performance
             "_skip_table_creation": True
         }
+
+        # If user explicitly chose to keep context, preserve it for merging later
+        if preserve_context and (context_filters_to_keep or context_grouping_to_keep):
+            logger.info(
+                f"[REPORT] [CONTEXTUAL_FULL] ⚠️ PRESERVING CONTEXT: "
+                f"{len(context_filters_to_keep)} filters, {len(context_grouping_to_keep)} grouping"
+            )
+            result["_preserved_filters"] = context_filters_to_keep
+            result["_preserved_grouping"] = context_grouping_to_keep
+            result["_merge_preserved_context"] = True
+
+        return result
 
     return {
         "user_query": user_query,
@@ -1695,6 +1734,49 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
         }
         updated_context = update_active_context(active_context, text2sql_output_dict)
 
+    # ⚠️ CRITICAL: Merge preserved context filters if user chose to keep them
+    merge_preserved = state.get("_merge_preserved_context", False)
+    if merge_preserved:
+        preserved_filters = state.get("_preserved_filters", [])
+        preserved_grouping = state.get("_preserved_grouping", [])
+
+        if preserved_filters or preserved_grouping:
+            logger.warning(
+                f"[REPORT] ⚠️ MERGING PRESERVED CONTEXT: "
+                f"{len(preserved_filters)} filters, {len(preserved_grouping)} grouping"
+            )
+
+            # Merge preserved filters with new context
+            existing_filters = updated_context.get("applied_filters", [])
+
+            # Add preserved filters that don't already exist
+            merged_filters = list(existing_filters)
+            for pf in preserved_filters:
+                # Check if filter already exists
+                if not any(
+                    ef.get("column") == pf.get("column") and
+                    ef.get("value") == pf.get("value")
+                    for ef in existing_filters
+                ):
+                    merged_filters.append(pf)
+                    logger.info(
+                        f"[REPORT] ✅ Merged preserved filter: "
+                        f"{pf.get('column')} {pf.get('operator', '=')} {pf.get('value')}"
+                    )
+
+            updated_context["applied_filters"] = merged_filters
+
+            # Merge preserved grouping
+            if preserved_grouping:
+                existing_grouping = updated_context.get("grouping_columns", [])
+                merged_grouping = list(set(existing_grouping + preserved_grouping))
+                updated_context["grouping_columns"] = merged_grouping
+
+            logger.info(
+                f"[REPORT] ✓ Context merge completed: "
+                f"Total filters={len(merged_filters)}, Total grouping={len(merged_grouping)}"
+            )
+
     # Checkpoint oluştur
     user_message = get_last_user_message(state)
     query_history = state.get("query_history", [])
@@ -1706,7 +1788,14 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
 
     return {
         "active_query_context": updated_context,
-        "query_history": [new_checkpoint]
+        "query_history": [new_checkpoint],
+        # Clear temporary flags
+        "_merge_preserved_context": None,
+        "_preserved_filters": None,
+        "_preserved_grouping": None,
+        "_preserve_context": None,
+        "_context_filters_to_keep": None,
+        "_context_grouping_to_keep": None
     }
 
 
@@ -2066,33 +2155,52 @@ def create_visualization_node(visualization_graph):
         Visualization graph'ı çağır - sadece render işlemi.
 
         Karar logic'i decide_visualization_node'da yapıldı.
+
+        IMPORTANT: Supports both "visualize_direct" and "normal" paths:
+        - visualize_direct: Uses active_query_context
+        - normal: Uses text2sql_output
         """
         text2sql_output = state.get("text2sql_output")
+        active_context = state.get("active_query_context")
         viz_decision = state.get("_viz_decision")
 
-        if not text2sql_output:
-            return {"error": "No text2sql output", "visualization_output": None}
+        # Get data from appropriate source
+        results = None
+        sql_query = None
+        metadata = {}
 
-        if text2sql_output.get("error"):
-            return {
-                "error": f"Cannot visualize: {text2sql_output['error']}",
-                "visualization_output": None
-            }
+        if text2sql_output and not text2sql_output.get("error"):
+            # Normal path - from text2sql
+            results = text2sql_output.get("results", [])
+            sql_query = text2sql_output.get("sql_query")
+            metadata = text2sql_output.get("metadata", {})
+            logger.debug("[REPORT] Using data from text2sql_output")
+        elif active_context:
+            # visualize_direct path - from active_query_context
+            results = active_context.get("result_sample", [])
+            sql_query = active_context.get("current_sql")
+            metadata = {}
+            logger.info("[REPORT] [VISUALIZE_DIRECT] Using data from active_query_context")
+        else:
+            logger.error("[REPORT] No data available for visualization")
+            return {"error": "No data available for visualization", "visualization_output": None}
+
+        if not results:
+            return {"error": "No results to visualize", "visualization_output": None}
 
         # Check if graph is needed
         if viz_decision and not viz_decision.get("needs_graph"):
             logger.info(f"[REPORT] No graph needed: {viz_decision.get('reason')}")
             # Return formatted output without calling visualization graph
             output_type = viz_decision.get("output_type", "table")
-            results = text2sql_output.get("results", [])
 
             formatted_output = {
                 "summary": viz_decision.get("reason", "Sonuçlar hazır"),
                 "output_type": output_type,
                 "needs_graph": False,
                 "data": results,
-                "sql_query": text2sql_output.get("sql_query"),
-                "metadata": text2sql_output.get("metadata", {})
+                "sql_query": sql_query,
+                "metadata": metadata
             }
 
             return {
@@ -2105,7 +2213,9 @@ def create_visualization_node(visualization_graph):
         try:
             # Prepare input with decision
             viz_input = {
-                **text2sql_output,
+                "results": results,
+                "sql_query": sql_query,
+                "metadata": metadata,
                 # Pass decision to visualization graph
                 "_viz_decision": viz_decision
             }
@@ -3138,11 +3248,31 @@ def _process_context_clarification(
         keep_filters = True
 
     if keep_filters:
-        logger.info("[HITL] User chose to KEEP filters (delta execution)")
+        logger.info("[HITL] User chose to KEEP filters (contextual_full mode)")
+
+        # ⚠️ CRITICAL: Preserve active_query_context!
+        # When user says "continue with filters", we MUST keep the context
+        active_context = state.get("active_query_context")
+
+        if not active_context:
+            logger.warning("[HITL] No active context to keep, treating as new query")
+            return {
+                "_execution_mode": "full",
+                "_intent_type": "new_query",
+                "user_query": state.get("user_query", "")
+            }
+
+        # Use contextual_full mode (enriches query with context filters)
+        # This will trigger context-aware full rebuild in extract_query_node
         return {
-            "_execution_mode": "delta",
+            "_execution_mode": "contextual_full",
             "_intent_type": "modify_filter",
-            "user_query": state.get("user_query", "")  # Keep original query
+            "user_query": state.get("user_query", ""),
+            # ⚠️ CRITICAL: Explicitly preserve context!
+            # This ensures filters are maintained throughout execution
+            "_preserve_context": True,
+            "_context_filters_to_keep": active_context.get("applied_filters", []),
+            "_context_grouping_to_keep": active_context.get("grouping_columns", [])
         }
     else:
         logger.info("[HITL] User chose to CLEAR filters (new query)")

@@ -155,8 +155,13 @@ class SemanticCache:
 
         result = await compute_fn()
 
-        # Store in cache
-        self._store(cache_key, query, query_embedding, result)
+        # Don't cache empty/invalid results
+        if result and (not isinstance(result, str) or result.strip()):
+            # Store in cache
+            self._store(cache_key, query, query_embedding, result)
+            logger.debug(f"[CACHE] Stored result for: {query[:50]}...")
+        else:
+            logger.warning(f"[CACHE] Skipping cache for empty result: {query[:50]}...")
 
         return result
 

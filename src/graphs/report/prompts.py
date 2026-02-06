@@ -51,7 +51,8 @@ Analiz et ve doğru intent type'ı seç:
    - MUTLAKA context olmalı + sıralama değişikliği içermeli
 
 6. **visualize**: Sadece görselleştirme değiştir (veri aynı)
-   - Örnek: "Bunu bar chart yap", "Pasta grafik olarak göster"
+   - Örnek: "Bunu grafik yap", "Bunu grafik olarak ver", "Bunu bar chart yap", "Pasta grafik olarak göster", "Chart olarak göster"
+   - **ÖNEMLİ:** "Bunu" + "grafik/chart/görsel" kelimesi VARSA → %100 visualize intent
    - MUTLAKA context olmalı + sadece chart type değişmeli
 
 7. **rollback**: Önceki versiyona dön
@@ -63,7 +64,8 @@ Analiz et ve doğru intent type'ı seç:
 **KRİTİK KURALLAR:**
 - Context YOKSA → modify_* intent'ler ASLA kullanılmaz, sadece new_query olabilir
 - Context VARSA + "sadece", "ekle", "çıkar", "hariç" gibi kelimeler → modify_filter
-- Context VARSA + "grafik", "chart", "görsel" → visualize
+- **Context VARSA + "bunu" + "grafik/chart/görsel" → %100 visualize (EN ÖNCELİKLİ!)**
+- Context VARSA + "grafik", "chart", "görsel", "grafik olarak", "grafikle", "görselleştir" → visualize
 - Belirsizse → clarify (confidence < 0.7)
 
 Confidence:

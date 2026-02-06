@@ -172,7 +172,14 @@ class ConversationalSemanticCache:
 
             # Compute and store in global cache only
             result = await compute_fn()
-            await self._store_global(query, result)
+
+            # Don't cache empty/invalid results
+            if result and (not isinstance(result, str) or result.strip()):
+                await self._store_global(query, result)
+                logger.debug(f"[CONV_CACHE] Stored global result (no session): {query[:50]}...")
+            else:
+                logger.warning(f"[CONV_CACHE] Skipping global cache for empty result: {query[:50]}...")
+
             async with self._lock:
                 self.stats["misses"] += 1
             return (result, "miss")
@@ -228,8 +235,13 @@ class ConversationalSemanticCache:
 
         result = await compute_fn()
 
-        # Store in both session and global caches
-        await self._store_multi_level(session_id, query, query_hash, query_embedding, result)
+        # Don't cache empty/invalid results
+        if result and (not isinstance(result, str) or result.strip()):
+            # Store in both session and global caches
+            await self._store_multi_level(session_id, query, query_hash, query_embedding, result)
+            logger.debug(f"[CONV_CACHE] Stored result for: {query[:50]}...")
+        else:
+            logger.warning(f"[CONV_CACHE] Skipping cache for empty result: {query[:50]}...")
 
         return (result, "miss")
 

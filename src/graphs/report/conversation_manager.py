@@ -294,14 +294,32 @@ class ConversationManager:
         try:
             messages = self.prompt.format_messages(**prompt_vars)
             response = await self.llm.ainvoke(messages)
-            return response.content
+
+            # Check if response is empty or None
+            if not response or not response.content:
+                logger.error("[CONVERSATION] LLM returned empty response")
+                return '{"intent_type": "new_query", "confidence": 0.5, "requires_clarification": false}'
+
+            content = response.content.strip()
+            if not content:
+                logger.error("[CONVERSATION] LLM returned whitespace-only response")
+                return '{"intent_type": "new_query", "confidence": 0.5, "requires_clarification": false}'
+
+            logger.debug(f"[CONVERSATION] LLM response (first 200 chars): {content[:200]}")
+            return content
+
         except Exception as e:
-            logger.error(f"[CONVERSATION] LLM call failed: {e}")
-            return "{}"
+            logger.error(f"[CONVERSATION] LLM call failed: {e}", exc_info=True)
+            return '{"intent_type": "new_query", "confidence": 0.5, "requires_clarification": false}'
 
     def _parse_llm_intent(self, llm_response: str, user_message: str, active_context: Optional[ActiveQueryContext] = None) -> ConversationIntent:
         """Parse LLM response into ConversationIntent."""
         try:
+            # Early check for empty response
+            if not llm_response or not llm_response.strip():
+                logger.error("[CONVERSATION] Received empty or whitespace-only LLM response")
+                raise ValueError("Empty LLM response")
+
             # Extract JSON from response - robust parsing
             json_str = llm_response.strip()
 
@@ -319,9 +337,13 @@ class ConversationManager:
                         json_str = json_str[5:]
 
             # If still empty or invalid, log and fail
-            if not json_str or json_str == "{}":
-                logger.warning(f"[CONVERSATION] Empty JSON response from LLM")
-                raise ValueError("Empty JSON response")
+            if not json_str:
+                logger.error("[CONVERSATION] JSON string is empty after markdown cleanup")
+                raise ValueError("Empty JSON string after cleanup")
+
+            if json_str == "{}":
+                logger.warning("[CONVERSATION] LLM returned empty JSON object {}")
+                raise ValueError("Empty JSON object")
 
             logger.debug(f"[CONVERSATION] Parsing JSON: {json_str[:200]}...")
             data = json.loads(json_str)
