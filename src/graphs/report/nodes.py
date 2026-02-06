@@ -12,6 +12,8 @@ Graph Flow:
 """
 
 import logging
+import yaml
+from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
@@ -27,8 +29,159 @@ from .state import (
 from .intent import IntentClassifier, IntentClassification, IntentType, SimpleIntentClassifier
 from .tools import HITLQuestions, create_clarification_request
 from .delta_parser import AdvancedDeltaParser, SQLModifier
+from .ambiguity_detectors import create_intent_detector, create_metadata_detector
+from .hitl_question_builder import HITLQuestionBuilder
+from .ambiguity_router import (
+    AmbiguityRouter,
+    AmbiguityFallback,
+    should_trigger_hitl,
+    apply_auto_resolution
+)
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# ENHANCED HITL CONFIGURATION
+# =============================================================================
+
+def _load_hitl_config() -> Dict[str, Any]:
+    """
+    Load enhanced HITL configuration from config.yaml.
+
+    Returns default values if config not found or parsing fails.
+
+    Returns:
+        Dict with HITL configuration
+    """
+    try:
+        config_path = Path("config/config.yaml")
+        if not config_path.exists():
+            logger.warning("[HITL_CONFIG] config.yaml not found, using defaults")
+            return _get_default_hitl_config()
+
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        report_config = config.get("report", {})
+        hitl_config = report_config.get("hitl", {})
+
+        # Merge with defaults
+        defaults = _get_default_hitl_config()
+        return {**defaults, **hitl_config}
+
+    except Exception as e:
+        logger.error(f"[HITL_CONFIG] Error loading config: {e}, using defaults")
+        return _get_default_hitl_config()
+
+
+def _get_default_hitl_config() -> Dict[str, Any]:
+    """
+    Get default HITL configuration.
+
+    Returns:
+        Dict with default values
+    """
+    return {
+        "enable_enhanced_hitl": True,
+        "max_clarification_count": 3,
+        "auto_resolve_threshold": 0.85,
+        "enable_context_ambiguity": True,
+        "enable_prompt_scope_ambiguity": True,
+        "enable_intent_ambiguity": True,
+        "enable_column_ambiguity": True,
+        "enable_value_ambiguity": True,
+    }
+
+
+# Load config at module level
+HITL_CONFIG = _load_hitl_config()
+logger.info(f"[HITL_CONFIG] Loaded: enable_enhanced_hitl={HITL_CONFIG.get('enable_enhanced_hitl')}")
+
+
+# =============================================================================
+# METRICS TRACKING
+# =============================================================================
+
+# Simple in-memory metrics (for monitoring)
+HITL_METRICS = {
+    "ambiguity_distribution": {},     # {ambiguity_type: count}
+    "auto_resolve_count": 0,          # Total auto-resolved
+    "hitl_trigger_count": 0,          # Total HITL triggered
+    "clarification_counts": [],       # List of clarification counts per session
+}
+
+
+def _track_ambiguity_metric(ambiguity_type: str, event: str = "detected") -> None:
+    """
+    Track ambiguity metrics for monitoring.
+
+    Args:
+        ambiguity_type: Type of ambiguity (CONTEXT, PROMPT_SCOPE, etc.)
+        event: Event type (detected, auto_resolved, user_resolved)
+    """
+    try:
+        monitoring_config = HITL_CONFIG.get("monitoring", {})
+        track_distribution = monitoring_config.get("track_ambiguity_distribution", True)
+
+        if not track_distribution:
+            return
+
+        # Track distribution
+        key = f"{ambiguity_type}_{event}"
+        HITL_METRICS["ambiguity_distribution"][key] = \
+            HITL_METRICS["ambiguity_distribution"].get(key, 0) + 1
+
+        # Track totals
+        if event == "auto_resolved":
+            HITL_METRICS["auto_resolve_count"] += 1
+        elif event == "detected":
+            HITL_METRICS["hitl_trigger_count"] += 1
+
+        # Log every 10 events
+        total_events = sum(HITL_METRICS["ambiguity_distribution"].values())
+        if total_events % 10 == 0:
+            logger.info(f"[HITL_METRICS] Distribution: {HITL_METRICS['ambiguity_distribution']}")
+            logger.info(f"[HITL_METRICS] Auto-resolve rate: {_calculate_auto_resolve_rate():.2%}")
+
+    except Exception as e:
+        logger.error(f"[HITL_METRICS] Error tracking metric: {e}")
+
+
+def _calculate_auto_resolve_rate() -> float:
+    """
+    Calculate auto-resolution success rate.
+
+    Returns:
+        Rate (0.0-1.0)
+    """
+    total = HITL_METRICS["hitl_trigger_count"]
+    auto_resolved = HITL_METRICS["auto_resolve_count"]
+
+    if total == 0:
+        return 0.0
+
+    return auto_resolved / total
+
+
+def get_hitl_metrics() -> Dict[str, Any]:
+    """
+    Get current HITL metrics for monitoring dashboard.
+
+    Returns:
+        Dict with metrics
+    """
+    avg_clarification = 0.0
+    if HITL_METRICS["clarification_counts"]:
+        avg_clarification = sum(HITL_METRICS["clarification_counts"]) / len(HITL_METRICS["clarification_counts"])
+
+    return {
+        "ambiguity_distribution": HITL_METRICS["ambiguity_distribution"].copy(),
+        "auto_resolve_rate": _calculate_auto_resolve_rate(),
+        "total_hitl_triggers": HITL_METRICS["hitl_trigger_count"],
+        "total_auto_resolved": HITL_METRICS["auto_resolve_count"],
+        "avg_clarification_count": avg_clarification,
+    }
 
 
 # =============================================================================
@@ -391,11 +544,64 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
                 logger.info(f"[REPORT] Simple classifier sufficient: {classification.intent_type}")
 
         # =========================================================================
-        # INTENT CLARIFICATION (Only when ambiguous)
+        # ENHANCED HITL - AMBIGUITY DETECTION (v2.0)
         # =========================================================================
-        # HITL gerekiyor mu?
-        if classification.requires_clarification:
-            logger.info("[REPORT] Clarification required, preparing HITL")
+
+        # Check if enhanced HITL is enabled
+        enable_enhanced_hitl = HITL_CONFIG.get("enable_enhanced_hitl", True)
+
+        if enable_enhanced_hitl:
+            # Store classification in state for ambiguity detection
+            temp_state = {
+                **state,
+                "user_query": user_message,
+                "_intent_type": classification.intent_type.value,
+                "_confidence": classification.confidence,
+                "_extracted_entities": classification.extracted_entities
+            }
+
+            # Detect ambiguities using enhanced system
+            intent_detector = create_intent_detector()
+            ambiguity = await intent_detector.detect_ambiguity(temp_state, stage="intent")
+
+            # Check if HITL should be triggered
+            max_clarifications = HITL_CONFIG.get("max_clarification_count", 3)
+            if ambiguity and should_trigger_hitl(temp_state, ambiguity, max_clarifications):
+                logger.info(f"[REPORT] Ambiguity detected: {ambiguity.ambiguity_type}")
+
+                # Track ambiguity metrics
+                _track_ambiguity_metric(ambiguity.ambiguity_type, "detected")
+
+            # Build user-friendly question
+            question_builder = HITLQuestionBuilder()
+            question_template = question_builder.build_question(ambiguity)
+
+            # Increment clarification count
+            new_clarification_count = temp_state.get("clarification_count", 0) + 1
+
+            # Create HITL request
+            pending_question = question_template.to_pending_question()
+
+            return {
+                "pending_question": pending_question,
+                "waiting_for_user_input": True,
+                "ambiguity_context": ambiguity,
+                "clarification_count": new_clarification_count,
+                "user_query": user_message,
+                "_intent_type": classification.intent_type.value,
+                "_confidence": classification.confidence,
+                "_extracted_entities": classification.extracted_entities
+            }
+
+            # Check for auto-resolvable ambiguities
+            if ambiguity and ambiguity.auto_resolvable:
+                logger.info(f"[REPORT] Auto-resolving {ambiguity.ambiguity_type}")
+                temp_state = apply_auto_resolution(temp_state, ambiguity)
+                _track_ambiguity_metric(ambiguity.ambiguity_type, "auto_resolved")
+
+        # LEGACY: Fall back to old HITL system if no enhanced ambiguity detected
+        if classification.requires_clarification and (not enable_enhanced_hitl or not ambiguity):
+            logger.info("[REPORT] Legacy clarification required, preparing HITL")
 
             # Soru oluştur
             if classification.clarification_question:
@@ -414,6 +620,7 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
 
         # Classification bilgisini state'e kaydet
         return {
+            "user_query": user_message,
             "_intent_type": classification.intent_type.value,
             "_confidence": classification.confidence,
             "_extracted_entities": classification.extracted_entities
@@ -424,12 +631,21 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
 
 async def process_user_clarification_node(state: ReportState) -> Dict[str, Any]:
     """
-    Kullanıcı yanıtını işle.
+    Kullanıcı yanıtını işle (Enhanced HITL v2.0).
 
     interrupt_before sonrası resume edildiğinde çalışır.
-    Kullanıcının seçtiği opsiyon veya verdiği cevaba göre intent belirlenir.
 
-    Metadata ambiguity (column/value) için kullanıcı cevabını runtime config'e ekler.
+    Processing flow:
+    1. Check for ambiguity_context (Enhanced system)
+    2. Route to type-specific processor
+    3. Fallback to legacy system if no ambiguity_context
+
+    Supports:
+    - Context ambiguity (keep/clear filters)
+    - Prompt scope (query clarification)
+    - Intent ambiguity (what user wants)
+    - Column ambiguity (which column)
+    - Value ambiguity (which value)
     """
     user_response = state.get("user_clarification")
     pending_question = state.get("pending_question")
@@ -439,6 +655,21 @@ async def process_user_clarification_node(state: ReportState) -> Dict[str, Any]:
         return {}
 
     logger.info(f"[REPORT] Processing clarification: {user_response}")
+
+    # =========================================================================
+    # ENHANCED HITL - Ambiguity-aware processing
+    # =========================================================================
+    ambiguity_ctx = state.get("ambiguity_context")
+
+    if ambiguity_ctx:
+        logger.info(f"[REPORT] Enhanced processing for {ambiguity_ctx.ambiguity_type}")
+        return await _process_enhanced_clarification(state, ambiguity_ctx, user_response)
+
+    # =========================================================================
+    # LEGACY HITL - Backward compatibility
+    # =========================================================================
+    logger.info("[REPORT] Using legacy clarification processing")
+    return _process_legacy_clarification(state, user_response, pending_question)
 
     # Yanıta göre intent'i belirle
     response_lower = user_response.lower()
@@ -2676,3 +2907,453 @@ def create_natural_response_node(response_generator):
             return await build_response_node(state)
 
     return build_natural_response_node
+
+
+# =============================================================================
+# ENHANCED HITL - CLARIFICATION PROCESSORS (v2.0)
+# =============================================================================
+
+async def _process_enhanced_clarification(
+    state: ReportState,
+    ambiguity_ctx: Any,  # AmbiguityContext
+    user_response: str
+) -> Dict[str, Any]:
+    """
+    Process user clarification using enhanced ambiguity system.
+
+    Routes to type-specific processor based on ambiguity_type.
+
+    Args:
+        state: Current ReportState
+        ambiguity_ctx: AmbiguityContext from detection
+        user_response: User's clarification response
+
+    Returns:
+        State updates dict
+    """
+    from .ambiguity_framework import AmbiguityType
+
+    # Common result template
+    result = {
+        "pending_question": None,
+        "waiting_for_user_input": False,
+        "user_clarification": None,
+        "ambiguity_context": None,  # Clear after processing
+    }
+
+    # Route to type-specific processor
+    ambiguity_type = ambiguity_ctx.ambiguity_type
+
+    if ambiguity_type == AmbiguityType.CONTEXT:
+        updates = _process_context_clarification(state, ambiguity_ctx, user_response)
+    elif ambiguity_type == AmbiguityType.PROMPT_SCOPE:
+        updates = _process_prompt_scope_clarification(state, ambiguity_ctx, user_response)
+    elif ambiguity_type == AmbiguityType.INTENT:
+        updates = _process_intent_clarification(state, ambiguity_ctx, user_response)
+    elif ambiguity_type == AmbiguityType.COLUMN:
+        updates = _process_column_clarification(state, ambiguity_ctx, user_response)
+    elif ambiguity_type == AmbiguityType.VALUE:
+        updates = _process_value_clarification(state, ambiguity_ctx, user_response)
+    else:
+        logger.warning(f"[HITL] Unknown ambiguity type: {ambiguity_type}")
+        updates = {"_intent_type": "new_query"}
+
+    return {**result, **updates}
+
+
+def _process_context_clarification(
+    state: ReportState,
+    ambiguity_ctx: Any,
+    user_response: str
+) -> Dict[str, Any]:
+    """
+    Process context ambiguity clarification (MOST CRITICAL).
+
+    User choice:
+    - Option 1 (keep filters): execution_mode=delta, intent=modify_filter
+    - Option 2 (clear filters): clear context, intent=new_query
+
+    Args:
+        state: Current ReportState
+        ambiguity_ctx: AmbiguityContext with type=CONTEXT
+        user_response: User's choice
+
+    Returns:
+        State updates dict
+
+    Example:
+        User chose "Evet, Ankara + Son 3 yıl için kategorilere göre göster"
+        → Keep filters, execution_mode=delta
+    """
+    response_lower = user_response.lower()
+
+    # Parse response (option number or keywords)
+    keep_filters = False
+
+    # Option 1: Keep filters
+    if "1" in user_response or "evet" in response_lower or "koru" in response_lower:
+        keep_filters = True
+
+    # Option 2: Clear filters
+    elif "2" in user_response or "hayır" in response_lower or "tüm" in response_lower:
+        keep_filters = False
+
+    else:
+        # Default: keep filters (safe choice)
+        logger.warning("[HITL] Unclear response, defaulting to keep filters")
+        keep_filters = True
+
+    if keep_filters:
+        logger.info("[HITL] User chose to KEEP filters (delta execution)")
+        return {
+            "_execution_mode": "delta",
+            "_intent_type": "modify_filter",
+            "user_query": state.get("user_query", "")  # Keep original query
+        }
+    else:
+        logger.info("[HITL] User chose to CLEAR filters (new query)")
+        return {
+            "_execution_mode": "full",
+            "_intent_type": "new_query",
+            "active_query_context": None,  # Clear context
+            "user_query": state.get("user_query", "")
+        }
+
+
+def _process_prompt_scope_clarification(
+    state: ReportState,
+    ambiguity_ctx: Any,
+    user_response: str
+) -> Dict[str, Any]:
+    """
+    Process prompt scope ambiguity clarification.
+
+    User chose a clarification option to refine vague query.
+
+    Args:
+        state: Current ReportState
+        ambiguity_ctx: AmbiguityContext with type=PROMPT_SCOPE
+        user_response: User's choice
+
+    Returns:
+        State updates dict
+
+    Example:
+        Original query: "Satışlar"
+        User chose: "Tüm satış kayıtlarını listele"
+        → Enhanced query for processing
+    """
+    response_lower = user_response.lower()
+
+    # Parse option number
+    option_mapping = {
+        "1": "list_all",
+        "2": "summary_stats",
+        "3": "filtered",
+        "4": "grouped"
+    }
+
+    # Detect option
+    scope_type = "list_all"  # Default
+
+    for key, value in option_mapping.items():
+        if key in user_response:
+            scope_type = value
+            break
+
+    # Enhance user query based on scope
+    original_query = state.get("user_query", "")
+
+    if scope_type == "list_all":
+        enhanced_query = f"{original_query} - tüm kayıtları listele"
+    elif scope_type == "summary_stats":
+        enhanced_query = f"{original_query} - özet istatistikler"
+    elif scope_type == "filtered":
+        enhanced_query = f"{original_query} - filtreli analiz"
+    elif scope_type == "grouped":
+        enhanced_query = f"{original_query} - gruplama ile analiz"
+    else:
+        enhanced_query = original_query
+
+    logger.info(f"[HITL] Prompt scope clarified: {scope_type}")
+
+    return {
+        "_intent_type": "new_query",
+        "user_query": enhanced_query,  # Enhanced query
+        "_extracted_entities": {"prompt_scope": scope_type}
+    }
+
+
+def _process_intent_clarification(
+    state: ReportState,
+    ambiguity_ctx: Any,
+    user_response: str
+) -> Dict[str, Any]:
+    """
+    Process intent ambiguity clarification.
+
+    User chose what they want to do.
+
+    Args:
+        state: Current ReportState
+        ambiguity_ctx: AmbiguityContext with type=INTENT
+        user_response: User's choice
+
+    Returns:
+        State updates dict
+    """
+    response_lower = user_response.lower()
+
+    # Map response to intent
+    if "yeni" in response_lower or "oluştur" in response_lower or "1" in user_response:
+        intent_type = "new_query"
+    elif "değiştir" in response_lower or "filtre" in response_lower or "2" in user_response:
+        intent_type = "modify_filter"
+    elif "kolon" in response_lower or "ekle" in response_lower or "3" in user_response:
+        intent_type = "modify_columns"
+    elif "geri" in response_lower or "undo" in response_lower:
+        intent_type = "rollback"
+    else:
+        # Default
+        intent_type = "new_query"
+
+    logger.info(f"[HITL] Intent clarified: {intent_type}")
+
+    return {
+        "_intent_type": intent_type
+    }
+
+
+def _process_column_clarification(
+    state: ReportState,
+    ambiguity_ctx: Any,
+    user_response: str
+) -> Dict[str, Any]:
+    """
+    Process column ambiguity clarification.
+
+    User selected which column to use.
+
+    Args:
+        state: Current ReportState
+        ambiguity_ctx: AmbiguityContext with type=COLUMN
+        user_response: User's choice
+
+    Returns:
+        State updates dict
+    """
+    # Parse option number or direct column name
+    candidates = ambiguity_ctx.candidates
+    selected_column = None
+
+    # Try to parse option number
+    for i, candidate in enumerate(candidates, 1):
+        if str(i) in user_response:
+            selected_column = candidate
+            break
+
+    # If no match, use user response directly
+    if not selected_column:
+        selected_column = user_response.strip()
+
+    logger.info(f"[HITL] Column clarified: {selected_column}")
+
+    return {
+        "_selected_column": selected_column,
+        "_clarification_type": "column",
+        "_intent_type": "retry_with_clarification"
+    }
+
+
+def _process_value_clarification(
+    state: ReportState,
+    ambiguity_ctx: Any,
+    user_response: str
+) -> Dict[str, Any]:
+    """
+    Process value ambiguity clarification.
+
+    User selected which value to use.
+
+    Args:
+        state: Current ReportState
+        ambiguity_ctx: AmbiguityContext with type=VALUE
+        user_response: User's choice
+
+    Returns:
+        State updates dict
+    """
+    # Parse option number or direct value
+    candidates = ambiguity_ctx.candidates
+    selected_value = None
+
+    # Try to parse option number
+    for i, candidate in enumerate(candidates, 1):
+        if str(i) in user_response:
+            selected_value = candidate
+            break
+
+    # If no match, use user response directly
+    if not selected_value:
+        selected_value = user_response.strip()
+
+    logger.info(f"[HITL] Value clarified: {selected_value}")
+
+    return {
+        "_selected_value": selected_value,
+        "_clarification_type": "value",
+        "_intent_type": "retry_with_clarification"
+    }
+
+
+def _process_legacy_clarification(
+    state: ReportState,
+    user_response: str,
+    pending_question: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Process clarification using legacy system (backward compatibility).
+
+    This preserves all existing HITL logic for users not using enhanced system.
+
+    Args:
+        state: Current ReportState
+        user_response: User's clarification response
+        pending_question: Pending question from state
+
+    Returns:
+        State updates dict
+    """
+    # Yanıta göre intent'i belirle
+    response_lower = user_response.lower()
+    result = {
+        "pending_question": None,
+        "waiting_for_user_input": False,
+        "user_clarification": None
+    }
+
+    # Pending question context'ine göre analiz et
+    question_context = pending_question.get("context", "") if pending_question else ""
+    question_text = pending_question.get("question", "") if pending_question else ""
+
+    # =========================================================================
+    # USER PREFERENCES CLARIFICATION
+    # =========================================================================
+    if "tercihleri" in question_text or "tercihleriniz" in question_text:
+        logger.info(f"[REPORT] User preference received: {user_response}")
+        # Tercihi _user_preference olarak kaydet
+        result["_user_preference"] = user_response
+        result["_preference_type"] = "date_range" if "gün" in user_response or "ay" in user_response or "yıl" in user_response else "general"
+        result["_intent_type"] = "new_query"  # Tercih alındı, sorguya devam et
+        logger.info(f"[REPORT] User preference set: {user_response}")
+        return result
+
+    # =========================================================================
+    # "DID YOU MEAN" CLARIFICATION
+    # =========================================================================
+    if "demek istediniz" in question_text or "kullanılsın mı" in question_text:
+        logger.info(f"[REPORT] 'Did you mean' clarification received: {user_response}")
+
+        if "evet" in response_lower or "doğru" in response_lower:
+            # Kullanıcı öneriyi kabul etti
+            # Pending question'dan suggested field'ı çıkar
+            if pending_question:
+                question_parts = pending_question.get("question", "").split("'")
+                if len(question_parts) >= 4:
+                    suggested_value = question_parts[3]  # "... 'suggested_value' ..."
+                    result["_selected_value"] = suggested_value
+                    result["_clarification_type"] = "value"
+                    result["_intent_type"] = "retry_with_clarification"
+                    logger.info(f"[REPORT] User accepted suggestion: {suggested_value}")
+        else:
+            # Kullanıcı öneriyi reddetti, tam olarak yazdığını kullan
+            result["_use_exact_input"] = True
+            result["_intent_type"] = "new_query"
+            logger.info("[REPORT] User rejected suggestion, using exact input")
+
+        return result
+
+    # =========================================================================
+    # METADATA AMBIGUITY - Column/Value Clarification
+    # =========================================================================
+    # "için hangi kolonu" veya "için hangi değeri" ifadeleri metadata ambiguity sorusu
+    if "için hangi kolonu" in question_text or "birden fazla kolon" in question_context:
+        # Column ambiguity clarification
+        logger.info(f"[REPORT] Column ambiguity clarification received: {user_response}")
+        result["_selected_column"] = user_response
+        result["_clarification_type"] = "column"
+        # Text2SQL'i tekrar çalıştırmak için intent set et
+        result["_intent_type"] = "retry_with_clarification"
+        return result
+
+    if "için hangi değeri" in question_text or "için birden fazla eşleşme" in question_context:
+        # Value ambiguity clarification
+        logger.info(f"[REPORT] Value ambiguity clarification received: {user_response}")
+        result["_selected_value"] = user_response
+        result["_clarification_type"] = "value"
+        # Text2SQL'i tekrar çalıştırmak için intent set et
+        result["_intent_type"] = "retry_with_clarification"
+        return result
+
+    # =========================================================================
+    # REGULAR CLARIFICATIONS (Empty Result, Modification Type, etc.)
+    # =========================================================================
+
+    # Empty result recovery sorusu için
+    if "boş sonuç" in question_context.lower() or "veri bulunamadı" in question_context.lower():
+        if "geri" in response_lower or "önceki" in response_lower:
+            result["_intent_type"] = IntentType.ROLLBACK.value
+            logger.info("[REPORT] User chose rollback after empty result")
+        elif "genişlet" in response_lower or "filtre" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_FILTER.value
+            result["_modification_action"] = "expand_filter"
+            logger.info("[REPORT] User chose to expand filter")
+        else:
+            result["_intent_type"] = IntentType.NEW_QUERY.value
+            logger.info("[REPORT] User chose new query")
+        return result
+
+    # Tablo belirsizliği için
+    if "hangi tablo" in question_context.lower():
+        # Kullanıcının seçtiği tablo adını kaydet
+        result["_selected_table"] = user_response
+        result["_intent_type"] = IntentType.NEW_QUERY.value
+        logger.info(f"[REPORT] User selected table: {user_response}")
+        return result
+
+    # Filtre değeri belirsizliği için
+    if "hangi değer" in question_context.lower() or "için birden fazla" in question_context.lower():
+        result["_selected_filter_value"] = user_response
+        result["_intent_type"] = IntentType.MODIFY_FILTER.value
+        logger.info(f"[REPORT] User selected filter value: {user_response}")
+        return result
+
+    # Modifikasyon tipi belirsizliği için
+    if "nasıl değiştirmek" in question_context.lower():
+        if "filtre ekle" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_FILTER.value
+            result["_modification_action"] = "add"
+        elif "filtre çıkar" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_FILTER.value
+            result["_modification_action"] = "remove"
+        elif "gruplama" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_AGGREGATION.value
+        elif "sıralama" in response_lower:
+            result["_intent_type"] = IntentType.MODIFY_ORDER.value
+        elif "yeni" in response_lower:
+            result["_intent_type"] = IntentType.NEW_QUERY.value
+        else:
+            result["_intent_type"] = IntentType.NEW_QUERY.value
+        return result
+
+    # Genel fallback
+    if "yeni" in response_lower or "oluştur" in response_lower:
+        result["_intent_type"] = IntentType.NEW_QUERY.value
+    elif "değiştir" in response_lower or "ekle" in response_lower:
+        result["_intent_type"] = IntentType.MODIFY_FILTER.value
+    elif "geri" in response_lower or "önceki" in response_lower:
+        result["_intent_type"] = IntentType.ROLLBACK.value
+    else:
+        result["_intent_type"] = IntentType.NEW_QUERY.value
+
+    return result

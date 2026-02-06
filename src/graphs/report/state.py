@@ -9,10 +9,14 @@ State Hierarchy:
 - QueryCheckpoint: Undo/redo için sorgu versiyonları
 """
 
-from typing import TypedDict, List, Optional, Dict, Any, Annotated
+from typing import TypedDict, List, Optional, Dict, Any, Annotated, TYPE_CHECKING
 from datetime import datetime
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
+
+# Circular import prevention
+if TYPE_CHECKING:
+    from .ambiguity_framework import AmbiguityContext
 
 
 # =============================================================================
@@ -161,6 +165,12 @@ class ReportState(TypedDict):
     pending_question: Optional[PendingQuestion]     # Bekleyen soru
     waiting_for_user_input: bool                    # True ise interrupt
     user_clarification: Optional[str]               # Kullanıcının cevabı
+
+    # -------------------------------------------------------------------------
+    # HITL Enhanced: Ambiguity Framework (v2.0)
+    # -------------------------------------------------------------------------
+    ambiguity_context: Optional[Any]                # AmbiguityContext from ambiguity_framework
+    clarification_count: int                        # Infinite loop protection (max 3)
 
     # -------------------------------------------------------------------------
     # Query: User query (for merged Text2SQL nodes)
@@ -316,5 +326,7 @@ def create_initial_state() -> ReportState:
         text2sql_output=None,
         visualization_output=None,
         error=None,
-        no_records_message=None
+        no_records_message=None,
+        ambiguity_context=None,
+        clarification_count=0
     )

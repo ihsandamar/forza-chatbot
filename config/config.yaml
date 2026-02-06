@@ -31,3 +31,28 @@ vector_store:
   chunk_size: 1024
   chunk_overlap: 128
   persist_directory: "./data/vector_store"
+
+# =============================================================================
+# REPORT GRAPH CONFIGURATION
+# =============================================================================
+report:
+  # Enhanced HITL System (v2.0)
+  hitl:
+    enable_enhanced_hitl: true              # Enable new ambiguity detection system
+    max_clarification_count: 3              # Max clarification attempts before fallback
+    auto_resolve_threshold: 0.85            # Confidence threshold for auto-resolution
+
+    # Feature flags for specific ambiguity types
+    enable_context_ambiguity: true          # Context continuation detection
+    enable_prompt_scope_ambiguity: true     # Short query clarification
+    enable_intent_ambiguity: true           # Intent clarification
+    enable_column_ambiguity: true           # Column ambiguity (metadata)
+    enable_value_ambiguity: true            # Value ambiguity (metadata)
+
+  # Monitoring and metrics
+  monitoring:
+    track_ambiguity_distribution: true      # Track which ambiguity types are triggered
+    track_auto_resolve_rate: true           # Track auto-resolution success rate
+    track_clarification_count: true         # Track avg clarification per session
+    track_user_satisfaction: true           # Track HITL resolution success
+    log_ambiguity_decisions: true           # Log detailed ambiguity decisions

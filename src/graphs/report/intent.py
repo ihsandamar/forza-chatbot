@@ -162,15 +162,39 @@ Sadece aktif context YOKSA veya kullanıcı açıkça yeni bir konu başlatıyor
 - "X raporu getir", "Y listele" (tamamen farklı konu)
 - "Yeni rapor", "Başka bir şey"
 
+### ⚠️ CONTEXT AMBİGUİTY (Belirsizlik Durumu)
+
+**ÖZEL DURUM**: Context VAR + Sorgu yeni gibi görünüyor + Ama ilişkili olabilir
+
+Örnek Senaryo:
+- Önceki sorgu: "Son 3 yılda Ankara'daki satışlar"
+- Şimdiki sorgu: "Hangi kategoriden ne kadar satış olmuş"
+
+❓ Belirsizlik: "Ankara + Son 3 yıl" filtrelerini koruyup kategorilere mi bakacak, yoksa YENİ sorgu mu?
+
+Bu durumda:
+1. `requires_clarification = true`
+2. `clarification_question`: "Önceki filtreleri (Ankara, Son 3 yıl) koruyarak kategorilere göre mi görmek istiyorsunuz?"
+3. `clarification_options`: ["Evet, önceki filtrelerle devam et", "Hayır, yeni sorgu (tüm veriler)"]
+4. `confidence`: 0.5-0.7 arası (belirsiz)
+
+**Context Ambiguity Tespiti İçin Kontrol Listesi:**
+✅ Context'te filtre/süzme VAR mı? (örn: şehir, tarih, kategori)
+✅ Yeni sorgu farklı bir boyut istiyor mu? (örn: önceki şehir bazlıydı, şimdi kategori bazlı istiyor)
+✅ Context referansı YOK mu? ("burdaki", "bunun" gibi kelimeler yok)
+
+→ HEPSİ EVETse: requires_clarification = TRUE
+
 ## KARAR MATRİSİ
 
-| Durum | Aktif Context? | Kullanıcı İfadesi | Intent |
-|-------|---------------|-------------------|--------|
-| Yeni rapor | Yok | "Satış raporu getir" | new_query |
-| Yeni rapor | Var | "Müşteri listesini göster" (farklı konu) | new_query |
-| Modifikasyon | Var | "Sadece İstanbul" | modify_filter |
-| Modifikasyon | Var | "Aylık göster" | modify_aggregation |
-| Modifikasyon | Yok | "Sadece İstanbul" | new_query (context yok!) |
+| Durum | Aktif Context? | Kullanıcı İfadesi | Intent | Clarification? |
+|-------|---------------|-------------------|--------|----------------|
+| Yeni rapor | Yok | "Satış raporu getir" | new_query | ❌ |
+| Yeni rapor | Var | "Müşteri listesini göster" (farklı konu) | new_query | ❌ |
+| Modifikasyon | Var | "Sadece İstanbul" | modify_filter | ❌ |
+| Modifikasyon | Var | "Aylık göster" | modify_aggregation | ❌ |
+| **AMBİGUİTY** | **Var (filtreli)** | **"Hangi kategoriden satış olmuş"** | **new_query** | **✅ SOR!** |
+| Modifikasyon | Yok | "Sadece İstanbul" | new_query | ❌ |
 
 ## EXTRACTED_ENTITIES FORMATI (modify_filter için)
 
@@ -181,6 +205,68 @@ Eğer intent modify_filter ise, extracted_entities şöyle olmalı:
   "filter_value": "Tespit edilen değer (örn: İstanbul)",
   "filter_operator": "=" | "!=" | ">" | "<" | "LIKE"
 }}
+
+## ÖRNEK CLASSIFICATION (Context Ambiguity)
+
+**Senaryo 1: Context Ambiguity**
+```
+Context: Ankara + Son 3 yıl filtreleri var
+User: "Hangi kategoriden ne kadar satış olmuş"
+→ Belirsiz! Ankara için mi, tüm veriler için mi?
+```
+Yanıt:
+```json
+{{
+  "intent_type": "new_query",
+  "confidence": 0.6,
+  "requires_clarification": true,
+  "clarification_question": "Önceki filtreleri (Ankara, Son 3 yıl) koruyarak kategorilere göre mi görmek istiyorsunuz?",
+  "clarification_options": [
+    "Evet, Ankara + Son 3 yıl için kategorilere göre göster",
+    "Hayır, tüm veriler için kategorilere göre göster"
+  ],
+  "extracted_entities": {{
+    "context_ambiguous": true,
+    "previous_filters": ["Ankara", "Son 3 yıl"],
+    "new_dimension": "CategoryName"
+  }}
+}}
+```
+
+**Senaryo 2: Açık Context Reference (Ambiguity YOK)**
+```
+Context: Ankara + Son 3 yıl filtreleri var
+User: "Burdaki kategorilere göre göster"
+→ Açık! "Burdaki" = context'i kullan
+```
+Yanıt:
+```json
+{{
+  "intent_type": "modify_aggregation",
+  "confidence": 0.95,
+  "requires_clarification": false,
+  "extracted_entities": {{
+    "uses_context_reference": true,
+    "new_grouping": "CategoryName"
+  }}
+}}
+```
+
+**Senaryo 3: Yeni Sorgu (Context İlgisiz)**
+```
+Context: Kategorilere göre satışlar
+User: "Müşteri listesini göster"
+→ Tamamen farklı konu, context ilgisiz
+```
+Yanıt:
+```json
+{{
+  "intent_type": "new_query",
+  "confidence": 0.9,
+  "requires_clarification": false,
+  "extracted_entities": {{}}
+}}
+```
 
 Kullanıcı mesajı: {user_message}
 
@@ -297,7 +383,15 @@ bu yeni bir sorgu olarak değerlendirilmelidir (modify değil)."""
         else:
             sample_text = "  (Örnek sonuç yok)"
 
+        # Context ambiguity risk hesapla
+        has_filters = len(filters) > 0
+        has_grouping = len(grouping) > 0
+        ambiguity_risk = "YÜKSEK" if has_filters else "DÜŞÜK"
+
         return f"""🔵 Aktif Sorgu Bağlamı: VAR ✓
+
+⚠️ Context Ambiguity Riski: {ambiguity_risk}
+   → Filtreler varsa ve yeni sorgu farklı boyutta ise, kullanıcıya sor!
 
 Mevcut Tablo: {context.get('current_table', 'Bilinmiyor')}
 
