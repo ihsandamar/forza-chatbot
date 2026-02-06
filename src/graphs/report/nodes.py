@@ -844,12 +844,94 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
 
     logger.info(f"[REPORT] [EXTRACT_QUERY] Execution mode: {execution_mode}")
 
+    # CRITICAL: For contextual_full mode, enrich user query with context filters
+    if execution_mode == "contextual_full" and active_context:
+        enriched_query = _enrich_query_with_context(user_query, active_context)
+        logger.info(f"[REPORT] [CONTEXTUAL_FULL] Enriched query: {enriched_query[:150]}...")
+
+        return {
+            "user_query": enriched_query,  # Enriched query for full SQL generation
+            "conversation_context": conversation_context,
+            "last_intent": current_intent,
+            "_execution_mode": "full",  # Use full pipeline but with enriched query
+            "_reuse_table": True,       # Reuse existing table for performance
+            "_skip_table_creation": True
+        }
+
     return {
         "user_query": user_query,
         "conversation_context": conversation_context,
         "last_intent": current_intent,
         "_execution_mode": execution_mode
     }
+
+
+def _enrich_query_with_context(
+    user_query: str,
+    active_context: Dict[str, Any]
+) -> str:
+    """
+    Enrich user query with context filters (for contextual_full mode).
+
+    Converts context filters to natural language and prepends to user query.
+    This allows full SQL generation with preserved context.
+
+    Example:
+        user_query = "Toplam tutarı göster"
+        context = {"applied_filters": [{"column": "BranchCityName", "value": "Ankara"}]}
+        →
+        enriched = "Ankara için toplam tutarı göster"
+
+    Args:
+        user_query: Original user query
+        active_context: Active query context with filters
+
+    Returns:
+        Enriched query with context filters
+    """
+    filters = active_context.get("applied_filters", [])
+
+    if not filters:
+        return user_query
+
+    # Build filter phrase from context
+    filter_phrases = []
+
+    for f in filters:
+        column = f.get("column", "")
+        value = f.get("value", "")
+        operator = f.get("operator", "=")
+
+        if not column or not value:
+            continue
+
+        # Convert to natural language
+        if operator == "=":
+            filter_phrases.append(str(value))
+        elif operator == "IN":
+            if isinstance(value, list):
+                filter_phrases.append(", ".join(str(v) for v in value))
+            else:
+                filter_phrases.append(str(value))
+        elif operator == ">":
+            filter_phrases.append(f"{value}'den büyük")
+        elif operator == "<":
+            filter_phrases.append(f"{value}'den küçük")
+        else:
+            filter_phrases.append(f"{column} {operator} {value}")
+
+    if not filter_phrases:
+        return user_query
+
+    # Combine filters
+    filter_text = ", ".join(filter_phrases)
+
+    # Prepend to user query
+    enriched_query = f"{filter_text} için {user_query}"
+
+    logger.info(f"[CONTEXT_ENRICH] Original: '{user_query}' → Enriched: '{enriched_query}'")
+
+    return enriched_query
 
 
 def _build_conversation_context(
@@ -2506,18 +2588,19 @@ def _determine_execution_mode(
     confidence: float
 ) -> str:
     """
-    Determine execution mode based on conversation context (Phase 1).
+    Determine execution mode based on conversation context.
 
     Execution Modes:
     - "full": Complete query execution (new query, no context)
-    - "delta": Incremental update (refinement with context) [Phase 2]
-    - "reuse": Reuse existing data (visualization change only) [Phase 2]
+    - "contextual_full": Full SQL rebuild with context preservation (RECOMMENDED for modify_filter)
+    - "delta": Incremental SQL modification (legacy, can cause SQL errors)
+    - "reuse": Reuse existing data (visualization change only)
 
-    Phase 1: Detection only (returns "full" or marks for future delta)
-    Phase 2: Will implement delta/reuse flows
+    CRITICAL: contextual_full is more reliable than delta for filter modifications
+    because it rebuilds SQL from scratch while preserving context.
 
     Returns:
-        Execution mode: "full" | "delta" | "reuse"
+        Execution mode: "full" | "contextual_full" | "delta" | "reuse"
     """
     # No active context → Full execution
     if not active_context:
@@ -2529,21 +2612,27 @@ def _determine_execution_mode(
         logger.debug(f"[EXECUTION_MODE] Low confidence ({confidence:.2f}) → full")
         return "full"
 
-    # Intent types that suggest delta execution (Phase 2 will use this)
-    delta_intents = {
-        "modify_filter",
-        "modify_aggregation",
-        "modify_columns",
-        "modify_order",
-        "add_filter",
-        "remove_filter",
-        "expand_query",
-        "refine_query"
+    # Intent types that suggest context-aware full rebuild (SAFER than delta)
+    contextual_full_intents = {
+        "modify_filter",      # ✅ Use contextual_full (avoids SQL syntax errors)
+        "add_filter",         # ✅ Use contextual_full
+        "remove_filter",      # ✅ Use contextual_full
     }
 
-    if intent_type in delta_intents:
-        logger.debug(f"[EXECUTION_MODE] Delta intent '{intent_type}' detected → delta (Phase 2)")
-        return "delta"  # Phase 2 will use this
+    # Intent types that can use delta (simpler modifications)
+    delta_only_intents = {
+        "modify_aggregation",  # GROUP BY changes
+        "modify_columns",      # SELECT column changes
+        "modify_order",        # ORDER BY changes
+    }
+
+    if intent_type in contextual_full_intents:
+        logger.debug(f"[EXECUTION_MODE] Filter modification '{intent_type}' → contextual_full (safer)")
+        return "contextual_full"  # Rebuild SQL with context
+
+    if intent_type in delta_only_intents:
+        logger.debug(f"[EXECUTION_MODE] Delta intent '{intent_type}' detected → delta")
+        return "delta"  # Use delta for non-filter changes
 
     # Visualization change only
     if intent_type == "visualize" and last_intent in ["new_query", "modify_filter"]:
