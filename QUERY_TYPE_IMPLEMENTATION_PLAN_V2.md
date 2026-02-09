@@ -1,132 +1,316 @@
-# Query Type Detection - Implementation Plan v2 (RELIABILITY FIX)
+# Query Type Detection - Implementation Plan (FINAL)
 
 ## 🎯 Amaç
 
-Kullanıcının ne tür bir analiz yaptığını tespit etmek ve buna göre optimal chart seçimi yapmak.
+Ardışık sorguları destekleyen, context-aware bir sorgu analiz sistemi.
 
-**Mevcut yapı BOZULMAYACAK - Sadece EK özellik olarak eklenecek.**
+**Core Problem:** Kullanıcı "En çok ciro yapan 3 şubeyi göster" sorusundan sonra "bu şubelerin satışları" dediğinde, sistem önceki 3 şubeyi hatırlamalı ve sadece onlar için sorgu çalıştırmalı.
 
-**Prensip: KISS + RELIABLE - Basit ama doğru çalışan sistem**
-
----
-
-## ⚠️ v1'den v2'ye Geçiş Nedeni
-
-**v1 Sorunları:**
-1. ❌ Factory pattern eksik → LLM injection yapılamıyor
-2. ❌ State propagation belirsiz → query_type report_interpreter'a geçmiyor
-3. ❌ Error handling zayıf → Bare except kullanılmış
-4. ❌ JSON parsing kırılgan → ```json``` wrapper handle edilmiyor
-
-**v2 Çözümleri:**
-1. ✅ Mevcut factory pattern kullanılıyor
-2. ✅ State propagation açık ve net
-3. ✅ Proper error handling + logging
-4. ✅ Robust JSON extraction
+**Prensip:** CONTEXT-AWARE + USER INTENT
 
 ---
 
-## 📊 Query Types (Sabit 8 Tane)
-
-1. **single_value** - Tek değer → No chart
-2. **ranking** - Top-N → Bar chart
-3. **comparison** - Karşılaştırma → Bar chart
-4. **time_series** - Zaman serisi → Line chart
-5. **time_series_comparison** - Çoklu zaman serisi → Multi-line chart
-6. **aggregation** - Gruplama → Bar chart
-7. **distribution** - Dağılım → Pie chart
-8. **trend** - Trend analizi → Line chart
-
----
-
-## 🏗️ Architecture
+## 🏗️ Architecture Overview
 
 ```
-classify_intent_node (FACTORY ile oluşturulur)
-    ↓ (içinde: intent + query_type detection)
-    ↓ (state'e query_type kaydedilir)
-    ↓
-decide_visualization_node (FACTORY'den query_type okur)
-    ↓
-report_interpreter.interpret_results(query_type=...)
-    ↓
-Visualization
+┌─────────────────────────────────────────────────────────────┐
+│                    USER QUERY                                │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│  CLASSIFY INTENT (with Context)                             │
+│  ├─ Intent Detection: visualization vs data vs comparison   │
+│  ├─ Query Type Detection: ranking, comparison, time_series  │
+│  ├─ Reference Detection: "bu şubeler", "onlar"              │
+│  └─ Context Loading: conversation_history, last_results     │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+              ┌───────┴────────┐
+              │  Confidence?   │
+              └───────┬────────┘
+                      │
+        ┌─────────────┼─────────────┐
+        │ < 0.6       │ >= 0.6      │
+        ▼             ▼             │
+   ┌─────────┐   ┌─────────────────┘
+   │ASK USER │   │
+   └────┬────┘   │
+        │        │
+        └────────┼────────────┐
+                 ▼            │
+        ┌────────────────────────────────────────┐
+        │  EXTRACT QUERY + CONTEXT INJECTION     │
+        │  └─ If follow-up: inject previous      │
+        │     entities to SQL prompt             │
+        └────────────┬───────────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────────────────┐
+        │  SQL EXECUTION                         │
+        │  └─ SQL runs with context filters      │
+        └────────────┬───────────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────────────────────┐
+        │  UPDATE CONVERSATION HISTORY           │
+        │  ├─ Save query + results + entities    │
+        │  └─ Update last_query_results          │
+        └────────────┬───────────────────────────┘
+                     │
+                     ▼
+              ┌──────┴────────┐
+              │ Intent Type?  │
+              └──────┬────────┘
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+        ▼            ▼            ▼
+ ┌──────────┐ ┌──────────┐ ┌──────────┐
+ │VISUALIZE │ │DATA ONLY │ │COMPARISON│
+ │(chart)   │ │(table)   │ │(chart)   │
+ └──────────┘ └──────────┘ └──────────┘
 ```
 
 ---
 
-## 📁 Dosya Değişiklikleri (CORRECTED)
+## 📊 Query Types (8 Types)
 
-### 1. **GÜNCELLE:** `src/graphs/report/state.py`
+Query type sadece **analiz türünü** belirtir, chart'ı belirlemez!
+
+1. **single_value** - Tek değer ("Toplam ciro nedir?")
+2. **ranking** - Top-N sıralama ("En çok satan 10 ürün")
+3. **comparison** - Karşılaştırma ("İstanbul vs Ankara")
+4. **time_series** - Zaman serisi ("Son 6 aydaki satışlar")
+5. **time_series_comparison** - Çoklu zaman serisi ("X ve Y'nin son yıldaki satışı")
+6. **aggregation** - Gruplama ("Kategorilere göre toplam")
+7. **distribution** - Dağılım ("Satışların dağılımı")
+8. **trend** - Trend analizi ("Satışlar artıyor mu?")
+
+---
+
+## 🎨 Visualization Logic (CORRECTED)
+
+**Query Type ≠ Chart Type**
+
+**Decision Tree:**
+```
+1. Intent Detection:
+   - user wants visualization? → Continue to chart selection
+   - user wants data only? → Return table/data
+   - ambiguous? → Ask user
+
+2. IF visualization intent:
+   - Query type helps suggest chart
+   - But final decision based on:
+     * Data structure (columns, rows)
+     * User preference
+     * Context
+
+3. Chart Selection (if visualization intent):
+   - ranking → bar_chart (if count > 3)
+   - comparison → bar_chart
+   - time_series → line_chart
+   - distribution → pie_chart
+   - trend → line_chart
+   - aggregation → bar_chart or table (depends on data)
+```
+
+**Example:**
+```
+User: "En çok satan 10 ürünü göster"
+→ Intent: data_query (no explicit visualization request)
+→ Query Type: ranking
+→ Output: Table (10 rows) ✅
+
+User: "En çok satan 10 ürünü grafikte göster"
+→ Intent: visualization
+→ Query Type: ranking
+→ Output: Bar chart ✅
+
+User: "Bu şubelerin satışları nasıl?"
+→ Intent: ambiguous → Ask user: "Grafik mi, tablo mu?"
+```
+
+---
+
+## 📁 State Schema
+
+### src/graphs/report/state.py
 
 ```python
+from typing import TypedDict, Optional, List, Dict, Any
+
 class ReportState(TypedDict):
-    # ... mevcut alanlar ...
+    # ... existing fields ...
 
-    # Query Type Detection (NEW) - Minimal
-    query_type: Optional[str]                   # "ranking", "comparison", etc.
-    query_type_confidence: Optional[float]      # 0.0-1.0
+    # Query Analysis (NEW)
+    query_type: Optional[str]                          # "ranking", "comparison", etc.
+    query_type_confidence: Optional[float]             # 0.0-1.0
+
+    # Follow-up Support (NEW)
+    conversation_history: Optional[List[Dict[str, Any]]]
+    # Format: [
+    #   {
+    #     "query": "En çok ciro yapan 3 şubeyi göster",
+    #     "query_type": "ranking",
+    #     "results": [{"branch": "Şube A", "revenue": 100000}, ...],
+    #     "timestamp": "2026-02-09T10:30:00"
+    #   }
+    # ]
+
+    last_query_results: Optional[Dict[str, Any]]
+    # Format: {
+    #   "entities": ["Şube A", "Şube B", "Şube C"],
+    #   "entity_type": "branch",  # branch, product, category
+    #   "filters": {"branch__in": ["Şube A", "Şube B", "Şube C"]}
+    # }
+
+    reference_context: Optional[Dict[str, Any]]
+    # Format: {
+    #   "is_followup": bool,
+    #   "has_reference": bool,
+    #   "reference_patterns": ["bu", "onlar"],
+    #   "previous_entities": ["Şube A", "Şube B", "Şube C"],
+    #   "entity_type": "branch"
+    # }
+
+    # Router Flags (NEW)
+    _needs_clarification: Optional[bool]  # True → route to ask_user
 ```
-
-**Değişiklik:** +2 satır
 
 ---
 
-### 2. **GÜNCELLE:** `src/graphs/report/nodes.py`
+## 🔧 Implementation
 
-#### 2.1. Helper Function (Module Level)
+### 1. Reference Detection Helper
 
 ```python
-async def _detect_query_type_simple(
+# src/graphs/report/nodes.py
+
+def _detect_references(user_message: str) -> Dict[str, Any]:
+    """
+    Detect if user is referencing previous results.
+
+    Examples:
+        "bu şubeler" → has_reference=True
+        "onların satışı" → has_reference=True
+        "İstanbul'un cirosu" → has_reference=False (specific entity)
+    """
+    user_lower = user_message.lower()
+
+    # Turkish reference patterns
+    reference_patterns = {
+        "demonstrative": ["bu ", "şu ", "o ", "bunlar", "şunlar", "onlar"],
+        "possessive": ["bunun", "şunun", "onun", "bunların", "onların"],
+        "indirect": ["yukarıdaki", "önceki", "aynı"],
+    }
+
+    found_patterns = []
+    for pattern_type, patterns in reference_patterns.items():
+        for pattern in patterns:
+            if pattern in user_lower:
+                found_patterns.append(pattern)
+
+    has_reference = len(found_patterns) > 0
+
+    # Filter out time references ("bu ay", "bu yıl")
+    time_patterns = ["bu ay", "bu yıl", "bu hafta", "bu gün"]
+    if any(tp in user_lower for tp in time_patterns):
+        has_reference = False
+
+    return {
+        "has_reference": has_reference,
+        "reference_patterns": found_patterns,
+        "needs_context": has_reference
+    }
+```
+
+### 2. Context-Aware Query Analysis
+
+```python
+# src/graphs/report/nodes.py
+
+async def _analyze_query_with_context(
     user_message: str,
-    active_context: Optional[ActiveQueryContext],
+    active_context: Optional[Dict],
+    conversation_history: Optional[List[Dict]],
+    last_query_results: Optional[Dict],
     llm: BaseChatModel
 ) -> Dict[str, Any]:
     """
-    Basit query type detection - Tek LLM call.
-
-    Args:
-        user_message: Kullanıcı sorusu
-        active_context: Aktif context (opsiyonel)
-        llm: Language model
+    Analyze user query with conversation context.
 
     Returns:
-        {"query_type": str, "confidence": float}
+        {
+            "query_type": str,
+            "confidence": float,
+            "is_followup": bool,
+            "needs_clarification": bool,
+            "reference_context": Dict
+        }
     """
-    # Context formatla (basit)
-    context_info = "Yok"
-    if active_context:
-        filters = active_context.get('applied_filters', [])
-        if filters:
-            context_info = f"Aktif filtreler var: {len(filters)} filtre"
+    # 1. Detect references
+    ref_detection = _detect_references(user_message)
+    is_followup = ref_detection["has_reference"]
 
-    # Basit prompt (hardcoded)
-    prompt = f"""Kullanıcının ne tür analiz yaptığını tespit et.
+    # 2. Build context for LLM
+    context_parts = []
+    previous_context = ""
 
-Kullanıcı sorusu: {user_message}
-Context: {context_info}
+    if is_followup and conversation_history:
+        last_conv = conversation_history[-1]
+        prev_query = last_conv.get("query", "")
+        prev_type = last_conv.get("query_type", "")
+        prev_results = last_conv.get("results", [])
+
+        # Extract entities from previous results
+        prev_entities = []
+        if prev_results and len(prev_results) > 0:
+            first_key = list(prev_results[0].keys())[0]
+            prev_entities = [r.get(first_key) for r in prev_results[:5]]
+
+        previous_context = f"""
+Önceki Sorgu: "{prev_query}"
+Query Type: {prev_type}
+Sonuçlar: {prev_entities}
+Kullanıcı bu sonuçlara referans veriyor.
+"""
+        context_parts.append(f"Önceki sorgu: {prev_type}")
+
+    # 3. LLM prompt
+    prompt = f"""Kullanıcının sorgu türünü tespit et.
+
+Soru: {user_message}
+Context: {' | '.join(context_parts) if context_parts else 'Yok'}
+Referans: {'EVET - önceki sonuçları kullanmalı' if is_followup else 'YOK'}
+
+{previous_context if is_followup else ''}
 
 Query Types:
-- single_value: Tek bir metrik ("Toplam satış?")
-- ranking: Top-N sıralama ("En çok satan 10 ürün")
-- comparison: İki/daha fazla öğe karşılaştırması ("İstanbul vs Ankara")
-- time_series: Zaman içinde değişim ("Son 6 aydaki satışlar")
-- time_series_comparison: Çoklu zaman serisi ("X ve Y'nin son yıldaki satışı")
-- aggregation: Gruplama ("Kategorilere göre toplam")
-- distribution: Dağılım ("Satışların dağılımı")
-- trend: Trend analizi ("Satışlar artıyor mu?")
+- single_value: Tek metrik
+- ranking: Top-N sıralama
+- comparison: Karşılaştırma
+- time_series: Zaman serisi
+- time_series_comparison: Çoklu zaman serisi
+- aggregation: Gruplama
+- distribution: Dağılım
+- trend: Trend
 
-JSON döndür (sadece JSON):
+JSON döndür:
 {{
     "query_type": "ranking",
-    "confidence": 0.9
+    "confidence": 0.9,
+    "needs_clarification": false,
+    "reasoning": "..."
 }}"""
 
     try:
         response = await llm.ainvoke(prompt)
         content = response.content.strip()
 
-        # Robust JSON extraction (handle ```json``` wrapper)
+        # Extract JSON
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
@@ -137,463 +321,548 @@ JSON döndür (sadece JSON):
 
         query_type = data.get("query_type", "aggregation")
         confidence = float(data.get("confidence", 0.5))
+        needs_clarification = data.get("needs_clarification", False)
 
         # Validate query_type
         valid_types = ["single_value", "ranking", "comparison", "time_series",
                        "time_series_comparison", "aggregation", "distribution", "trend"]
         if query_type not in valid_types:
-            logger.warning(f"[QUERY_TYPE] Invalid type '{query_type}', fallback to aggregation")
+            logger.warning(f"[QUERY_TYPE] Invalid: {query_type}, fallback to aggregation")
             query_type = "aggregation"
             confidence = 0.3
 
-        logger.info(f"[QUERY_TYPE] Detected: {query_type} (confidence: {confidence:.2f})")
+        # Low confidence → clarification needed
+        if confidence < 0.6:
+            needs_clarification = True
+
+        # Build reference context
+        reference_context = {
+            "is_followup": is_followup,
+            "has_reference": ref_detection["has_reference"],
+            "reference_patterns": ref_detection["reference_patterns"],
+            "previous_entities": [],
+            "entity_type": None
+        }
+
+        if is_followup and last_query_results:
+            reference_context["previous_entities"] = last_query_results.get("entities", [])
+            reference_context["entity_type"] = last_query_results.get("entity_type")
+
+        logger.info(f"[QUERY_ANALYSIS] type={query_type}, conf={confidence:.2f}, "
+                   f"followup={is_followup}, clarify={needs_clarification}")
 
         return {
             "query_type": query_type,
-            "confidence": confidence
+            "confidence": confidence,
+            "is_followup": is_followup,
+            "needs_clarification": needs_clarification,
+            "reference_context": reference_context,
         }
 
     except json.JSONDecodeError as e:
-        logger.error(f"[QUERY_TYPE] JSON parse error: {e}. Content: {content[:100]}")
-        return {"query_type": "aggregation", "confidence": 0.3}
+        logger.error(f"[QUERY_ANALYSIS] JSON parse error: {e}")
+        return {
+            "query_type": "aggregation",
+            "confidence": 0.3,
+            "is_followup": is_followup,
+            "needs_clarification": True,
+            "reference_context": {},
+        }
     except Exception as e:
-        logger.error(f"[QUERY_TYPE] Detection error: {e}")
-        return {"query_type": "aggregation", "confidence": 0.3}
+        logger.error(f"[QUERY_ANALYSIS] Error: {e}")
+        return {
+            "query_type": "aggregation",
+            "confidence": 0.3,
+            "is_followup": is_followup,
+            "needs_clarification": True,
+            "reference_context": {},
+        }
 ```
 
-#### 2.2. Factory Function Update
+### 3. Update Intent Classifier Factory
 
 ```python
+# src/graphs/report/nodes.py
+
 def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = True):
-    """
-    Intent classifier node factory.
+    """Factory for intent classifier with context support."""
 
-    UPDATED: Query type detection eklendi.
-
-    Args:
-        llm: Language model for classification
-        enable_fast_path: Enable fast-path pattern matching
-
-    Returns:
-        Node function with query type detection
-    """
-    # LLM classifier
     llm_classifier = IntentClassifier(llm)
-    simple_classifier = SimpleIntentClassifier()
 
     async def classify_intent_node(state: ReportState) -> Dict[str, Any]:
         """
-        Intent classification + query type detection.
+        Classify intent + analyze query type with context.
         """
         user_message = get_last_user_message(state)
         if not user_message:
             return {"error": "No user message found"}
 
-        logger.info(f"[REPORT] Classifying intent: {user_message[:50]}...")
+        logger.info(f"[REPORT] Classifying: {user_message[:50]}...")
 
         active_context = state.get("active_query_context")
-        has_context = active_context is not None
+        conversation_history = state.get("conversation_history", [])
+        last_query_results = state.get("last_query_results")
         messages = state.get("messages", [])
 
-        # 1. MEVCUT: Intent classification (değişmedi)
-        # ... mevcut intent classification logic ...
-        # (Fast-path, simple classifier, LLM classifier logic)
-
-        # Örnek basitleştirilmiş (gerçekte mevcut kod korunur):
+        # 1. EXISTING: Intent classification
         intent_result = await llm_classifier.classify(
             user_message=user_message,
             messages=messages,
             active_context=active_context
         )
 
-        # 2. YENİ: Query type detection
-        query_type = None
-        query_type_confidence = 0.0
-
+        # 2. NEW: Context-aware query analysis
+        query_analysis = {}
         try:
-            query_type_result = await _detect_query_type_simple(
+            query_analysis = await _analyze_query_with_context(
                 user_message=user_message,
                 active_context=active_context,
+                conversation_history=conversation_history,
+                last_query_results=last_query_results,
                 llm=llm
             )
-            query_type = query_type_result["query_type"]
-            query_type_confidence = query_type_result["confidence"]
         except Exception as e:
-            logger.error(f"[QUERY_TYPE] Detection failed: {e}")
-            # Continue without query_type (backward compatible)
+            logger.error(f"[QUERY_ANALYSIS] Failed: {e}")
+
+        should_ask_user = query_analysis.get("needs_clarification", False)
 
         return {
             "_intent_type": intent_result.intent_type,
             "_confidence": intent_result.confidence,
             "_extracted_entities": intent_result.extracted_entities,
-            # YENİ alanlar
-            "query_type": query_type,
-            "query_type_confidence": query_type_confidence
+            # NEW fields
+            "query_type": query_analysis.get("query_type"),
+            "query_type_confidence": query_analysis.get("confidence", 0.0),
+            "reference_context": query_analysis.get("reference_context", {}),
+            "_needs_clarification": should_ask_user,
         }
 
     return classify_intent_node
 ```
 
-**Değişiklik:** +80 satır (helper function + factory update)
-
----
-
-### 3. **GÜNCELLE:** `src/graphs/report/nodes.py` (Visualization Decision Factory)
+### 4. Ask User Node
 
 ```python
-def create_llm_viz_decision_node(report_interpreter):
+# src/graphs/report/nodes.py
+
+async def ask_user_for_clarification_node(state: ReportState) -> Dict[str, Any]:
     """
-    Factory for LLM-assisted visualization decision node.
+    Ask user when query type is ambiguous.
+    """
+    from langgraph.types import interrupt
 
-    UPDATED: Query type support eklendi.
+    user_message = get_last_user_message(state)
+    query_type = state.get("query_type", "unknown")
+    confidence = state.get("query_type_confidence", 0.0)
+    reference_context = state.get("reference_context", {})
 
-    Args:
-        report_interpreter: ReportInterpreter instance
+    options = {
+        "ranking": "Sıralama (Top-N)",
+        "comparison": "Karşılaştırma (A vs B)",
+        "time_series": "Zaman Serisi",
+        "aggregation": "Gruplama/Toplam",
+        "distribution": "Dağılım",
+    }
+
+    context_info = ""
+    if reference_context.get("is_followup"):
+        prev_entities = reference_context.get("previous_entities", [])
+        if prev_entities:
+            context_info = f"\n\n📌 Önceki sonuçlar: {', '.join(prev_entities[:3])}"
+
+    message = f"""🤔 **Sorgunuz:** "{user_message}"
+
+Sorgu türü belirsiz (güven: {confidence:.0%}). Hangi analiz türünü istiyorsunuz?{context_info}
+
+**Seçenekler:**
+"""
+    for key, label in options.items():
+        message += f"\n- **{key}**: {label}"
+
+    user_choice = interrupt({
+        "message": message,
+        "type": "query_type_clarification",
+        "options": list(options.keys()),
+    })
+
+    logger.info(f"[ASK_USER] User selected: {user_choice}")
+
+    return {
+        "query_type": user_choice,
+        "query_type_confidence": 1.0,
+        "_needs_clarification": False,
+    }
+```
+
+### 5. Context Injection to SQL
+
+```python
+# src/graphs/report/nodes.py
+
+async def extract_query_info_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Extract query info + inject context to SQL prompt.
+
+    CRITICAL: If follow-up query, inject previous entities to SQL.
+    """
+    user_message = get_last_user_message(state)
+    reference_context = state.get("reference_context", {})
+    last_query_results = state.get("last_query_results")
+
+    # EXISTING: Normal query extraction
+    # ... existing logic ...
+
+    # NEW: Context injection for follow-up queries
+    sql_context = ""
+    if reference_context.get("is_followup") and last_query_results:
+        prev_entities = last_query_results.get("entities", [])
+        entity_type = last_query_results.get("entity_type", "entity")
+
+        if prev_entities:
+            # Escape for SQL safety
+            entities_escaped = [str(e).replace("'", "''") for e in prev_entities[:10]]
+            entities_str = "', '".join(entities_escaped)
+
+            sql_context = f"""
+CONTEXT (PREVIOUS RESULTS):
+User is referencing previous query results.
+Previous entities ({entity_type}): ['{entities_str}']
+
+IMPORTANT: Add WHERE clause to filter by these entities:
+WHERE {entity_type} IN ('{entities_str}')
+OR
+WHERE {entity_type}_name IN ('{entities_str}')
+"""
+            logger.info(f"[SQL_CONTEXT] Injected {len(prev_entities)} {entity_type} entities")
+
+    # Inject context to SQL generation prompt
+    # ... (modify your SQL prompt builder to include sql_context) ...
+
+    return {
+        # ... existing return fields ...
+        "_sql_context_injected": bool(sql_context),
+    }
+```
+
+### 6. Update Conversation History
+
+```python
+# src/graphs/report/nodes.py
+
+async def update_conversation_history_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Update conversation history after SQL execution.
+
+    CRITICAL: Must be called after every successful query!
+    """
+    from datetime import datetime
+
+    text2sql_output = state.get("text2sql_output")
+    if not text2sql_output or text2sql_output.get("error"):
+        return {}  # Don't save failed queries
+
+    user_query = get_last_user_message(state)
+    query_type = state.get("query_type")
+    results = text2sql_output.get("results", [])
+
+    # Get or init history
+    conversation_history = state.get("conversation_history") or []
+
+    # Add new entry
+    new_entry = {
+        "query": user_query,
+        "query_type": query_type,
+        "results": results[:10],  # Max 10 results to save memory
+        "timestamp": datetime.now().isoformat(),
+    }
+    conversation_history.append(new_entry)
+
+    # Keep only last 5 queries
+    if len(conversation_history) > 5:
+        conversation_history = conversation_history[-5:]
+
+    # Update last_query_results for next follow-up
+    last_query_results = None
+    if results and len(results) > 0:
+        first_key = list(results[0].keys())[0]
+        entities = [r.get(first_key) for r in results]
+
+        # Detect entity type (simple heuristic)
+        entity_type = "unknown"
+        if "branch" in first_key.lower() or "sube" in first_key.lower():
+            entity_type = "branch"
+        elif "product" in first_key.lower() or "urun" in first_key.lower():
+            entity_type = "product"
+        elif "category" in first_key.lower() or "kategori" in first_key.lower():
+            entity_type = "category"
+
+        last_query_results = {
+            "entities": entities,
+            "entity_type": entity_type,
+            "filters": {f"{first_key}__in": entities},
+        }
+
+    logger.info(f"[HISTORY] Updated: {len(conversation_history)} entries, "
+               f"last_results={'present' if last_query_results else 'none'}")
+
+    return {
+        "conversation_history": conversation_history,
+        "last_query_results": last_query_results,
+    }
+```
+
+### 7. Router Function
+
+```python
+# src/graphs/report/graph.py
+
+def route_after_intent_classification(state: ReportState) -> str:
+    """
+    Route after intent classification.
 
     Returns:
-        LLM-powered visualization decision node with query type support
+        "ask_user" → needs clarification
+        "extract_query" → continue normal flow
     """
-    async def decide_visualization_llm_node(state: ReportState) -> Dict[str, Any]:
-        """
-        LLM-powered visualization decision with query type awareness.
-        """
-        text2sql_output = state.get("text2sql_output")
-        if not text2sql_output or text2sql_output.get("error"):
-            logger.info("[REPORT] [LLM] No valid results for visualization decision")
-            return {}
+    needs_clarification = state.get("_needs_clarification", False)
 
-        user_query = get_last_user_message(state) or ""
-        results = text2sql_output.get("results", [])
-        active_context = state.get("active_query_context")
+    if needs_clarification:
+        logger.info("[ROUTER] Needs clarification, asking user")
+        return "ask_user"
 
-        # YENİ: State'den query_type al
-        query_type = state.get("query_type")
-
-        logger.info(f"[REPORT] [LLM] Deciding visualization for {len(results)} results (query_type={query_type})...")
-
-        try:
-            # YENİ: query_type parametresi eklendi
-            interpretation = await report_interpreter.interpret_results(
-                user_query=user_query,
-                data_results=results,
-                active_context=active_context,
-                query_type=query_type  # ← YENİ parametre
-            )
-
-            logger.info(f"[REPORT] [LLM] Decision: {interpretation.output_type} (needs_graph={interpretation.needs_graph})")
-
-            return {
-                "_viz_decision": interpretation.dict()
-            }
-
-        except Exception as e:
-            logger.error(f"[REPORT] [LLM] Visualization decision error: {e}")
-            # Fallback to rule-based
-            return await decide_visualization_node(state)
-
-    return decide_visualization_llm_node
+    return "extract_query"
 ```
 
-**Değişiklik:** +5 satır (query_type parametresi eklendi)
-
----
-
-### 4. **GÜNCELLE:** `src/graphs/report/report_interpreter.py`
+### 8. Update Graph Builder
 
 ```python
-class ReportInterpreter:
-    async def interpret_results(
-        self,
-        user_query: str,
-        data_results: List[Dict[str, Any]],
-        active_context: Optional[Dict[str, Any]] = None,
-        query_type: Optional[str] = None  # YENİ parametre
-    ) -> InterpretationResult:
-        """
-        Query type'a göre chart seçimi.
+# src/graphs/report/graph.py
 
-        Args:
-            user_query: Kullanıcı sorusu
-            data_results: SQL sonuçları
-            active_context: Aktif context
-            query_type: Query type (opsiyonel)
+def build_report_graph(...):
+    """
+    Build report graph with follow-up support.
+    """
+    # ... existing nodes ...
 
-        Returns:
-            InterpretationResult with visualization decision
-        """
+    # NEW: Add ask_user node
+    graph.add_node("ask_user_clarification", ask_user_for_clarification_node)
 
-        # YENİ: Query type-based quick rules (öncelikli)
-        if query_type:
-            # Single value
-            if query_type == "single_value":
-                return InterpretationResult(
-                    needs_graph=False,
-                    output_type="single_value",
-                    chart_type=None,
-                    reason="Tek değer - chart gerekmez",
-                    alternatives=["table"],
-                    key_insight=None,
-                    reasoning=f"Query type: {query_type}"
-                )
+    # NEW: Add history update node
+    graph.add_node("update_conversation_history", update_conversation_history_node)
 
-            # Comparison
-            elif query_type == "comparison":
-                return InterpretationResult(
-                    needs_graph=True,
-                    output_type="bar_chart",
-                    chart_type="bar_chart",
-                    reason="Karşılaştırma - bar chart optimal",
-                    alternatives=["table"],
-                    key_insight=None,
-                    reasoning=f"Query type: {query_type}"
-                )
+    # UPDATE: Conditional routing after intent classification
+    graph.add_conditional_edges(
+        "classify_intent",
+        route_after_intent_classification,
+        {
+            "ask_user": "ask_user_clarification",
+            "extract_query": "extract_query_info",
+        }
+    )
 
-            # Time series
-            elif query_type == "time_series":
-                return InterpretationResult(
-                    needs_graph=True,
-                    output_type="line_chart",
-                    chart_type="line_chart",
-                    reason="Zaman serisi - line chart optimal",
-                    alternatives=["bar_chart", "table"],
-                    key_insight=None,
-                    reasoning=f"Query type: {query_type}"
-                )
+    # NEW: Ask user → continue to extract
+    graph.add_edge("ask_user_clarification", "extract_query_info")
 
-            # Time series comparison
-            elif query_type == "time_series_comparison":
-                return InterpretationResult(
-                    needs_graph=True,
-                    output_type="line_chart",
-                    chart_type="line_chart",
-                    reason="Çoklu zaman serisi - multi-line chart",
-                    alternatives=["bar_chart", "table"],
-                    key_insight=None,
-                    reasoning=f"Query type: {query_type}"
-                )
+    # NEW: SQL execution → update history → visualization
+    graph.add_edge("execute_sql", "update_conversation_history")
+    graph.add_edge("update_conversation_history", "decide_visualization")
 
-            # Distribution
-            elif query_type == "distribution":
-                return InterpretationResult(
-                    needs_graph=True,
-                    output_type="pie_chart",
-                    chart_type="pie_chart",
-                    reason="Dağılım - pie chart optimal",
-                    alternatives=["bar_chart", "table"],
-                    key_insight=None,
-                    reasoning=f"Query type: {query_type}"
-                )
-
-            # Ranking
-            elif query_type == "ranking":
-                if len(data_results) > 5:
-                    return InterpretationResult(
-                        needs_graph=True,
-                        output_type="bar_chart",
-                        chart_type="bar_chart",
-                        reason="Top-N ranking - bar chart optimal",
-                        alternatives=["table"],
-                        key_insight=None,
-                        reasoning=f"Query type: {query_type}"
-                    )
-
-            # Trend
-            elif query_type == "trend":
-                return InterpretationResult(
-                    needs_graph=True,
-                    output_type="line_chart",
-                    chart_type="line_chart",
-                    reason="Trend analizi - line chart optimal",
-                    alternatives=["bar_chart", "table"],
-                    key_insight=None,
-                    reasoning=f"Query type: {query_type}"
-                )
-
-            # Aggregation (default)
-            # If query_type is "aggregation" or any other, fall through to existing logic
-
-        # MEVCUT: Quick rules (data-based)
-        quick_result = self._quick_rules(user_query, data_results)
-        if quick_result:
-            logger.info(f"[INTERPRETER] Quick rule applied: {quick_result.output_type}")
-            return quick_result
-
-        # MEVCUT: LLM interpretation (fallback)
-        if self.use_llm:
-            return await self._llm_interpret(user_query, data_results, active_context)
-
-        # MEVCUT: Rule-based fallback
-        return self._rule_based_fallback(user_query, data_results)
+    # ... rest of existing edges ...
 ```
-
-**Değişiklik:** +60 satır (query_type handling)
-
----
-
-## 🔄 Flow (Açık State Propagation)
-
-```
-1. User Query
-   ↓
-2. classify_intent_node (factory'den oluşturulur, llm inject edilir)
-   ↓ (intent + query_type detection)
-   ↓ (state'e yazılır: query_type, query_type_confidence)
-   ↓
-3. extract_query / text2sql
-   ↓
-4. decide_visualization_llm_node (factory'den oluşturulur)
-   ↓ (state'den okur: query_type)
-   ↓ (report_interpreter.interpret_results(query_type=...))
-   ↓
-5. Visualization render
-   ↓
-6. build_response
-```
-
-**State Flow:**
-```
-classify_intent_node:
-    output: {"query_type": "ranking", "query_type_confidence": 0.9}
-    → state["query_type"] = "ranking"
-
-decide_visualization_llm_node:
-    input: state["query_type"]  # "ranking"
-    → report_interpreter.interpret_results(query_type="ranking")
-    → returns InterpretationResult(chart_type="bar_chart")
-```
-
----
-
-## ✅ Reliability Checklist
-
-### Integration Points
-- ✅ **Factory pattern:** Mevcut pattern kullanılıyor
-- ✅ **LLM injection:** Factory closure ile inject ediliyor
-- ✅ **State propagation:** Açık ve net (classify → state → decide)
-- ✅ **Parameter passing:** query_type explicit geçiliyor
-
-### Error Handling
-- ✅ **JSON parse error:** try-except + fallback
-- ✅ **LLM call error:** try-except + fallback
-- ✅ **Invalid query_type:** Validation + fallback
-- ✅ **Missing query_type:** None → mevcut logic çalışır
-
-### Backward Compatibility
-- ✅ **query_type None:** Mevcut report_interpreter logic çalışır
-- ✅ **LLM yok:** Detection atlanır, query_type=None
-- ✅ **Eski nodes:** Değişmeden çalışır
-- ✅ **State fields:** Optional → eski state'ler bozulmaz
-
-### Edge Cases
-- ✅ **Context yok:** context_info = "Yok"
-- ✅ **Results boş:** Fallback to mevcut logic
-- ✅ **Confidence düşük:** Yine de chart seçimi yapılır
-- ✅ **```json``` wrapper:** Robust JSON extraction
 
 ---
 
 ## 🧪 Test Scenarios
 
-### Test 1: Normal Flow
-```python
-# Input
-user_query = "En çok satan 10 ürün"
+### Scenario 1: Normal Query (No Follow-up)
 
-# Expected
-classify_intent_node → query_type = "ranking"
-decide_visualization_node → chart_type = "bar_chart"
+```python
+Input:
+  user_query = "En çok ciro yapan 3 şubeyi göster"
+
+Expected Flow:
+  1. classify_intent_node:
+     - query_type = "ranking"
+     - confidence = 0.9
+     - is_followup = False
+     - _needs_clarification = False
+
+  2. extract_query_info_node:
+     - No context injection
+     - Normal SQL generation
+
+  3. execute_sql:
+     - Returns 3 branches
+
+  4. update_conversation_history_node:
+     - conversation_history = [{"query": "...", "results": [{"branch": "Şube A", ...}]}]
+     - last_query_results = {"entities": ["Şube A", "Şube B", "Şube C"], "entity_type": "branch"}
+
+  5. decide_visualization:
+     - Intent check: user didn't ask for visualization
+     - Output: Table/Data ✅
 ```
 
-### Test 2: Query Type Detection Fail
-```python
-# LLM response: "Error" (invalid JSON)
+### Scenario 2: Follow-up Query
 
-# Expected
-_detect_query_type_simple → {"query_type": "aggregation", "confidence": 0.3}
-report_interpreter → fallback to mevcut logic
+```python
+State Before:
+  conversation_history = [{
+    "query": "En çok ciro yapan 3 şubeyi göster",
+    "results": [{"branch": "Şube A"}, {"branch": "Şube B"}, {"branch": "Şube C"}]
+  }]
+  last_query_results = {"entities": ["Şube A", "Şube B", "Şube C"], "entity_type": "branch"}
+
+Input:
+  user_query = "Bu şubelerin en çok satış yapılan günü"
+
+Expected Flow:
+  1. classify_intent_node:
+     - _detect_references → has_reference=True ("bu şubelerin")
+     - query_type = "time_series"
+     - is_followup = True
+     - reference_context = {
+         "is_followup": True,
+         "previous_entities": ["Şube A", "Şube B", "Şube C"],
+         "entity_type": "branch"
+       }
+
+  2. extract_query_info_node:
+     - Context injection!
+     - SQL prompt includes: WHERE branch IN ('Şube A', 'Şube B', 'Şube C')
+
+  3. execute_sql:
+     - SQL: SELECT branch, date, sales FROM ... WHERE branch IN ('Şube A', 'Şube B', 'Şube C')
+     - Returns data ONLY for 3 branches ✅
+
+  4. update_conversation_history_node:
+     - Appends new query to history
+
+  5. decide_visualization:
+     - User didn't ask for chart → Data/Table
 ```
 
-### Test 3: Backward Compatible (query_type None)
-```python
-# Old system - no query_type field
+### Scenario 3: Ambiguous Query → Ask User
 
-# Expected
-classify_intent_node → query_type = None
-report_interpreter → skip query_type logic, use mevcut logic
+```python
+Input:
+  user_query = "bunları analiz et"
+
+Expected Flow:
+  1. classify_intent_node:
+     - query_type = "aggregation" (guess)
+     - confidence = 0.4 (LOW!)
+     - _needs_clarification = True
+
+  2. route_after_intent_classification:
+     - Returns "ask_user"
+
+  3. ask_user_for_clarification_node:
+     - Shows options to user
+     - User selects: "comparison"
+     - Updates: query_type="comparison", confidence=1.0
+
+  4. extract_query_info_node:
+     - Continues with user-selected query_type
 ```
 
-### Test 4: Context-Aware Time Series Comparison
-```python
-# User: "En yüksek ürün?"
-# AI: "X dürüm"
-# User: "Y ile karşılaştır"
+### Scenario 4: User Requests Visualization
 
-# Expected
-_detect_query_type_simple(context=X) → "time_series_comparison"
-report_interpreter → chart_type = "line_chart" (multi-line)
+```python
+Input:
+  user_query = "En çok satan 10 ürünü grafikte göster"
+
+Expected Flow:
+  1. classify_intent_node:
+     - intent = "visualization" (user explicitly asked for "grafikte")
+     - query_type = "ranking"
+
+  2. decide_visualization:
+     - Intent = visualization → Continue to chart
+     - Query type = ranking → bar_chart
+     - Output: Bar chart ✅
 ```
 
 ---
 
-## 📊 Karmaşıklık Analizi
+## ✅ Implementation Checklist
 
-### Kod Değişikliği
+### Phase 1: Foundation
+- [ ] Update `state.py` with new fields
+- [ ] Add `_detect_references` helper
+- [ ] Test reference detection
+
+### Phase 2: Query Analysis
+- [ ] Add `_analyze_query_with_context` helper
+- [ ] Update `create_intent_classifier_node` factory
+- [ ] Test context-aware analysis
+- [ ] Test follow-up detection
+
+### Phase 3: User Clarification
+- [ ] Add `ask_user_for_clarification_node`
+- [ ] Add `route_after_intent_classification` router
+- [ ] Update graph with conditional edges
+- [ ] Test ask_user flow
+
+### Phase 4: Context Injection (CRITICAL)
+- [ ] Update `extract_query_info_node` (SQL context injection)
+- [ ] Test SQL WHERE clause generation
+- [ ] Test follow-up queries return correct results
+- [ ] **SECURITY:** Verify SQL injection prevention (escape strings!)
+
+### Phase 5: History Management
+- [ ] Add `update_conversation_history_node`
+- [ ] Update graph with history edge
+- [ ] Test history updates
+- [ ] Test memory management (max 5 entries)
+
+### Phase 6: End-to-End Testing
+- [ ] Test: Normal query
+- [ ] Test: Follow-up query (2-step)
+- [ ] Test: Multi-step follow-up (3+ steps)
+- [ ] Test: Ambiguous query → ask_user
+- [ ] Test: User requests visualization
+- [ ] Test: Backward compatibility
+
+---
+
+## ⚠️ Critical Risks
+
+### Risk 1: SQL Injection
+**Problem:** Previous entities injected to SQL prompt
+
+**Mitigation:**
+```python
+# Escape single quotes
+entities_escaped = [str(e).replace("'", "''") for e in entities]
 ```
-state.py:                   +2 satır
-nodes.py (helper):          +80 satır
-nodes.py (factory update):  +10 satır
-nodes.py (viz factory):     +5 satır
-report_interpreter.py:      +60 satır
 
-TOPLAM: ~157 satır, 3 dosya
-```
+### Risk 2: Memory Leak
+**Problem:** Conversation history grows unbounded
 
-### Maintainability
-- ✅ Factory pattern (mevcut yapıya uyumlu)
-- ✅ Proper error handling
-- ✅ Robust JSON parsing
-- ✅ Clear state propagation
-- ✅ Backward compatible
+**Mitigation:**
+- Max 5 queries in history
+- Max 10 results per query
 
----
+### Risk 3: Reference Resolution Failure
+**Problem:** "bu şubeler" but no previous results
 
-## 📝 Implementation Steps (Doğru Sıra)
-
-### Step 1: State
-1. `state.py` → query_type fields ekle
-
-### Step 2: Detection
-2. `nodes.py` → _detect_query_type_simple helper ekle
-3. `nodes.py` → create_intent_classifier_node factory güncelle
-4. Test: query_type detection çalışıyor mu?
-
-### Step 3: Integration
-5. `nodes.py` → create_llm_viz_decision_node factory güncelle
-6. `report_interpreter.py` → query_type parametresi ekle + if-elif logic
-7. Test: query_type → chart mapping çalışıyor mu?
-
-### Step 4: E2E Test
-8. Full flow test: User query → chart selection
-9. Backward compat test: query_type=None durumu
-10. Error case test: LLM fail, JSON parse fail
+**Mitigation:**
+- Check `last_query_results` exists
+- Graceful degradation → normal flow
 
 ---
 
-## 🔗 Related Files
+## 📊 Summary
 
-**GÜNCELLENEN:**
-- `src/graphs/report/state.py` (+2 satır)
-- `src/graphs/report/nodes.py` (+95 satır)
-- `src/graphs/report/report_interpreter.py` (+60 satır)
+**Files Changed:** 4 files
+- `state.py`: +5 lines
+- `nodes.py`: +400 lines
+- `graph.py`: +15 lines
+- `report_interpreter.py`: No change (intent-based, not query_type-based)
 
-**DEĞİŞMEYEN:**
-- `src/graphs/report/graph.py` (factory zaten doğru çağrılıyor)
-- Tüm diğer dosyalar
+**Total:** ~420 lines
 
----
+**Implementation Time:** 5-7 days
 
-**Son Güncelleme:** 2026-02-06
-**Durum:** RELIABILITY CHECKED ✅
-**Versiyon:** 2.0 (Corrected Integration)
-**Karmaşıklık:** Minimal (~157 satır)
-**Reliability:** HIGH ⭐⭐⭐
+**Status:** READY FOR IMPLEMENTATION ✅
