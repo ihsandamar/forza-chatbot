@@ -781,6 +781,7 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
             if any(kw in user_lower for kw in rollback_keywords):
                 logger.info("[REPORT] ⚡ Fast path: ROLLBACK")
                 return {
+                    "user_query": user_message,  # FIXED: Add user_query
                     "_intent_type": "rollback",
                     "_confidence": 1.0,
                     "_extracted_entities": {},
@@ -792,6 +793,7 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
             if any(kw in user_lower for kw in viz_keywords):
                 logger.info("[REPORT] ⚡ Fast path: VISUALIZE")
                 return {
+                    "user_query": user_message,  # FIXED: Add user_query
                     "_intent_type": "visualize",
                     "_confidence": 0.95,
                     "_extracted_entities": {},
@@ -805,10 +807,16 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
                 if len(user_message.split()) <= 8:
                     logger.info("[REPORT] ⚡ Fast path: Simple NEW_QUERY")
                     return {
+                        "user_query": user_message,  # FIXED: Add user_query
                         "_intent_type": "new_query",
                         "_confidence": 0.85,
                         "_extracted_entities": {},
-                        "_intent_reasoning": "Fast path: Simple query pattern"
+                        "_intent_reasoning": "Fast path: Simple query pattern",
+                        # Note: query_type will be None, extract_query_node will handle it
+                        "query_type": None,
+                        "query_type_confidence": 0.0,
+                        "reference_context": {},
+                        "_needs_clarification": False
                     }
 
             logger.debug("[REPORT] No fast-path match, proceeding to classifier")
@@ -923,11 +931,14 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
                 question = "Ne yapmak istediğinizi tam anlayamadım."
                 options = ["Yeni rapor oluştur", "Mevcut raporu değiştir"]
 
-            return create_clarification_request(
+            clarification = create_clarification_request(
                 question=question,
                 options=options,
                 context=f"Tespit edilen niyet: {classification.intent_type.value}"
             )
+            # FIXED: Add user_query to legacy clarification return
+            clarification["user_query"] = user_message
+            return clarification
 
         # =====================================================================
         # PHASE 2: CONTEXT-AWARE QUERY ANALYSIS (LLM-DRIVEN)
@@ -3135,13 +3146,13 @@ def route_after_intent(state: ReportState) -> str:
 
     # Metadata clarification sonrası retry
     if intent_type == "retry_with_clarification":
-        logger.info("[REPORT] Routing to process_query (retry with user clarification)")
-        return "process_query"
+        logger.info("[REPORT] Routing to extract_query (retry with user clarification)")
+        return "extract_query"
 
     # new_query, modify_filter, modify_aggregation, modify_order, modify_columns
-    # hepsi process_query'ye gidiyor (text2sql ile işlenecek)
-    logger.info(f"[REPORT] Routing to process_query (intent: {intent_type})")
-    return "process_query"
+    # hepsi extract_query'ye gidiyor (text2sql ile işlenecek)
+    logger.info(f"[REPORT] Routing to extract_query (intent: {intent_type})")
+    return "extract_query"
 
 
 def route_after_intent_smart(state: ReportState) -> str:
@@ -3319,11 +3330,14 @@ def create_conversation_aware_intent_node(conversation_manager):
             # Check clarification
             if intent.requires_clarification:
                 logger.info("[REPORT] [LLM] Clarification required")
-                return create_clarification_request(
+                clarification = create_clarification_request(
                     question=intent.clarification_question or "Lütfen açıklayın:",
                     options=intent.clarification_options or ["Devam et", "İptal"],
                     context=f"Intent: {intent.intent_type.value}"
                 )
+                # FIXED: Add user_query to clarification return
+                clarification["user_query"] = user_message
+                return clarification
 
             # =====================================================================
             # PHASE 2: CONTEXT-AWARE QUERY ANALYSIS (LLM-DRIVEN)
