@@ -265,6 +265,26 @@ class ReportState(TypedDict):
     _viz_reasoning: Optional[str]                   # Visualization decision LLM reasoning
     _response_reasoning: Optional[str]              # Response generation LLM reasoning
 
+    # -------------------------------------------------------------------------
+    # Query Type Detection & Follow-up Support (Phase 1 - NEW)
+    # -------------------------------------------------------------------------
+    query_type: Optional[str]                       # "ranking", "comparison", "time_series", etc.
+    query_type_confidence: Optional[float]          # 0.0-1.0 confidence score
+
+    # Follow-up Query Support
+    conversation_history: Optional[List[Dict[str, Any]]]
+    # Format: [{"query": str, "query_type": str, "results": List[Dict], "timestamp": str}]
+
+    last_query_results: Optional[Dict[str, Any]]
+    # Format: {"entities": List[str], "entity_type": str, "filters": Dict}
+
+    reference_context: Optional[Dict[str, Any]]
+    # Format: {"is_followup": bool, "has_reference": bool, "reference_patterns": List[str],
+    #          "previous_entities": List[str], "entity_type": str}
+
+    # Router Flags
+    _needs_clarification: Optional[bool]            # True → route to ask_user node
+
 
 # =============================================================================
 # FACTORY FUNCTIONS - State oluşturma yardımcıları

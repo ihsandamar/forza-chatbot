@@ -38,6 +38,7 @@ LangGraph Features Used:
 """
 
 import logging
+import asyncio
 from typing import Optional
 
 from langgraph.graph import StateGraph, START, END
@@ -76,7 +77,11 @@ from .nodes import (
     create_llm_viz_decision_node,
     create_natural_response_node,
     # Phase 1 optimization
-    create_parallel_insights_viz_node
+    create_parallel_insights_viz_node,
+    # Phase 3-5: Follow-up query support
+    ask_user_for_clarification_node,  # Phase 3
+    route_after_intent_classification,  # Phase 3
+    update_conversation_history_node,  # Phase 5
 )
 from .tools import should_interrupt, format_interrupt_message
 
@@ -295,10 +300,42 @@ def build_report_graph(
     # Router (Phase 1: Smart routing with execution mode detection)
     if llm:
         logger.info("[REPORT] Using Phase 1 smart router (execution mode detection)")
-        smart_router = route_after_intent_smart
+        base_router = route_after_intent_smart
     else:
         logger.info("[REPORT] Using simple rule-based router (no LLM)")
-        smart_router = route_after_intent
+        base_router = route_after_intent
+
+    # Phase 3-6: Composite router with query type clarification check
+    async def composite_router(state: ReportState) -> str:
+        """
+        Composite router: Phase 3 clarification check → base router.
+
+        Flow:
+        1. Check _needs_clarification (Phase 3)
+        2. If True → ask_user_clarification
+        3. Else → delegate to base_router (smart or simple)
+        """
+        # Phase 3: Check query type clarification
+        needs_clarification = state.get("_needs_clarification", False)
+        query_type = state.get("query_type")
+        confidence = state.get("query_type_confidence", 0.0)
+        is_followup = state.get("reference_context", {}).get("is_followup", False)
+
+        logger.info(f"[ROUTER] [PHASE3-6] Composite router check: "
+                   f"query_type={query_type}, conf={confidence:.2f}, "
+                   f"followup={is_followup}, needs_clarification={needs_clarification}")
+
+        if needs_clarification:
+            logger.warning("[ROUTER] [PHASE3] Query type unclear, routing to ask_user_clarification")
+            return "ask_user_clarification"
+
+        # Delegate to base router
+        if asyncio.iscoroutinefunction(base_router):
+            return await base_router(state)
+        else:
+            return base_router(state)
+
+    smart_router = composite_router
 
     # =========================================================================
     # CREATE TEXT2SQL NODES (Merged or Separate)
@@ -382,6 +419,23 @@ def build_report_graph(
     graph.add_node("build_response", response_node)
 
     # -------------------------------------------------------------------------
+    # PHASE 3-5: FOLLOW-UP QUERY SUPPORT (IMPLEMENTED)
+    # -------------------------------------------------------------------------
+    # Phase 3: Ask User Clarification
+    graph.add_node("ask_user_clarification", ask_user_for_clarification_node)
+    logger.info("[REPORT] Phase 3: ask_user_clarification node added")
+
+    # Phase 5: Conversation History Management
+    graph.add_node("update_history", update_conversation_history_node)
+    logger.info("[REPORT] Phase 5: update_history node added")
+
+    # NOTES:
+    # - Phase 1: LLM-driven reference detection in classify_intent_node
+    # - Phase 2: Context-aware query analysis in classify_intent_node
+    # - Phase 4: Context injection in extract_query_node
+    # -------------------------------------------------------------------------
+
+    # -------------------------------------------------------------------------
     # ADD EDGES
     # -------------------------------------------------------------------------
     logger.info("[REPORT] Adding edges...")
@@ -397,23 +451,36 @@ def build_report_graph(
             smart_router,
             {
                 "ask_user": "ask_user",
+                "ask_user_clarification": "ask_user_clarification",  # Phase 3
                 "rollback": "rollback",
                 "visualize_direct": "visualization",  # Skip text2sql AND decide → direct to viz
-                "process_query": "extract_query"
+                "extract_query": "extract_query"  # FIXED: Router returns "extract_query" now
             }
         )
 
         # HITL flow
         graph.add_edge("ask_user", "process_clarification")
         graph.add_edge("process_clarification", "extract_query")
+
+        # Phase 3: Query type clarification flow
+        graph.add_edge("ask_user_clarification", "extract_query")
+        logger.info("[REPORT] Phase 3: ask_user_clarification → extract_query edge added")
     else:
         # HITL disabled: use smart router but skip ask_user
         async def hitl_disabled_router(state: ReportState) -> str:
-            """HITL disabled router."""
+            """HITL disabled router (with Phase 3 query type check)."""
+            # Phase 3: Check query type clarification (even if HITL disabled)
+            needs_clarification = state.get("_needs_clarification", False)
+            if needs_clarification:
+                logger.info("[ROUTER] Query type unclear, routing to ask_user_clarification (HITL disabled but clarification needed)")
+                return "ask_user_clarification"
+
             if llm:
                 route = await smart_router(state)
                 if route == "ask_user":
                     return "extract_query"
+                if route == "ask_user_clarification":
+                    return "ask_user_clarification"  # Phase 3
                 return route  # rollback, visualize_direct, or extract_query
             else:
                 intent = state.get("_intent_type", "new_query")
@@ -428,11 +495,16 @@ def build_report_graph(
             "classify_intent",
             hitl_disabled_router,
             {
+                "ask_user_clarification": "ask_user_clarification",  # Phase 3
                 "rollback": "rollback",
                 "visualize_direct": "visualization",  # Skip decide → direct to viz
                 "extract_query": "extract_query"
             }
         )
+
+        # Phase 3: Query type clarification flow (even if HITL disabled)
+        graph.add_edge("ask_user_clarification", "extract_query")
+        logger.info("[REPORT] Phase 3: ask_user_clarification → extract_query edge added (HITL disabled mode)")
 
     # =========================================================================
     # QUERY PROCESSING FLOW - Merged or Separate Text2SQL
@@ -496,8 +568,11 @@ def build_report_graph(
         graph.add_edge("metadata_enrichment", "value_resolver")
         graph.add_edge("value_resolver", "sql_query_builder")
         graph.add_edge("sql_query_builder", "sql_executor")
-        graph.add_edge("sql_executor", "cleanup_table")
+        # Phase 5: Update conversation history after SQL execution
+        graph.add_edge("sql_executor", "update_history")
+        graph.add_edge("update_history", "cleanup_table")
         graph.add_edge("cleanup_table", "check_results")
+        logger.info("[REPORT] Phase 5: sql_executor → update_history → cleanup_table edge added")
 
         logger.info("[REPORT] ✓ Phase 2: Delta execution flow wired (FIXED)")
         logger.info("[REPORT]   - Delta path: extract_query → create_table → delta_sql_modifier → sql_executor (6 nodes skipped)")
@@ -507,7 +582,11 @@ def build_report_graph(
         logger.info("[REPORT] Wiring SEPARATE Text2SQL flow (backward compatibility)...")
 
         graph.add_edge("extract_query", "text2sql")
-        graph.add_edge("text2sql", "check_results")
+
+        # Phase 5: Update conversation history after SQL execution
+        graph.add_edge("text2sql", "update_history")
+        graph.add_edge("update_history", "check_results")
+        logger.info("[REPORT] Phase 5: text2sql → update_history → check_results edge added")
 
         logger.info("[REPORT] ✓ Text2SQL flow wired: separate graph mode")
 

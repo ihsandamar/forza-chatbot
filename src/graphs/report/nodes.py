@@ -314,6 +314,290 @@ async def decide_visualization_node(state: ReportState) -> Dict[str, Any]:
 # HELPER FUNCTIONS
 # =============================================================================
 
+async def _detect_references_llm(
+    user_message: str,
+    llm: BaseChatModel,
+    conversation_history: Optional[list] = None
+) -> Dict[str, Any]:
+    """
+    LLM-driven reference detection.
+
+    CRITICAL: Uses LLM to understand natural language context, NOT pattern matching!
+
+    Examples:
+        "bu şubeler" → LLM detects reference to previous branches
+        "onların satışı" → LLM understands "onların" refers to previous results
+        "en çok ciro yapan şubeler" → LLM knows this is NEW query, not reference
+        "bu ay satışlar" → LLM distinguishes time reference from previous results
+
+    Args:
+        user_message: User's query
+        llm: Language model
+        conversation_history: Previous queries (for context)
+
+    Returns:
+        Dict with:
+            - has_reference: bool
+            - reference_type: str ("previous_results", "time", "none")
+            - confidence: float
+            - needs_context: bool
+    """
+    # Build context
+    context_info = "Yok"
+    if conversation_history and len(conversation_history) > 0:
+        last_query = conversation_history[-1].get("query", "")
+        context_info = f"Önceki sorgu: {last_query}"
+
+    # LLM prompt for reference detection
+    prompt = f"""Kullanıcının sorgusu önceki sonuçlara referans veriyor mu?
+
+Kullanıcı Sorusu: {user_message}
+Context: {context_info}
+
+ÖNEMLI:
+- "bu şubeler", "onlar", "bunları" → önceki sonuçlara referans
+- "bu ay", "bu yıl" → zaman referansı, önceki sonuç DEĞİL
+- "en çok satan" → YENİ sorgu, referans DEĞİL
+
+JSON döndür (sadece JSON):
+{{
+    "has_reference": true,
+    "reference_type": "previous_results",
+    "confidence": 0.9,
+    "reasoning": "Kullanıcı 'bu şubeler' diyerek önceki sorguya atıfta bulunuyor"
+}}
+
+reference_type seçenekleri:
+- "previous_results": Önceki sorgu sonuçlarına referans
+- "time": Zaman referansı (bu ay, bu yıl)
+- "none": Referans yok"""
+
+    try:
+        response = await llm.ainvoke(prompt)
+        content = response.content.strip()
+
+        # Extract JSON
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+
+        import json
+        data = json.loads(content)
+
+        has_reference = data.get("has_reference", False)
+        reference_type = data.get("reference_type", "none")
+        confidence = float(data.get("confidence", 0.5))
+        reasoning = data.get("reasoning", "")
+
+        # Only "previous_results" type counts as true reference
+        if reference_type != "previous_results":
+            has_reference = False
+
+        logger.info(f"[REFERENCE_LLM] Message: '{user_message[:50]}...', "
+                   f"has_reference={has_reference}, type={reference_type}, "
+                   f"conf={confidence:.2f}, reasoning='{reasoning[:50]}...'")
+
+        return {
+            "has_reference": has_reference,
+            "reference_type": reference_type,
+            "confidence": confidence,
+            "needs_context": has_reference,
+            "reasoning": reasoning
+        }
+
+    except json.JSONDecodeError as e:
+        logger.error(f"[REFERENCE_LLM] JSON parse error: {e}. Content: {content[:100]}")
+        # Fallback: assume no reference (safe default)
+        return {
+            "has_reference": False,
+            "reference_type": "none",
+            "confidence": 0.0,
+            "needs_context": False,
+            "reasoning": "JSON parse error - fallback to no reference"
+        }
+    except Exception as e:
+        logger.error(f"[REFERENCE_LLM] Error: {e}")
+        # Fallback: assume no reference
+        return {
+            "has_reference": False,
+            "reference_type": "none",
+            "confidence": 0.0,
+            "needs_context": False,
+            "reasoning": f"Error during LLM call: {str(e)}"
+        }
+
+
+async def _analyze_query_with_context(
+    user_message: str,
+    active_context: Optional[Dict],
+    conversation_history: Optional[list],
+    last_query_results: Optional[Dict],
+    llm: BaseChatModel
+) -> Dict[str, Any]:
+    """
+    LLM-driven context-aware query analysis.
+
+    CRITICAL: ALL NLP is LLM-driven!
+    - Reference detection (LLM)
+    - Query type classification (LLM)
+    - Ambiguity detection (LLM)
+
+    Args:
+        user_message: User's query
+        active_context: Active query context
+        conversation_history: Previous queries
+        last_query_results: Last query results
+        llm: Language model
+
+    Returns:
+        {
+            "query_type": str,
+            "confidence": float,
+            "is_followup": bool,
+            "needs_clarification": bool,
+            "reference_context": Dict
+        }
+    """
+    # 1. LLM-driven reference detection
+    ref_detection = await _detect_references_llm(
+        user_message=user_message,
+        llm=llm,
+        conversation_history=conversation_history
+    )
+    is_followup = ref_detection["has_reference"]
+
+    # 2. Build context for LLM
+    context_parts = []
+    previous_context = ""
+
+    if is_followup and conversation_history:
+        last_conv = conversation_history[-1]
+        prev_query = last_conv.get("query", "")
+        prev_type = last_conv.get("query_type", "")
+        prev_results = last_conv.get("results", [])
+
+        # Extract entities from previous results
+        prev_entities = []
+        if prev_results and len(prev_results) > 0:
+            first_key = list(prev_results[0].keys())[0]
+            prev_entities = [r.get(first_key) for r in prev_results[:5]]
+
+        previous_context = f"""
+Önceki Sorgu: "{prev_query}"
+Query Type: {prev_type}
+Sonuçlar: {prev_entities}
+Kullanıcı bu sonuçlara referans veriyor.
+"""
+        context_parts.append(f"Önceki sorgu: {prev_type}")
+
+    # 3. LLM prompt for query type classification
+    prompt = f"""Kullanıcının sorgu türünü tespit et.
+
+Soru: {user_message}
+Context: {' | '.join(context_parts) if context_parts else 'Yok'}
+Referans: {'EVET - önceki sonuçları kullanmalı' if is_followup else 'YOK'}
+
+{previous_context if is_followup else ''}
+
+Query Types:
+- single_value: Tek metrik ("Toplam ciro nedir?")
+- ranking: Top-N sıralama ("En çok satan 10 ürün")
+- comparison: Karşılaştırma ("İstanbul vs Ankara")
+- time_series: Zaman serisi ("Son 6 aydaki satışlar")
+- time_series_comparison: Çoklu zaman serisi ("X ve Y'nin son yıldaki satışı")
+- aggregation: Gruplama ("Kategorilere göre toplam")
+- distribution: Dağılım ("Satışların dağılımı")
+- trend: Trend analizi ("Satışlar artıyor mu?")
+
+JSON döndür (sadece JSON):
+{{
+    "query_type": "ranking",
+    "confidence": 0.9,
+    "needs_clarification": false,
+    "reasoning": "Kullanıcı top-N sıralama istiyor"
+}}
+
+ÖNEMLI: Eğer sorgu belirsizse (confidence < 0.6), needs_clarification: true yap."""
+
+    try:
+        response = await llm.ainvoke(prompt)
+        content = response.content.strip()
+
+        # Extract JSON
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+
+        import json
+        data = json.loads(content)
+
+        query_type = data.get("query_type", "aggregation")
+        confidence = float(data.get("confidence", 0.5))
+        needs_clarification = data.get("needs_clarification", False)
+        reasoning = data.get("reasoning", "")
+
+        # Validate query_type
+        valid_types = ["single_value", "ranking", "comparison", "time_series",
+                       "time_series_comparison", "aggregation", "distribution", "trend"]
+        if query_type not in valid_types:
+            logger.warning(f"[QUERY_ANALYSIS] Invalid query_type: {query_type}, fallback to aggregation")
+            query_type = "aggregation"
+            confidence = 0.3
+
+        # Low confidence → clarification needed
+        if confidence < 0.6:
+            needs_clarification = True
+            logger.warning(f"[QUERY_ANALYSIS] Low confidence ({confidence:.2f}), needs clarification")
+
+        # Build reference context
+        reference_context = {
+            "is_followup": is_followup,
+            "has_reference": ref_detection["has_reference"],
+            "reference_type": ref_detection["reference_type"],
+            "previous_entities": [],
+            "entity_type": None
+        }
+
+        if is_followup and last_query_results:
+            reference_context["previous_entities"] = last_query_results.get("entities", [])
+            reference_context["entity_type"] = last_query_results.get("entity_type")
+
+        logger.info(f"[QUERY_ANALYSIS] type={query_type}, conf={confidence:.2f}, "
+                   f"followup={is_followup}, clarify={needs_clarification}, reasoning='{reasoning[:50]}...'")
+
+        return {
+            "query_type": query_type,
+            "confidence": confidence,
+            "is_followup": is_followup,
+            "needs_clarification": needs_clarification,
+            "reference_context": reference_context,
+            "reasoning": reasoning
+        }
+
+    except json.JSONDecodeError as e:
+        logger.error(f"[QUERY_ANALYSIS] JSON parse error: {e}. Content: {content[:100]}")
+        return {
+            "query_type": "aggregation",
+            "confidence": 0.3,
+            "is_followup": is_followup,
+            "needs_clarification": True,  # Parse error → ask user
+            "reference_context": {},
+            "reasoning": "JSON parse error"
+        }
+    except Exception as e:
+        logger.error(f"[QUERY_ANALYSIS] Error: {e}")
+        return {
+            "query_type": "aggregation",
+            "confidence": 0.3,
+            "is_followup": is_followup,
+            "needs_clarification": True,
+            "reference_context": {},
+            "reasoning": f"Error: {str(e)}"
+        }
+
+
 def get_last_user_message(state: ReportState) -> Optional[str]:
     """State'den son kullanıcı mesajını al."""
     messages = state.get("messages", [])
@@ -645,15 +929,209 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
                 context=f"Tespit edilen niyet: {classification.intent_type.value}"
             )
 
+        # =====================================================================
+        # PHASE 2: CONTEXT-AWARE QUERY ANALYSIS (LLM-DRIVEN)
+        # =====================================================================
+        conversation_history = state.get("conversation_history", [])
+        last_query_results = state.get("last_query_results")
+
+        # Default query analysis
+        query_analysis = {
+            "query_type": None,
+            "confidence": 0.0,
+            "is_followup": False,
+            "needs_clarification": False,
+            "reference_context": {}
+        }
+
+        logger.info("[PHASE2] Running context-aware query analysis...")
+        try:
+            query_analysis = await _analyze_query_with_context(
+                user_message=user_message,
+                active_context=active_context,
+                conversation_history=conversation_history,
+                last_query_results=last_query_results,
+                llm=llm
+            )
+            logger.info(f"[PHASE2] [QUERY_ANALYSIS] Result: type={query_analysis.get('query_type')}, "
+                       f"conf={query_analysis.get('confidence', 0):.2f}, "
+                       f"followup={query_analysis.get('is_followup', False)}")
+        except Exception as e:
+            logger.error(f"[PHASE2] [QUERY_ANALYSIS] Failed: {e}", exc_info=True)
+            # Continue with default values (backward compatible)
+
+        should_ask_user = query_analysis.get("needs_clarification", False)
+
         # Classification bilgisini state'e kaydet
         return {
             "user_query": user_message,
             "_intent_type": classification.intent_type.value,
             "_confidence": classification.confidence,
-            "_extracted_entities": classification.extracted_entities
+            "_extracted_entities": classification.extracted_entities,
+            # Phase 2: NEW fields
+            "query_type": query_analysis.get("query_type"),
+            "query_type_confidence": query_analysis.get("confidence", 0.0),
+            "reference_context": query_analysis.get("reference_context", {}),
+            "_needs_clarification": should_ask_user,
         }
 
     return classify_intent_node
+
+
+async def update_conversation_history_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Update conversation history after SQL execution (Phase 5).
+
+    CRITICAL: Must be called after every successful query!
+
+    Updates:
+    - conversation_history: Appends new query-result pair
+    - last_query_results: Updates for next follow-up query
+
+    Memory Management:
+    - Max 5 queries in history
+    - Max 10 results per query
+
+    Args:
+        state: ReportState
+
+    Returns:
+        Updated state with conversation_history and last_query_results
+    """
+    from datetime import datetime
+
+    text2sql_output = state.get("text2sql_output")
+    if not text2sql_output or text2sql_output.get("error"):
+        logger.info("[HISTORY] No valid results, skipping history update")
+        return {}  # Don't save failed queries
+
+    user_query = get_last_user_message(state)
+    query_type = state.get("query_type")
+    results = text2sql_output.get("results", [])
+
+    # Get or init history
+    conversation_history = state.get("conversation_history") or []
+
+    # Add new entry
+    new_entry = {
+        "query": user_query,
+        "query_type": query_type,
+        "results": results[:10],  # Max 10 results to save memory
+        "timestamp": datetime.now().isoformat(),
+    }
+    conversation_history.append(new_entry)
+
+    # Keep only last 5 queries
+    if len(conversation_history) > 5:
+        conversation_history = conversation_history[-5:]
+
+    # Update last_query_results for next follow-up
+    last_query_results = None
+    if results and len(results) > 0:
+        first_key = list(results[0].keys())[0]
+        entities = [r.get(first_key) for r in results]
+
+        # Detect entity type (simple heuristic)
+        entity_type = "unknown"
+        if "branch" in first_key.lower() or "sube" in first_key.lower():
+            entity_type = "branch"
+        elif "product" in first_key.lower() or "urun" in first_key.lower():
+            entity_type = "product"
+        elif "category" in first_key.lower() or "kategori" in first_key.lower():
+            entity_type = "category"
+        elif "city" in first_key.lower() or "sehir" in first_key.lower():
+            entity_type = "city"
+        elif "customer" in first_key.lower() or "musteri" in first_key.lower():
+            entity_type = "customer"
+
+        last_query_results = {
+            "entities": entities,
+            "entity_type": entity_type,
+            "filters": {f"{first_key}__in": entities},  # SQL WHERE için
+        }
+
+    logger.info(f"[PHASE5] [HISTORY] Updated: {len(conversation_history)} entries, "
+               f"last_results={'present' if last_query_results else 'none'}")
+
+    if last_query_results:
+        entities_preview = last_query_results['entities'][:3]
+        logger.info(f"[PHASE5] [HISTORY] Last query results: {len(last_query_results['entities'])} "
+                   f"{last_query_results['entity_type']} entities "
+                   f"(preview: {entities_preview})")
+
+    return {
+        "conversation_history": conversation_history,
+        "last_query_results": last_query_results,
+    }
+
+
+async def ask_user_for_clarification_node(state: ReportState) -> Dict[str, Any]:
+    """
+    Ask user when query type is ambiguous (Phase 3).
+
+    CRITICAL: LLM-driven ambiguity detection triggers this node.
+
+    Triggered when:
+    - Query type confidence < 0.6
+    - Reference detected but unclear context
+    - Ambiguous intent
+
+    Examples:
+        "bunları göster" → Which analysis type?
+        "şubeleri analiz et" → Ranking? Comparison? Aggregation?
+
+    Returns:
+        Updated state with user's selected query_type
+    """
+    from langgraph.types import interrupt
+
+    user_message = get_last_user_message(state)
+    query_type = state.get("query_type", "unknown")
+    confidence = state.get("query_type_confidence", 0.0)
+    reference_context = state.get("reference_context", {})
+
+    logger.info(f"[ASK_USER] Query type ambiguous: '{user_message[:50]}...', "
+               f"type={query_type}, confidence={confidence:.2f}")
+
+    # Options for user selection
+    options = {
+        "ranking": "Sıralama (Top-N)",
+        "comparison": "Karşılaştırma (A vs B)",
+        "time_series": "Zaman Serisi",
+        "aggregation": "Gruplama/Toplam",
+        "distribution": "Dağılım",
+    }
+
+    # Add context info if follow-up query
+    context_info = ""
+    if reference_context.get("is_followup"):
+        prev_entities = reference_context.get("previous_entities", [])
+        if prev_entities:
+            context_info = f"\n\n📌 Önceki sonuçlar: {', '.join(str(e) for e in prev_entities[:3])}"
+
+    message = f"""🤔 **Sorgunuz:** "{user_message}"
+
+Sorgu türü belirsiz (güven: {confidence:.0%}). Hangi analiz türünü istiyorsunuz?{context_info}
+
+**Seçenekler:**
+"""
+    for key, label in options.items():
+        message += f"\n- **{key}**: {label}"
+
+    # Interrupt to ask user
+    user_choice = interrupt({
+        "message": message,
+        "type": "query_type_clarification",
+        "options": list(options.keys()),
+    })
+
+    logger.info(f"[ASK_USER] User selected: {user_choice}")
+
+    return {
+        "query_type": user_choice,
+        "query_type_confidence": 1.0,  # User confirmation → high confidence
+        "_needs_clarification": False,
+    }
 
 
 async def process_user_clarification_node(state: ReportState) -> Dict[str, Any]:
@@ -850,6 +1328,50 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
 
     logger.info(f"[REPORT] Extracted query: {user_query[:100]}...")
 
+    # =========================================================================
+    # PHASE 4: CONTEXT INJECTION FOR FOLLOW-UP QUERIES (CRITICAL!)
+    # =========================================================================
+    reference_context = state.get("reference_context", {})
+    last_query_results = state.get("last_query_results")
+    is_followup = reference_context.get("is_followup", False)
+
+    logger.info(f"[PHASE4] Context injection check: is_followup={is_followup}, "
+               f"has_last_results={last_query_results is not None}")
+
+    # SQL context for injection
+    sql_context_hint = ""
+
+    if is_followup and last_query_results:
+        prev_entities = last_query_results.get("entities", [])
+        entity_type = last_query_results.get("entity_type", "entity")
+
+        if prev_entities:
+            # SECURITY: Escape for SQL injection prevention
+            # Single quotes → doubled single quotes (SQL standard)
+            entities_escaped = [str(e).replace("'", "''") for e in prev_entities[:20]]  # Max 20
+            entities_str = "', '".join(entities_escaped)
+
+            # Build natural language context hint for Text2SQL
+            sql_context_hint = f"""
+ÖNEMLI CONTEXT (Kullanıcı önceki sonuçlara referans veriyor):
+Önceki sorgu sonuçları ({entity_type}): {', '.join(str(e) for e in prev_entities[:5])}
+Toplam {len(prev_entities)} entity.
+
+SQL oluştururken WHERE clause ekle:
+WHERE {entity_type} IN ('{entities_str}')
+VEYA
+WHERE {entity_type}_name IN ('{entities_str}')
+
+NOT: Entity isimlerini yukarıdaki listeden kullan, başka entity ekleme!
+"""
+            # Enrich user query with context
+            enriched_query = f"{user_query}\n\n{sql_context_hint}"
+
+            logger.info(f"[REPORT] [PHASE4] Context injection: {len(prev_entities)} {entity_type} entities")
+            logger.info(f"[REPORT] [PHASE4] SQL context hint: {sql_context_hint[:200]}...")
+
+            user_query = enriched_query
+
     # Phase 1: Build conversation context for Text2SQL nodes
     active_context = state.get("active_query_context")
     conversation_context = _build_conversation_context(active_context, state)
@@ -906,7 +1428,8 @@ async def extract_query_node(state: ReportState) -> Dict[str, Any]:
         "user_query": user_query,
         "conversation_context": conversation_context,
         "last_intent": current_intent,
-        "_execution_mode": execution_mode
+        "_execution_mode": execution_mode,
+        "_sql_context_injected": bool(sql_context_hint),  # Phase 4: tracking
     }
 
 
@@ -2548,6 +3071,35 @@ def _fallback_route_decision(intent_type: str, confidence: float) -> str:
     return "process_query"
 
 
+def route_after_intent_classification(state: ReportState) -> str:
+    """
+    Router after intent classification (Phase 3).
+
+    CRITICAL: Checks if query type clarification is needed.
+
+    Routes:
+        "ask_user_clarification" → Query type ambiguous, needs user input
+        "process_query" → Query type clear, continue to Text2SQL
+
+    Args:
+        state: ReportState
+
+    Returns:
+        Next node name
+    """
+    needs_clarification = state.get("_needs_clarification", False)
+
+    if needs_clarification:
+        query_type = state.get("query_type", "unknown")
+        confidence = state.get("query_type_confidence", 0.0)
+        logger.info(f"[ROUTER] Query type unclear (type={query_type}, conf={confidence:.2f}), "
+                   f"routing to ask_user_clarification")
+        return "ask_user_clarification"
+
+    logger.info("[ROUTER] Query type clear, routing to process_query")
+    return "process_query"
+
+
 def route_after_intent(state: ReportState) -> str:
     """
     Basit kural tabanlı routing (LLM olmadan fallback).
@@ -2627,10 +3179,10 @@ def route_after_intent_smart(state: ReportState) -> str:
         logger.info("[REPORT] [SMART_ROUTER] → visualize_direct (skip Text2SQL)")
         return "visualize_direct"
 
-    # For Phase 1, all queries go to process_query (which routes to extract_query)
+    # For Phase 1, all queries go to extract_query
     # extract_query_node will determine execution mode
-    logger.info("[REPORT] [SMART_ROUTER] → process_query")
-    return "process_query"
+    logger.info("[REPORT] [SMART_ROUTER] → extract_query")
+    return "extract_query"
 
 
 def _determine_execution_mode(
@@ -2773,12 +3325,56 @@ def create_conversation_aware_intent_node(conversation_manager):
                     context=f"Intent: {intent.intent_type.value}"
                 )
 
+            # =====================================================================
+            # PHASE 2: CONTEXT-AWARE QUERY ANALYSIS (LLM-DRIVEN)
+            # =====================================================================
+            conversation_history = state.get("conversation_history", [])
+            last_query_results = state.get("last_query_results")
+
+            # Get LLM from conversation_manager
+            llm = conversation_manager.llm if hasattr(conversation_manager, 'llm') else None
+
+            # Default query analysis
+            query_analysis = {
+                "query_type": None,
+                "confidence": 0.0,
+                "is_followup": False,
+                "needs_clarification": False,
+                "reference_context": {}
+            }
+
+            if llm:
+                logger.info("[PHASE2] LLM available, running context-aware query analysis...")
+                try:
+                    query_analysis = await _analyze_query_with_context(
+                        user_message=user_message,
+                        active_context=active_context,
+                        conversation_history=conversation_history,
+                        last_query_results=last_query_results,
+                        llm=llm
+                    )
+                    logger.info(f"[PHASE2] [QUERY_ANALYSIS] Result: type={query_analysis.get('query_type')}, "
+                               f"conf={query_analysis.get('confidence', 0):.2f}, "
+                               f"followup={query_analysis.get('is_followup', False)}")
+                except Exception as e:
+                    logger.error(f"[PHASE2] [QUERY_ANALYSIS] Failed: {e}", exc_info=True)
+            else:
+                logger.warning("[PHASE2] LLM not available, skipping query analysis")
+
+            should_ask_user = query_analysis.get("needs_clarification", False)
+
             # Return enhanced intent info
             return {
+                "user_query": user_message,  # FIXED: Add user_query (missing field)
                 "_intent_type": intent.intent_type.value,
                 "_confidence": intent.confidence,
                 "_extracted_entities": intent.extracted_entities,
-                "_intent_reasoning": intent.reasoning  # NEW: LLM reasoning trace
+                "_intent_reasoning": intent.reasoning,  # LLM reasoning trace
+                # Phase 2: NEW fields
+                "query_type": query_analysis.get("query_type"),
+                "query_type_confidence": query_analysis.get("confidence", 0.0),
+                "reference_context": query_analysis.get("reference_context", {}),
+                "_needs_clarification": should_ask_user,
             }
 
         except Exception as e:
@@ -2788,7 +3384,12 @@ def create_conversation_aware_intent_node(conversation_manager):
                 "_intent_type": "new_query",
                 "_confidence": 0.5,
                 "_extracted_entities": {},
-                "_intent_reasoning": f"Error: {e}"
+                "_intent_reasoning": f"Error: {e}",
+                # Phase 2: Default values on error
+                "query_type": None,
+                "query_type_confidence": 0.0,
+                "reference_context": {},
+                "_needs_clarification": False,
             }
 
     return conversation_aware_intent_node

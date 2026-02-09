@@ -123,10 +123,10 @@ class ConversationManager:
         # Create context window manager
         self.context_window = ContextWindow(max_tokens=2000)
 
-        # Create prompt template
+        # Create prompt template (FIXED: Use tuple format for template variables)
         self.prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=INTENT_UNDERSTANDING_SYSTEM),
-            HumanMessage(content=INTENT_UNDERSTANDING_TEMPLATE)
+            ("system", INTENT_UNDERSTANDING_SYSTEM),
+            ("human", INTENT_UNDERSTANDING_TEMPLATE)
         ])
 
         logger.info(f"[CONVERSATION] Initialized (LLM reasoning: {enable_llm_reasoning})")
