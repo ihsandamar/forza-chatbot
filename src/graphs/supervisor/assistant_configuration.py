@@ -4,12 +4,13 @@ Supervisor Assistant Configuration.
 LangGraph-compatible configuration with flat fields for Studio UI.
 Provides typed helper methods for sub-agent configurations.
 """
-from typing import Literal, Annotated
+from typing import Literal, Annotated, List, Dict, Any
 from datetime import datetime
 from pydantic import Field
 from src.models.base_assistant_configuration import BaseAssistantConfiguration
 from src.graphs.routing.assistant_configuration import RoutingAssistantConfiguration
 from src.graphs.chat.assistant_configuration import ChatAssistantConfiguration
+from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
 
 today = datetime.now().strftime("%Y-%m-%d")
 
@@ -87,6 +88,65 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
     )
 
     # ========================================
+    # Report Sub-Agent Configuration
+    # ========================================
+    report_name: str = Field(
+        default="",
+        description="Rapor adı (report agent için)",
+        json_schema_extra={"langgraph_nodes": ["report"]}
+    )
+
+    report_description: str = Field(
+        default="",
+        description="Rapor açıklaması",
+        json_schema_extra={"langgraph_nodes": ["report"]}
+    )
+
+    report_table_name: str = Field(
+        default="MasterReportDocumentTable",
+        description="Sorgunun uygulanacağı tablo adı",
+        json_schema_extra={"langgraph_nodes": ["report"]}
+    )
+
+    report_query: str = Field(
+        default="",
+        description="Tablo oluşturma SQL sorgusu (runtime'da çalıştırılacak)",
+        json_schema_extra={"langgraph_nodes": ["report"]}
+    )
+
+    report_column_metadata: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Sütun metaverileri - column_name -> description mapping",
+        json_schema_extra={"langgraph_nodes": ["report"]}
+    )
+
+    report_business_rules: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="İş kuralları JSON formatında",
+        json_schema_extra={"langgraph_nodes": ["report"]}
+    )
+
+    report_system_prompt: str = Field(
+        default="Sen bir ERP uzmanı ve SQL sorgulama asistanısın.",
+        description="System prompt for report sub-agent",
+        json_schema_extra={"langgraph_nodes": ["report"], "langgraph_type": "prompt"}
+    )
+
+    report_model: Annotated[
+        Literal[
+            "anthropic:claude-haiku-4-5",
+            "anthropic:claude-sonnet-4-5",
+            "openai:gpt-5",
+            "openai:gpt-5-mini"
+        ],
+        {"__template_metadata__": {"kind": "llm"}},
+    ] = Field(
+        default="anthropic:claude-sonnet-4-5",
+        description="Language model for report sub-agent (SQL generation)",
+        json_schema_extra={"langgraph_nodes": ["report"]},
+    )
+
+    # ========================================
     # Helper Methods (Convert flat → typed)
     # ========================================
     def get_routing_config(self) -> RoutingAssistantConfiguration:
@@ -112,4 +172,22 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
         return ChatAssistantConfiguration(
             system_prompt=self.chat_system_prompt,
             assistant_name="ChatAssistant"
+        )
+
+    def get_report_config(self) -> GenericSQLAssistantConfiguration:
+        """
+        Convert flat report fields to typed GenericSQLAssistantConfiguration.
+
+        Returns:
+            GenericSQLAssistantConfiguration with values from flat fields
+        """
+        return GenericSQLAssistantConfiguration(
+            report_name=self.report_name,
+            description=self.report_description,
+            table_name=self.report_table_name,
+            query=self.report_query,
+            column_metadata=self.report_column_metadata,
+            business_rules=self.report_business_rules,
+            system_prompt=self.report_system_prompt,
+            assistant_name="ReportAssistant"
         )

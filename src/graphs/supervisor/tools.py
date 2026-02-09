@@ -17,7 +17,7 @@ def get_supervisor_status() -> str:
 
 
 
-# Create handoff tools for research and portfolio agents
+# Create handoff tools for sub-agents
 assign_to_chat_agent = create_handoff_tool(
     agent_name="chat",
     description="Assign task to chat agent for chat and conversation tasks.",
@@ -26,4 +26,9 @@ assign_to_chat_agent = create_handoff_tool(
 assign_to_routing_agent = create_handoff_tool(
     agent_name="routing",
     description="Assign task to routing agent for Forza page routing and navigation tasks.",
+)
+
+assign_to_report_agent = create_handoff_tool(
+    agent_name="report",
+    description="Assign task to report agent for data analysis, SQL queries, reports, visualizations, charts, and master report queries.",
 )

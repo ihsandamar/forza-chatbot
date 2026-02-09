@@ -9,7 +9,10 @@
   "graphs": {
 
       "supervisor":"src/graphs/graph_entrypoints.py:supervisor_graph",
-      "routing":"src/graphs/graph_entrypoints.py:routing_graph"
+      "routing":"src/graphs/graph_entrypoints.py:routing_graph",
+      "generic_text2sql_graph":"src/graphs/graph_entrypoints.py:generic_text2sql_graph",
+      "data_visualization_graph":"src/graphs/graph_entrypoints.py:data_visualization_graph",
+      "report":"src/graphs/graph_entrypoints.py:report_graph"
 
 
   },

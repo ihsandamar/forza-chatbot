@@ -129,9 +129,130 @@ class ChatService:
 
         return None
 
+    def _detect_report_response(self, messages: list) -> Optional[dict]:
+        """
+        Detect if messages contain a report response (AI message with Plotly HTML).
+
+        Checks the last few messages for AI messages containing Plotly HTML snippets,
+        which indicates a data visualization/report generation action.
+
+        Args:
+            messages: List of messages from graph output
+
+        Returns:
+            Dict with report info if detected, None otherwise
+            Format: {"html": str, "text": str}
+        """
+        # Check last 5 messages for AI messages with HTML
+        check_count = min(5, len(messages))
+        recent_messages = messages[-check_count:] if check_count > 0 else []
+
+        for msg in reversed(recent_messages):
+            # Parse message to get role and content
+            role, content = self._parse_message(msg)
+
+            # Check if it's an AI message
+            if role == "assistant" and content:
+                content_str = str(content)
+                # Check if content contains Plotly HTML (iframe or div with plotly)
+                if ("<iframe" in content_str and "base64" in content_str) or \
+                   ("<div" in content_str and "plotly" in content_str.lower()):
+                    # Extract HTML snippet
+                    # Find the HTML part (between iframe tags or entire content if it's mostly HTML)
+                    import re
+
+                    # Try to find iframe first (our current format)
+                    iframe_pattern = r'<iframe[^>]*src="[^"]*"[^>]*>.*?</iframe>'
+                    iframe_match = re.search(iframe_pattern, content_str, re.DOTALL | re.IGNORECASE)
+
+                    if iframe_match:
+                        html_snippet = iframe_match.group(0)
+                        # Extract text without HTML for summary
+                        text_without_html = re.sub(r'<[^>]+>', '', content_str).strip()
+                        # Clean up extra whitespace
+                        text_without_html = re.sub(r'\s+', ' ', text_without_html).strip()
+
+                        return {
+                            "html": html_snippet,
+                            "text": text_without_html
+                        }
+
+        return None
+
+    def _detect_hitl_question(self, graph_output: dict) -> Optional[dict]:
+        """
+        Detect if graph output contains a HITL (Human-in-the-Loop) question.
+
+        HITL questions occur when the report agent needs clarification from user.
+        This happens via interrupt_before pattern in LangGraph.
+
+        Args:
+            graph_output: Full graph output state
+
+        Returns:
+            Dict with HITL info if detected, None otherwise
+            Format: {"question": str, "options": list, "context": str}
+        """
+        # Check for pending_question in state
+        pending_question = graph_output.get("pending_question")
+        waiting_for_input = graph_output.get("waiting_for_user_input", False)
+
+        if pending_question and waiting_for_input:
+            return {
+                "question": pending_question.get("question", ""),
+                "options": pending_question.get("options", []),
+                "context": pending_question.get("context", "")
+            }
+
+        return None
+
+    def _store_hitl_state(self, session_id: str, hitl_info: dict):
+        """
+        Store HITL state in session for resume.
+
+        Args:
+            session_id: Session identifier
+            hitl_info: HITL question information
+        """
+        session = self.get_session(session_id)
+        if session:
+            session["hitl_pending"] = True
+            session["hitl_question"] = hitl_info
+
+    def _get_hitl_state(self, session_id: str) -> Optional[dict]:
+        """
+        Get pending HITL state from session.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            HITL info if pending, None otherwise
+        """
+        session = self.get_session(session_id)
+        if session and session.get("hitl_pending"):
+            return session.get("hitl_question")
+        return None
+
+    def _clear_hitl_state(self, session_id: str):
+        """
+        Clear HITL state after user responds.
+
+        Args:
+            session_id: Session identifier
+        """
+        session = self.get_session(session_id)
+        if session:
+            session["hitl_pending"] = False
+            session["hitl_question"] = None
+
     async def send_message(self, request: ChatMessageRequest) -> ChatMessageResponse:
         """
         Send a message to the chatbot
+
+        Supports HITL (Human-in-the-Loop) flow:
+        1. If there's a pending HITL question, treat user message as clarification
+        2. Otherwise, process as normal message
 
         Args:
             request: ChatMessageRequest with session_id and message
@@ -152,11 +273,71 @@ class ChatService:
         # Build message history from session
         messages = session.get("messages", [])
 
-        # Add user message to messages
-        messages.append({"role": "user", "content": request.message})
+        # Check if there's a pending HITL question
+        hitl_pending = self._get_hitl_state(request.session_id)
 
-        # Prepare state for chatbot
-        state = {"messages": messages}
+        # Prepare state for chatbot - preserve existing state fields
+        state = {
+            "messages": messages.copy(),
+            # Preserve context from previous invocation
+            "active_query_context": session.get("active_query_context"),
+            "query_history": session.get("query_history", []),
+            "text2sql_output": None,
+            "visualization_output": None,
+            "error": None,
+            "no_records_message": None,
+            "_intent_type": None,
+            "_confidence": None,
+            "_extracted_entities": None,
+            "_modification_action": None,
+            "_selected_table": None,
+            "_selected_filter_value": None,
+            "_selected_column": None,
+            "_selected_value": None,
+            "_clarification_type": None,
+            "_user_preference": None,
+            "_preference_type": None,
+            "_use_exact_input": None
+        }
+
+        # If HITL is pending, handle as clarification with Command pattern
+        if hitl_pending:
+            # Command-based HITL: Resume graph with Command(resume=...)
+            logger.info(f"[CHAT] HITL clarification received: {request.message[:50]}...")
+
+            # Try to use Command(resume=...) if available
+            try:
+                from langgraph.types import Command
+
+                # Use Command to resume the interrupted graph
+                logger.info("[CHAT] Using Command(resume=...) for HITL")
+
+                # Create Command with resume value
+                # This will be passed to graph instead of state
+                state = Command(resume=request.message)
+
+            except ImportError:
+                # Fallback: Message-based HITL (old pattern)
+                logger.info("[CHAT] Command not available, using message-based HITL")
+
+                # Keep messages as-is, only set user_clarification
+                state["messages"] = messages
+                state["user_clarification"] = request.message
+                state["waiting_for_user_input"] = False
+                state["pending_question"] = hitl_pending
+
+            # Clear HITL state
+            self._clear_hitl_state(request.session_id)
+
+        else:
+            # Normal message - add to conversation history
+            messages.append({"role": "user", "content": request.message})
+            state["messages"] = messages
+            state["user_clarification"] = None
+            state["pending_question"] = None
+            state["waiting_for_user_input"] = False
+
+            logger.info(f"[CHAT] Normal message received: {request.message[:50]}...")
 
         # Prepare adapter kwargs (e.g., token for VegaForza)
         adapter_kwargs = {}
@@ -179,6 +360,52 @@ class ChatService:
             # Fallback: just keep the messages we have
             session["messages"] = messages
 
+        # Persist active_query_context and query_history for next invocation
+        # This is CRITICAL for conversational report agent to work properly
+        if graph_output.get("active_query_context"):
+            session["active_query_context"] = graph_output["active_query_context"]
+
+        if graph_output.get("query_history"):
+            session["query_history"] = graph_output["query_history"]
+
+        # Check for HITL question in graph output
+        hitl_info = self._detect_hitl_question(graph_output)
+        if hitl_info:
+            # Store HITL state for next message
+            self._store_hitl_state(request.session_id, hitl_info)
+
+            # Build HITL response
+            question_text = hitl_info["question"]
+            options = hitl_info["options"]
+            context = hitl_info.get("context", "")
+
+            # Format options for display
+            options_text = "\n".join([f"  {i+1}. {opt}" for i, opt in enumerate(options)])
+            full_text = f"❓ {question_text}\n\nSeçenekler:\n{options_text}"
+            if context:
+                full_text += f"\n\nℹ️ {context}"
+
+            response_data = ResponseData(
+                text=full_text,
+                type="question",
+                confidence=0.9,
+                action=ActionResponse(
+                    type="hitl",
+                    target="",
+                    params={
+                        "question": question_text,
+                        "options": options,
+                        "context": context
+                    }
+                )
+            )
+
+            return ChatMessageResponse(
+                session_id=request.session_id,
+                timestamp=datetime.now(),
+                response=response_data
+            )
+
         # Extract text response from graph output (last message)
         # Don't invoke graph again - use the output we already have
         bot_response_text = self.chatbot._from_graph_state(graph_output)
@@ -186,7 +413,10 @@ class ChatService:
         # Detect if this is a routing/navigation response
         routing_info = self._detect_routing_response(graph_messages)
 
-        # Build response based on whether routing was detected
+        # Detect if this is a report/visualization response
+        report_info = self._detect_report_response(graph_messages)
+
+        # Build response based on what was detected (priority: routing > report > text)
         if routing_info:
             # Navigation response with special format
             response_data = ResponseData(
@@ -196,6 +426,18 @@ class ChatService:
                 action=ActionResponse(
                     type="routing",
                     target=routing_info["url"],
+                    params={}
+                )
+            )
+        elif report_info:
+            # Report/visualization response with special format
+            response_data = ResponseData(
+                text=report_info["text"] or "Grafik oluşturuldu",
+                type="report",
+                confidence=0.85,
+                action=ActionResponse(
+                    type="chart",
+                    target=report_info["html"],
                     params={}
                 )
             )

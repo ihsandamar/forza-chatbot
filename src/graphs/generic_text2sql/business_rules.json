@@ -1,0 +1,50 @@
+{
+  "business_logic_rules": [
+    {
+      "id": "iade_dusulmus",
+      "description": "İadelerin toplam cirodan çıkarılarak hesaplama dahil edilmesi (CASE WHEN ile)",
+      "modules": ["MasterReports"],
+      "related_tables": [],
+      "sql": {
+        "aggregation": "SUM(CASE WHEN DocumentTypeIsReturn = 1 THEN -RowAmount ELSE RowAmount END)",
+        "filter": null,
+        "group_by": null,
+        "select": null,
+        "join": null,
+        "having": null
+      },
+      "is_default": true
+    },
+    {
+      "id": "sadece_acik_masa_dahil_et",
+      "description": "Sadece açık masaların veya ödemesi alınmamış masalarda toplam ciroya dahil edilmesi",
+      "modules": ["MasterReports"],
+      "related_tables": [],
+      "sql": {
+        "aggregation": null,
+        "filter": "WHERE IsTableActive = 1",
+        "group_by": null,
+        "select": null,
+        "join": null,
+        "having": null
+      },
+      "is_default": false
+    }
+  ],
+  "metadata": {
+    "version": "2.1",
+    "last_updated": "2025-12-29",
+    "total_rules": 1,
+    "default_rules_count": 1,
+    "database_type": "MSSQL",
+    "application": "Forza ERP - Master Report System",
+    "sql_components": {
+      "aggregation": "SELECT içindeki aggregate fonksiyonlar (SUM, COUNT, AVG, etc.)",
+      "filter": "WHERE koşulları",
+      "group_by": "GROUP BY kolonları",
+      "select": "SELECT'e eklenecek ek kolonlar",
+      "join": "JOIN ifadeleri",
+      "having": "HAVING koşulları (aggregate sonrası filtre)"
+    }
+  }
+}
