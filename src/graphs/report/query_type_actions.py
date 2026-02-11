@@ -81,44 +81,112 @@ async def extract_entities_from_context(
         previous_query = last_conv.get("query", "")
 
     # LLM prompt for entity extraction
-    prompt = f"""Kullanıcının sorgusundan ve önceki context'ten entity'leri çıkar.
+    prompt = f"""Sen bir entity extraction uzmanısın. Kullanıcının sorgusundan ve önceki context'ten entity'leri doğru şekilde çıkarmalısın.
 
-User Query: "{user_query}"
-Query Type: {query_type}
+🔍 **KULLANICI SORGUSU:** "{user_query}"
+📊 **QUERY TYPE:** {query_type}
+
+📜 **ÖNCEKİ CONTEXT:**
 Önceki Sorgu: "{previous_query if previous_query else 'YOK'}"
+{f'''Önceki Sorgu Sonuçları:
+- Entity Type (Column): {previous_entity_type}
+- Entity Değerleri: {previous_entities[:5]}
+- Toplam: {len(previous_entities)} entity''' if previous_entities else "Önceki context YOK"}
 
-Önceki Sorgu Sonuçları:
-{f"Entity Type: {previous_entity_type}, Entities: {previous_entities[:5]}" if previous_entities else "YOK"}
+---
 
-GÖREV:
-1. Kullanıcının karşılaştırmak/analiz etmek istediği entity'leri bul
-2. "bunu", "bu", "bunları", "ikisi", "bu iki" gibi REFERANSLAR varsa → önceki context'ten entity al
-3. Yeni entity query'de belirtilmişse ("cajun dürüm ile") → context entity ile kombine et
-4. "X ile Y'yi karşılaştır" formatında ise → her ikisini de al
+## GÖREV
 
-⚠️ ÖNEMLİ REFERANSLAR:
-- "bunu ... ile kıyasla" → Önceki entity + yeni entity
-- "bu iki" → İki entity reference, context'ten al
-- "bunları karşılaştır" → Önceki multiple entities
+Kullanıcının karşılaştırmak/analiz etmek istediği **ENTITY'LERİ** bul.
 
-COMPARISON ve TIME_SERIES_COMPARISON için minimum 2 entity gerekli!
+### ADIM 1: REFERANS TESPİTİ
+Kullanıcı sorgusu önceki sonuçlara referans veriyor mu?
 
-CONFIDENCE KURALLARI:
-- Her iki entity net belirtilmişse → confidence: 0.95+
-- Context'ten bir, query'den bir entity → confidence: 0.85-0.90
-- Sadece "bunları" gibi belirsiz referans → confidence: 0.60 altı
+**REFERANS KELİMELERİ:**
+- "bunu", "bu", "onu" → TEK entity reference (önceki sonuçtaki ilk entity)
+- "bunları", "onları", "bu ikisi", "bu iki" → MULTIPLE entity reference (önceki sonuçtaki entity'ler)
+- "ile kıyasla", "ile karşılaştır" → YENİ entity ekleniyor
 
-JSON döndür:
+**ÖRNEKLER:**
+- "bunu cajun dürüm ile kıyasla" → Context'ten 1 entity + "cajun dürüm" = 2 entity
+- "bu iki kategoriyi" → Context'ten 2 entity
+- "bunları karşılaştır" → Context'ten TÜM entity'ler
+
+### ADIM 2: ENTITY ÇIKARMA
+
+**Context'ten entity al:**
+{f'Önceki entity\'ler: {previous_entities[:5]}' if previous_entities else 'Context yok'}
+
+**Query'den yeni entity bul:**
+- "cajun dürüm ile" → "CAJUN DÜRÜM"
+- "klasik dürüm vs cajun" → "KLASİK DÜRÜM", "CAJUN DÜRÜM"
+- "İstanbul Ankara" → "İstanbul", "Ankara"
+
+**ÖZEL DURUMLAR:**
+- Büyük/küçük harf önemli: Database değerlerine uygun yaz (örn: "KLASİK DÜRÜM", "İstanbul")
+- Türkçe karakterler: Doğru kullan (ı, ğ, ş, ü, ö, ç, İ)
+- Aynı entity varsa tekrar etme
+
+### ADIM 3: CONFIDENCE HESAPLAMA
+
+**YÜKSEK CONFIDENCE (0.90-1.0):**
+- ✅ Her iki entity NET belirtilmiş: "X ve Y'yi karşılaştır"
+- ✅ Context'ten 1 + Query'den 1 entity: "bunu Y ile kıyasla"
+- ✅ Context'te 2+ entity var ve "bunları" deniyor
+
+**ORTA CONFIDENCE (0.70-0.89):**
+- ⚠️ Entity'lerden biri çıkarım ile bulunmuş
+- ⚠️ Context'te entity var ama tam eşleşme değil
+
+**DÜŞÜK CONFIDENCE (< 0.70):**
+- ❌ "bunları" deniyor ama context YOK
+- ❌ Entity ismi belirsiz veya eksik
+- ❌ Hangi entity column olduğu belli değil
+
+### ADIM 4: CLARIFICATION CHECK
+
+**needs_clarification = TRUE olmalı eğer:**
+- Entity sayısı < 2 VE query_type comparison/time_series_comparison ise
+- Confidence < 0.70
+- Entity column tahmin edilemiyor
+- Context'te entity yok ama "bunu" gibi referans var
+
+---
+
+## OUTPUT FORMAT
+
+Sadece şu JSON'ı döndür (başka hiçbir şey yazma):
+
+```json
 {{
-    "entities": ["entity1", "entity2"],
-    "entity_column": "CategoryName" veya "ProductName" veya "BranchName",
-    "entity_source": "query" / "context" / "mixed",
-    "confidence": 0.0-1.0,
-    "needs_clarification": true/false,
-    "reasoning": "Neden bu entity'ler seçildi?"
+    "entities": ["ENTITY1", "ENTITY2"],
+    "entity_column": "ProductName",
+    "entity_source": "mixed",
+    "confidence": 0.90,
+    "needs_clarification": false,
+    "reasoning": "Context'ten 'KLASİK DÜRÜM' + query'den 'CAJUN DÜRÜM' çıkarıldı"
 }}
+```
 
-Eğer belirsizlik varsa veya confidence < 0.70 ise needs_clarification: true yap!
+**entity_column seçenekleri:**
+- ProductName (ürün adı)
+- CategoryName (kategori)
+- BranchName (şube)
+- CityName (şehir)
+- CustomerName (müşteri)
+
+**entity_source seçenekleri:**
+- "query": Sadece sorgudan
+- "context": Sadece context'ten
+- "mixed": Her ikisinden de
+
+---
+
+⚠️ KRİTİK: Comparison query için MUTLAKA 2+ entity gerekli!
+⚠️ KRİTİK: Context'te entity VARSA, onları kullan!
+⚠️ KRİTİK: Entity isimleri DATABASE formatında olmalı (büyük harf, Türkçe karakter)
+
+ŞİMDİ JSON DÖNDÜR:
 """
 
     try:

@@ -331,7 +331,8 @@ def build_report_graph(
                    f"entity_validation_done={entity_validation_done}")
 
         # NEW: Check if entity validation is needed for this query type
-        if not entity_validation_done and query_type in ["comparison", "time_series_comparison", "ranking"]:
+        # NOTE: Ranking queries don't need entity validation (entities come from results)
+        if not entity_validation_done and query_type in ["comparison", "time_series_comparison"]:
             logger.info("[ROUTER] Entity validation needed, routing to validate_entities")
             return "validate_entities"
 
@@ -518,7 +519,8 @@ def build_report_graph(
             entity_validation_done = state.get("_entity_validation_done", False)
 
             # NEW: Check if entity validation is needed
-            if not entity_validation_done and query_type in ["comparison", "time_series_comparison", "ranking"]:
+            # NOTE: Ranking queries don't need entity validation (entities come from results)
+            if not entity_validation_done and query_type in ["comparison", "time_series_comparison"]:
                 logger.info("[ROUTER] Entity validation needed (HITL disabled)")
                 return "validate_entities"
 

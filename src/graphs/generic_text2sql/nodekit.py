@@ -1296,12 +1296,71 @@ class GenericText2SQLNodeKit:
             else:
                 logger.info("[SQL_ARCHITECT] No query_type context available")
 
+            # NEW: Entity expansion hints (from smart entity validator)
+            entity_sql_hints = state.get("entity_sql_hints", {})
+            entity_expansion_context = ""
+
+            if entity_sql_hints:
+                remove_filter = entity_sql_hints.get("remove_entity_filter", False)
+                group_by_col = entity_sql_hints.get("group_by_column")
+                expansion_mode = entity_sql_hints.get("expansion_mode")
+
+                if expansion_mode:
+                    logger.info(f"[SQL_ARCHITECT] 🚀 EXPANSION MODE: {expansion_mode}")
+                    logger.info(f"[SQL_ARCHITECT] Remove filter: {remove_filter}, Group by: {group_by_col}")
+
+                    # Build expansion context for LLM
+                    if expansion_mode == "all":
+                        entity_expansion_context = f"""
+⚠️ QUERY EXPANSION DETECTED: Kullanıcı TÜM {group_by_col} değerlerini istiyor!
+
+SQL GENERATION RULES:
+1. {group_by_col} için WHERE filtresi EKLEME!
+2. GROUP BY {group_by_col} kullan
+3. Tüm {group_by_col} değerlerini karşılaştır
+4. ORDER BY aggregate DESC (en yüksekten en düşüğe)
+
+Örnek SQL:
+SELECT {group_by_col}, SUM(RowAmount) AS Total
+FROM {{table_name}}
+WHERE DocumentDate >= ...  (tarih filtresi OK)
+-- NO {group_by_col} filter!
+GROUP BY {group_by_col}
+ORDER BY Total DESC
+"""
+                    elif expansion_mode == "all_others":
+                        context_entities = entity_sql_hints.get("context_entities", [])
+                        entity_expansion_context = f"""
+⚠️ QUERY EXPANSION DETECTED: Kullanıcı "{', '.join(context_entities[:2])}" + TÜM DİĞER {group_by_col} değerlerini istiyor!
+
+SQL GENERATION RULES:
+1. {group_by_col} için WHERE filtresi EKLEME! (tüm değerleri göster)
+2. GROUP BY {group_by_col} kullan
+3. Context entity'ler ({', '.join(context_entities[:2])}) + diğer tüm entity'ler
+4. ORDER BY aggregate DESC
+
+Örnek SQL:
+SELECT {group_by_col}, SUM(RowAmount) AS Total
+FROM {{table_name}}
+WHERE DocumentDate >= ...  (tarih filtresi OK)
+-- NO {group_by_col} filter! (show all)
+GROUP BY {group_by_col}
+ORDER BY Total DESC
+"""
+                else:
+                    logger.info("[SQL_ARCHITECT] No entity expansion detected")
+
             # Single LLM call with collapsed architecture + Phase 3 context + Phase 1 query_type
             llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
             chain = SQL_ARCHITECT_PROMPT | llm
 
             # table_name already extracted via helper function with proper fallbacks
             logger.info(f"[SQL_ARCHITECT] Using table_name for LLM: {escaped_table_name}")
+
+            # Combine all contexts
+            full_query_type_context = query_type_context
+            if entity_expansion_context:
+                full_query_type_context = f"{query_type_context}\n\n{entity_expansion_context}"
 
             response = await chain.ainvoke({
                 "user_query": state["user_query"],
@@ -1313,7 +1372,7 @@ class GenericText2SQLNodeKit:
                 "schema_metadata": schema_text,
                 "business_rules": business_rules_text,
                 "conversation_context": context_text,  # Phase 3: Add context
-                "query_type_context": query_type_context  # Phase 1: Add query_type SQL hints
+                "query_type_context": full_query_type_context  # Phase 1: Add query_type + EXPANSION hints
             })
 
             # Parse JSON response using robust parser

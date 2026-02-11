@@ -1116,17 +1116,38 @@ async def update_conversation_history_node(state: ReportState) -> Dict[str, Any]
     conversation_history = state.get("conversation_history") or []
 
     # Add new entry with enhanced entity tracking
+    # CRITICAL: Extract entities from results for ALL query types
+    extracted_entities_from_state = state.get("extracted_entities", {})
+
+    # If no extracted_entities in state (e.g., ranking queries), extract from results
+    if not extracted_entities_from_state.get("entities") and results and len(results) > 0:
+        first_key = list(results[0].keys())[0]
+        entities_from_results = [r.get(first_key) for r in results[:10] if r.get(first_key)]
+
+        logger.info(f"[HISTORY] Extracting entities from results: {entities_from_results[:3]}")
+
+        extracted_entities_dict = {
+            "entities": entities_from_results,
+            "entity_column": first_key,
+            "entity_type": first_key,
+            "source": "results"
+        }
+    else:
+        # Use extracted_entities from state (for comparison queries)
+        extracted_entities_dict = {
+            "entities": extracted_entities_from_state.get("entities", []),
+            "entity_column": extracted_entities_from_state.get("entity_column"),
+            "entity_type": extracted_entities_from_state.get("entity_column") or (list(results[0].keys())[0] if results else None),
+            "source": "validation_node"
+        }
+
     new_entry = {
         "query": user_query,
         "query_type": query_type,
         "results": results[:10],  # Max 10 results to save memory
         "timestamp": datetime.now().isoformat(),
-        # NEW: Entity bilgilerini de sakla
-        "extracted_entities": {
-            "entities": state.get("extracted_entities", {}).get("entities", []),
-            "entity_column": state.get("extracted_entities", {}).get("entity_column"),
-            "entity_type": list(results[0].keys())[0] if results else None
-        },
+        # ENHANCED: Entity bilgilerini de sakla (HER query type için!)
+        "extracted_entities": extracted_entities_dict,
         # NEW: Kullanılan filtreleri sakla
         "filters": state.get("active_query_context", {}).get("applied_filters", []),
         "grouping": state.get("active_query_context", {}).get("grouping_columns", [])
@@ -1202,9 +1223,10 @@ def create_validate_entities_node(llm: BaseChatModel):
         query_type = state.get("query_type")
 
         # Only validate for queries that need entities or period
-        if query_type not in ["comparison", "time_series_comparison", "ranking", "time_series"]:
+        # NOTE: Ranking queries don't need validation (entities extracted from results)
+        if query_type not in ["comparison", "time_series_comparison", "time_series"]:
             logger.info(f"[ENTITY_VALIDATE] Query type {query_type} doesn't require validation")
-            return {}
+            return {"_entity_validation_done": True}  # Mark as done to prevent routing loop
 
         user_message = get_last_user_message(state)
         conversation_history = state.get("conversation_history", [])
@@ -1214,11 +1236,16 @@ def create_validate_entities_node(llm: BaseChatModel):
         # =================================================================
         # ENTITY VALIDATION (for comparison queries)
         # =================================================================
+        # CRITICAL: Only comparison and time_series_comparison need entity extraction
+        # Ranking queries get entities from RESULTS, not from user query
         entity_result = {}
-        if query_type in ["comparison", "time_series_comparison", "ranking"]:
-            # Extract entities using new function
-            from .query_type_actions import extract_entities_from_context
-            entity_result = await extract_entities_from_context(
+        if query_type in ["comparison", "time_series_comparison"]:
+            # Use SMART entity validation pipeline
+            from .entity_validator import smart_entity_validation_pipeline
+
+            logger.info(f"[ENTITY_VALIDATE] 🚀 Starting SMART entity validation pipeline for {query_type}")
+
+            entity_result = await smart_entity_validation_pipeline(
                 user_query=user_message,
                 query_type=query_type,
                 conversation_history=conversation_history,
@@ -1227,26 +1254,31 @@ def create_validate_entities_node(llm: BaseChatModel):
 
             entities = entity_result.get("entities", [])
             entity_confidence = entity_result.get("confidence", 0.0)
-            entity_needs_clarification = entity_result.get("needs_clarification", False)
+            validation_passed = entity_result.get("validation_passed", False)
+            strategy_used = entity_result.get("strategy_used", "unknown")
 
-            logger.info(f"[ENTITY_VALIDATE] Extracted entities: {entities}, confidence: {entity_confidence:.2f}, "
-                       f"needs_clarification: {entity_needs_clarification}")
+            logger.info(f"[ENTITY_VALIDATE] Pipeline result:")
+            logger.info(f"  - Entities: {entities}")
+            logger.info(f"  - Confidence: {entity_confidence:.2f}")
+            logger.info(f"  - Strategy: {strategy_used}")
+            logger.info(f"  - Validation: {'PASSED' if validation_passed else 'FAILED'}")
 
-            # Check minimum entities for comparison
-            if query_type in ["comparison", "time_series_comparison"] and len(entities) < 2:
-                logger.warning(f"[ENTITY_VALIDATE] Comparison query needs 2+ entities, got {len(entities)}")
+            # Use pipeline's validation result
+            if validation_passed:
+                # Pipeline validated, no clarification needed
+                needs_clarification = False
+                logger.info(f"[ENTITY_VALIDATE] ✓ Smart validation PASSED")
+            else:
+                # Pipeline failed validation, needs clarification
                 needs_clarification = True
                 clarification_type = "entity"
+                validation_error = entity_result.get("validation_error", "unknown")
+                logger.warning(f"[ENTITY_VALIDATE] ✗ Smart validation FAILED: {validation_error}")
 
-            # ⚠️ CONFIDENCE THRESHOLD CHECK ⚠️
-            CONFIDENCE_THRESHOLD = 0.80
-            if entity_confidence >= CONFIDENCE_THRESHOLD and len(entities) >= 2:
-                # High confidence, skip entity clarification
-                logger.info(f"[ENTITY_VALIDATE] High entity confidence ({entity_confidence:.2f}), skip clarification")
-            elif entity_needs_clarification or len(entities) < 2:
-                needs_clarification = True
-                clarification_type = "entity"
-                logger.warning(f"[ENTITY_VALIDATE] Low entity confidence ({entity_confidence:.2f}) or missing entities")
+        # Ranking queries don't need entity extraction from user query
+        # Entities are extracted from SQL results in update_conversation_history_node
+        elif query_type == "ranking":
+            logger.info(f"[ENTITY_VALIDATE] Ranking query - entities will be extracted from results")
 
         # =================================================================
         # TIME PERIOD VALIDATION (for time_series queries)
@@ -1303,9 +1335,13 @@ def create_validate_entities_node(llm: BaseChatModel):
                 "has_period": bool(period)
             }
 
+        # Extract SQL hints for SQL generation (if expansion query)
+        sql_hints = entity_result.get("sql_hints", {})
+
         return {
             "extracted_entities": entity_result,
             "extracted_period": period_result,
+            "entity_sql_hints": sql_hints,  # NEW: SQL generation hints
             "_needs_clarification": needs_clarification,
             "_clarification_type": clarification_type,
             "_entity_validation_done": True
