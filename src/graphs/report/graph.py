@@ -82,7 +82,9 @@ from .nodes import (
     ask_user_for_clarification_node,  # Phase 3
     route_after_intent_classification,  # Phase 3
     update_conversation_history_node,  # Phase 5
+    create_validate_entities_node,  # NEW: Entity validation factory
 )
+from .query_type_actions import create_build_query_type_context_node  # Phase 1: Query type actions
 from .tools import should_interrupt, format_interrupt_message
 
 logger = logging.getLogger(__name__)
@@ -305,26 +307,35 @@ def build_report_graph(
         logger.info("[REPORT] Using simple rule-based router (no LLM)")
         base_router = route_after_intent
 
-    # Phase 3-6: Composite router with query type clarification check
+    # Phase 3-6: Composite router with query type clarification and entity validation
     async def composite_router(state: ReportState) -> str:
         """
-        Composite router: Phase 3 clarification check → base router.
+        Composite router: Entity validation → Phase 3 clarification check → base router.
 
         Flow:
-        1. Check _needs_clarification (Phase 3)
-        2. If True → ask_user_clarification
-        3. Else → delegate to base_router (smart or simple)
+        1. Check if entity validation is needed
+        2. If needed → validate_entities
+        3. Else check _needs_clarification (Phase 3)
+        4. If True → ask_user_clarification
+        5. Else → delegate to base_router (smart or simple)
         """
-        # Phase 3: Check query type clarification
-        needs_clarification = state.get("_needs_clarification", False)
         query_type = state.get("query_type")
         confidence = state.get("query_type_confidence", 0.0)
         is_followup = state.get("reference_context", {}).get("is_followup", False)
+        needs_clarification = state.get("_needs_clarification", False)
+        entity_validation_done = state.get("_entity_validation_done", False)
 
         logger.info(f"[ROUTER] [PHASE3-6] Composite router check: "
                    f"query_type={query_type}, conf={confidence:.2f}, "
-                   f"followup={is_followup}, needs_clarification={needs_clarification}")
+                   f"followup={is_followup}, needs_clarification={needs_clarification}, "
+                   f"entity_validation_done={entity_validation_done}")
 
+        # NEW: Check if entity validation is needed for this query type
+        if not entity_validation_done and query_type in ["comparison", "time_series_comparison", "ranking"]:
+            logger.info("[ROUTER] Entity validation needed, routing to validate_entities")
+            return "validate_entities"
+
+        # Phase 3: Check query type clarification
         if needs_clarification:
             logger.warning("[ROUTER] [PHASE3] Query type unclear, routing to ask_user_clarification")
             return "ask_user_clarification"
@@ -365,6 +376,19 @@ def build_report_graph(
     # Intent classification
     graph.add_node("classify_intent", intent_classifier_node)
 
+    # Entity validation (NEW)
+    if llm:
+        validate_entities_node = create_validate_entities_node(llm.get_chat())
+        graph.add_node("validate_entities", validate_entities_node)
+        logger.info("[REPORT] Entity validation node added")
+    else:
+        # No LLM, add a no-op node
+        async def noop_validate_entities(state: ReportState):
+            logger.warning("[ENTITY_VALIDATE] No LLM available, skipping entity validation")
+            return {"_entity_validation_done": True}
+        graph.add_node("validate_entities", noop_validate_entities)
+        logger.info("[REPORT] Entity validation node added (no-op, no LLM)")
+
     # HITL nodes
     if enable_hitl:
         graph.add_node("ask_user", _ask_user_node)
@@ -372,6 +396,14 @@ def build_report_graph(
 
     # Query processing
     graph.add_node("extract_query", extract_query_node)
+
+    # Phase 1: Query Type Actions - Build SQL context based on query_type
+    if llm:
+        query_type_context_node = create_build_query_type_context_node(llm.get_chat())
+        graph.add_node("build_query_type_context", query_type_context_node)
+        logger.info("[REPORT] Phase 1: build_query_type_context node added (query type actions)")
+    else:
+        logger.info("[REPORT] Phase 1: build_query_type_context skipped (no LLM)")
 
     # Phase 2: Delta SQL modifier node
     graph.add_node("delta_sql_modifier", delta_sql_modifier_node)
@@ -452,6 +484,7 @@ def build_report_graph(
             {
                 "ask_user": "ask_user",
                 "ask_user_clarification": "ask_user_clarification",  # Phase 3
+                "validate_entities": "validate_entities",  # NEW: Entity validation
                 "rollback": "rollback",
                 "visualize_direct": "visualization",  # Skip text2sql AND decide → direct to viz
                 "extract_query": "extract_query"  # FIXED: Router returns "extract_query" now
@@ -465,12 +498,31 @@ def build_report_graph(
         # Phase 3: Query type clarification flow
         graph.add_edge("ask_user_clarification", "extract_query")
         logger.info("[REPORT] Phase 3: ask_user_clarification → extract_query edge added")
+
+        # NEW: Entity validation conditional flow
+        graph.add_conditional_edges(
+            "validate_entities",
+            lambda state: "ask_user_clarification" if state.get("_needs_clarification") else "extract_query",
+            {
+                "ask_user_clarification": "ask_user_clarification",
+                "extract_query": "extract_query"
+            }
+        )
+        logger.info("[REPORT] Entity validation → conditional edge added")
     else:
         # HITL disabled: use smart router but skip ask_user
         async def hitl_disabled_router(state: ReportState) -> str:
-            """HITL disabled router (with Phase 3 query type check)."""
-            # Phase 3: Check query type clarification (even if HITL disabled)
+            """HITL disabled router (with Phase 3 query type check and entity validation)."""
+            query_type = state.get("query_type")
             needs_clarification = state.get("_needs_clarification", False)
+            entity_validation_done = state.get("_entity_validation_done", False)
+
+            # NEW: Check if entity validation is needed
+            if not entity_validation_done and query_type in ["comparison", "time_series_comparison", "ranking"]:
+                logger.info("[ROUTER] Entity validation needed (HITL disabled)")
+                return "validate_entities"
+
+            # Phase 3: Check query type clarification (even if HITL disabled)
             if needs_clarification:
                 logger.info("[ROUTER] Query type unclear, routing to ask_user_clarification (HITL disabled but clarification needed)")
                 return "ask_user_clarification"
@@ -481,6 +533,8 @@ def build_report_graph(
                     return "extract_query"
                 if route == "ask_user_clarification":
                     return "ask_user_clarification"  # Phase 3
+                if route == "validate_entities":
+                    return "validate_entities"  # NEW
                 return route  # rollback, visualize_direct, or extract_query
             else:
                 intent = state.get("_intent_type", "new_query")
@@ -496,6 +550,7 @@ def build_report_graph(
             hitl_disabled_router,
             {
                 "ask_user_clarification": "ask_user_clarification",  # Phase 3
+                "validate_entities": "validate_entities",  # NEW
                 "rollback": "rollback",
                 "visualize_direct": "visualization",  # Skip decide → direct to viz
                 "extract_query": "extract_query"
@@ -506,6 +561,17 @@ def build_report_graph(
         graph.add_edge("ask_user_clarification", "extract_query")
         logger.info("[REPORT] Phase 3: ask_user_clarification → extract_query edge added (HITL disabled mode)")
 
+        # NEW: Entity validation conditional flow (even if HITL disabled)
+        graph.add_conditional_edges(
+            "validate_entities",
+            lambda state: "ask_user_clarification" if state.get("_needs_clarification") else "extract_query",
+            {
+                "ask_user_clarification": "ask_user_clarification",
+                "extract_query": "extract_query"
+            }
+        )
+        logger.info("[REPORT] Entity validation → conditional edge added (HITL disabled mode)")
+
     # =========================================================================
     # QUERY PROCESSING FLOW - Merged or Separate Text2SQL
     # =========================================================================
@@ -514,8 +580,15 @@ def build_report_graph(
         # MERGED MODE: Text2SQL nodes embedded in Report Agent
         logger.info("[REPORT] ⚡ Wiring MERGED Text2SQL flow with Phase 2 delta execution...")
 
-        # FIXED: Always create table first, then route based on execution mode
-        graph.add_edge("extract_query", "create_table")
+        # Phase 1: Query Type Actions - Build SQL context before table creation
+        if llm:
+            graph.add_edge("extract_query", "build_query_type_context")
+            graph.add_edge("build_query_type_context", "create_table")
+            logger.info("[REPORT] Phase 1: extract_query → build_query_type_context → create_table")
+        else:
+            # No LLM, skip query type context building
+            graph.add_edge("extract_query", "create_table")
+            logger.info("[REPORT] extract_query → create_table (query type context skipped)")
 
         # Phase 2: Conditional routing AFTER table creation
         def route_after_create_table(state: ReportState) -> str:
@@ -581,7 +654,14 @@ def build_report_graph(
         # SEPARATE MODE: Single text2sql node (backward compatibility)
         logger.info("[REPORT] Wiring SEPARATE Text2SQL flow (backward compatibility)...")
 
-        graph.add_edge("extract_query", "text2sql")
+        # Phase 1: Query Type Actions
+        if llm:
+            graph.add_edge("extract_query", "build_query_type_context")
+            graph.add_edge("build_query_type_context", "text2sql")
+            logger.info("[REPORT] Phase 1: extract_query → build_query_type_context → text2sql")
+        else:
+            graph.add_edge("extract_query", "text2sql")
+            logger.info("[REPORT] extract_query → text2sql (query type context skipped)")
 
         # Phase 5: Update conversation history after SQL execution
         graph.add_edge("text2sql", "update_history")

@@ -190,18 +190,34 @@ def get_hitl_metrics() -> Dict[str, Any]:
 
 async def decide_visualization_node(state: ReportState) -> Dict[str, Any]:
     """
-    Görselleştirme kararı ver (data_visualization graph'tan alındı).
+    Görselleştirme kararı ver (Phase 2 Enhanced: query_type driven).
 
-    Karar logic'i artık report graph'ta.
-    Visualization graph sadece render yapar.
+    Decision Priority:
+    1. User explicit request (grafik olarak, çubuk grafik, etc.)
+    2. query_type mapping (PRIORITY - Phase 2 ✓)
+    3. Data shape analysis (fallback)
+    4. Default (table/list)
 
     IMPORTANT: Supports both "visualize_direct" and "normal" paths:
     - visualize_direct: Uses active_query_context.result_sample
     - normal: Uses text2sql_output.results
+
+    Phase 2 Changes:
+    - Uses QUERY_TYPE_VIZ_MAPPING for intelligent chart selection
+    - Automatically shows graphs for query types that benefit from visualization
+    - Respects query_type patterns (ranking → bar, time_series → line, etc.)
     """
+    # Import Phase 2 visualization mapping
+    from .query_type_viz_mapping import (
+        get_viz_config,
+        format_viz_decision,
+        analyze_data_shape
+    )
+
     # Check if this is visualize_direct path (no text2sql_output)
     text2sql_output = state.get("text2sql_output")
     active_context = state.get("active_query_context")
+    query_type = state.get("query_type")
 
     # Get results from appropriate source
     results = None
@@ -225,84 +241,141 @@ async def decide_visualization_node(state: ReportState) -> Dict[str, Any]:
             }
         }
 
-    if not results or len(results) == 0:
-        logger.info("[REPORT] No results for visualization")
-        return {
-            "_viz_decision": {
-                "needs_graph": False,
-                "output_type": "table",
-                "reason": "Sonuç yok"
-            }
-        }
+    # Analyze data shape (for fallback)
+    data_shape = analyze_data_shape(results)
 
-    # Quick decisions without LLM
-    # 1. Single value
-    if len(results) == 1 and len(results[0].keys()) == 1:
+    # Quick decision: Single value
+    if data_shape["is_single_value"]:
         logger.info("[REPORT] Single value detected, no graph needed")
         return {
             "_viz_decision": {
                 "needs_graph": False,
                 "output_type": "single_value",
-                "reason": "Tek değer sonucu"
+                "reason": "Tek değer sonucu",
+                "data_shape": data_shape
             }
         }
 
-    # 2. Check user query for explicit chart type
+    # PRIORITY 1: Check user query for EXPLICIT chart type request
+    # Only trigger if user explicitly mentions a CHART TYPE (not just query semantics)
     user_query = get_last_user_message(state) or ""
     user_query_lower = user_query.lower()
 
-    chart_type_keywords = {
-        "bar": ["çubuk", "bar", "막대", "grafik olarak", "grafik ver", "grafik yap", "grafikle", "chart olarak", "chart ver"],
-        "line": ["çizgi", "line", "trend"],
-        "pie": ["pasta", "pie", "daire", "oran"],
-        "scatter": ["scatter", "dağılım"],
+    # Explicit chart type keywords - Two-step matching:
+    # 1. Exact phrase match (e.g., "çubuk grafik")
+    # 2. Flexible match: chart type name + "grafik" indicator (handles Turkish suffixes)
+
+    # Chart type base names
+    chart_names = {
+        "bar": ["çubuk", "막대", "bar"],
+        "line": ["çizgi", "line"],
+        "pie": ["pasta", "pie", "daire"],
+        "scatter": ["scatter", "nokta", "saçılım"],
         "sunburst": ["sunburst", "hiyerarşik"],
         "treemap": ["treemap", "ağaç"]
     }
 
+    # Indicators that user is requesting a chart
+    chart_indicators = ["grafik", "chart", "olarak", "ver", "yap", "göster"]
+
     detected_chart_type = None
-    for chart_type, keywords in chart_type_keywords.items():
-        if any(kw in user_query_lower for kw in keywords):
-            detected_chart_type = f"{chart_type}_chart"
-            logger.info(f"[REPORT] User explicitly requested: {detected_chart_type}")
+
+    # Check each chart type
+    for chart_type, names in chart_names.items():
+        # Check if any chart name + chart indicator combo exists
+        for name in names:
+            # Check for chart name presence
+            if name in user_query_lower:
+                # Check if any chart indicator also present (for explicit chart request)
+                if any(indicator in user_query_lower for indicator in chart_indicators):
+                    detected_chart_type = f"{chart_type}_chart"
+                    logger.info(f"[REPORT] [PRIORITY 1] User explicitly requested: {detected_chart_type} ('{name}' + chart indicator)")
+                    break
+
+        if detected_chart_type:
             break
 
     if detected_chart_type:
-        return {
-            "_viz_decision": {
+        # User override - but still use query_type config if available
+        if query_type:
+            viz_decision = format_viz_decision(
+                query_type=query_type,
+                override_chart_type=detected_chart_type,
+                data_shape=data_shape
+            )
+            viz_decision["reasoning"] = f"Kullanıcı {detected_chart_type} istedi (query_type: {query_type})"
+        else:
+            viz_decision = {
                 "needs_graph": True,
                 "output_type": detected_chart_type,
-                "reason": f"Kullanıcı {detected_chart_type} istedi"
+                "chart_type": detected_chart_type,
+                "reasoning": f"Kullanıcı {detected_chart_type} istedi",
+                "query_type_driven": False,
+                "data_shape": data_shape
             }
+
+        return {"_viz_decision": viz_decision}
+
+    # PRIORITY 2: query_type mapping (Phase 2 ✓)
+    if query_type:
+        logger.info(f"[REPORT] [PHASE2] [PRIORITY 2] Using query_type={query_type} for viz decision")
+
+        viz_decision = format_viz_decision(
+            query_type=query_type,
+            data_shape=data_shape
+        )
+
+        logger.info(f"[REPORT] [PHASE2] Query type decision: {viz_decision['output_type']} "
+                   f"(needs_graph={viz_decision['needs_graph']})")
+
+        return {"_viz_decision": viz_decision}
+
+    # PRIORITY 3: Data shape analysis (fallback when no query_type)
+    logger.info("[REPORT] [PRIORITY 3] No query_type, using data shape analysis")
+
+    if data_shape["is_time_series"] and data_shape["row_count"] > 2:
+        # Time series data → line chart
+        viz_decision = {
+            "needs_graph": True,
+            "output_type": "line_chart",
+            "chart_type": "line_chart",
+            "reasoning": "Zaman serisi verisi tespit edildi",
+            "query_type_driven": False,
+            "data_shape": data_shape
         }
-
-    # 3. Default: ALWAYS LIST/TABLE (grafik sadece explicit istek)
-    # Kullanıcı grafik istemediyse, her zaman liste öncelikli
-    if len(results) > 1:
-        if len(results) <= 20:
-            output_type = "simple_list"
-            reason = "Liste gösterimi (kullanıcı grafik belirtmedi)"
-        else:
-            output_type = "table"
-            reason = "Tablo gösterimi (çok satır)"
-
-        logger.info(f"[REPORT] Default decision: {output_type} (no graph)")
-        return {
-            "_viz_decision": {
-                "needs_graph": False,
-                "output_type": output_type,
-                "reason": reason
-            }
+    elif data_shape["row_count"] <= 10 and data_shape["column_count"] == 2:
+        # Small categorical data → bar chart
+        viz_decision = {
+            "needs_graph": True,
+            "output_type": "bar_chart",
+            "chart_type": "bar_chart",
+            "reasoning": "Küçük kategorik veri (bar chart uygun)",
+            "query_type_driven": False,
+            "data_shape": data_shape
         }
-
-    # Fallback: simple_list or table
-    return {
-        "_viz_decision": {
+    elif data_shape["row_count"] <= 20:
+        # Small result set → simple list (no graph)
+        viz_decision = {
             "needs_graph": False,
-            "output_type": "simple_list" if len(results) <= 5 else "table",
-            "reason": "Liste gösterimi (varsayılan)"
+            "output_type": "simple_list",
+            "reasoning": "Küçük sonuç seti (liste gösterimi)",
+            "query_type_driven": False,
+            "data_shape": data_shape
         }
-    }
+    else:
+        # Large result set → table
+        viz_decision = {
+            "needs_graph": False,
+            "output_type": "table",
+            "reasoning": "Büyük sonuç seti (tablo gösterimi)",
+            "query_type_driven": False,
+            "data_shape": data_shape
+        }
+
+    logger.info(f"[REPORT] Data shape decision: {viz_decision['output_type']} "
+               f"(needs_graph={viz_decision['needs_graph']})")
+
+    return {"_viz_decision": viz_decision}
 
 
 # =============================================================================
@@ -504,11 +577,30 @@ Query Types:
 - single_value: Tek metrik ("Toplam ciro nedir?")
 - ranking: Top-N sıralama ("En çok satan 10 ürün")
 - comparison: Karşılaştırma ("İstanbul vs Ankara")
+  ⚠️ ÖNEMLİ: TEK bir zaman noktası veya dönem için karşılaştırma
+  ⚠️ ZAMAN GRANULARİTY ifadesi YOKSA → comparison
 - time_series: Zaman serisi ("Son 6 aydaki satışlar")
+  ⚠️ TEK entity'nin zaman içindeki değişimi
 - time_series_comparison: Çoklu zaman serisi ("X ve Y'nin son yıldaki satışı")
+  ⚠️ KRİTİK: BİRDEN FAZLA entity + ZAMAN GRANULARİTY → time_series_comparison
+  ⚠️ STRONG INDICATORS: "aylık bazda", "günlük", "ay ay", "haftalık", "her ay",
+     "aylara göre", "günlere göre", "tarihe göre", "zamana göre", "tarih bazında"
+     + karşılaştırma ifadeleri ("ile kıyasla", "karşılaştır", "vs")
 - aggregation: Gruplama ("Kategorilere göre toplam")
 - distribution: Dağılım ("Satışların dağılımı")
 - trend: Trend analizi ("Satışlar artıyor mu?")
+
+KRİTİK KURAL - ZAMAN GRANULARİTY TESPİTİ:
+- Kullanıcı "aylık", "günlük", "haftalık", "yıllık", "ay ay", "gün gün" gibi
+  ifadeler kullandıysa VE 2+ entity karşılaştırıyorsa
+  → query_type MUTLAKA "time_series_comparison" OLMALI!
+
+ÖRNEKLER:
+✅ "İstanbul ile Ankara satışları" → comparison (zaman granularity yok)
+✅ "Son 6 aydaki satışlar" → time_series (tek entity)
+✅ "X ve Y'nin aylık satışları" → time_series_comparison (2 entity + aylık)
+✅ "Bu iki kategoriyi aylık bazda karşılaştır" → time_series_comparison
+✅ "Bunu cajun dürüm ile tarihe göre kıyasla" → time_series_comparison (2 entity + tarihe göre)
 
 JSON döndür (sadece JSON):
 {{
@@ -1023,12 +1115,21 @@ async def update_conversation_history_node(state: ReportState) -> Dict[str, Any]
     # Get or init history
     conversation_history = state.get("conversation_history") or []
 
-    # Add new entry
+    # Add new entry with enhanced entity tracking
     new_entry = {
         "query": user_query,
         "query_type": query_type,
         "results": results[:10],  # Max 10 results to save memory
         "timestamp": datetime.now().isoformat(),
+        # NEW: Entity bilgilerini de sakla
+        "extracted_entities": {
+            "entities": state.get("extracted_entities", {}).get("entities", []),
+            "entity_column": state.get("extracted_entities", {}).get("entity_column"),
+            "entity_type": list(results[0].keys())[0] if results else None
+        },
+        # NEW: Kullanılan filtreleri sakla
+        "filters": state.get("active_query_context", {}).get("applied_filters", []),
+        "grouping": state.get("active_query_context", {}).get("grouping_columns", [])
     }
     conversation_history.append(new_entry)
 
@@ -1076,6 +1177,143 @@ async def update_conversation_history_node(state: ReportState) -> Dict[str, Any]
     }
 
 
+def create_validate_entities_node(llm: BaseChatModel):
+    """
+    Factory function to create validate_entities_node with LLM.
+
+    Args:
+        llm: Language model for entity extraction
+
+    Returns:
+        Node function
+    """
+    async def validate_entities_node(state: ReportState) -> Dict[str, Any]:
+        """
+        Validate extracted entities and time period for queries.
+
+        Checks:
+        - Comparison/time_series_comparison needs minimum 2 entities
+        - Time_series/time_series_comparison needs time period
+        - If entities or period missing, trigger clarification
+
+        Returns:
+            State update with entity validation results
+        """
+        query_type = state.get("query_type")
+
+        # Only validate for queries that need entities or period
+        if query_type not in ["comparison", "time_series_comparison", "ranking", "time_series"]:
+            logger.info(f"[ENTITY_VALIDATE] Query type {query_type} doesn't require validation")
+            return {}
+
+        user_message = get_last_user_message(state)
+        conversation_history = state.get("conversation_history", [])
+        needs_clarification = False
+        clarification_type = None  # "entity" or "period"
+
+        # =================================================================
+        # ENTITY VALIDATION (for comparison queries)
+        # =================================================================
+        entity_result = {}
+        if query_type in ["comparison", "time_series_comparison", "ranking"]:
+            # Extract entities using new function
+            from .query_type_actions import extract_entities_from_context
+            entity_result = await extract_entities_from_context(
+                user_query=user_message,
+                query_type=query_type,
+                conversation_history=conversation_history,
+                llm=llm
+            )
+
+            entities = entity_result.get("entities", [])
+            entity_confidence = entity_result.get("confidence", 0.0)
+            entity_needs_clarification = entity_result.get("needs_clarification", False)
+
+            logger.info(f"[ENTITY_VALIDATE] Extracted entities: {entities}, confidence: {entity_confidence:.2f}, "
+                       f"needs_clarification: {entity_needs_clarification}")
+
+            # Check minimum entities for comparison
+            if query_type in ["comparison", "time_series_comparison"] and len(entities) < 2:
+                logger.warning(f"[ENTITY_VALIDATE] Comparison query needs 2+ entities, got {len(entities)}")
+                needs_clarification = True
+                clarification_type = "entity"
+
+            # ⚠️ CONFIDENCE THRESHOLD CHECK ⚠️
+            CONFIDENCE_THRESHOLD = 0.80
+            if entity_confidence >= CONFIDENCE_THRESHOLD and len(entities) >= 2:
+                # High confidence, skip entity clarification
+                logger.info(f"[ENTITY_VALIDATE] High entity confidence ({entity_confidence:.2f}), skip clarification")
+            elif entity_needs_clarification or len(entities) < 2:
+                needs_clarification = True
+                clarification_type = "entity"
+                logger.warning(f"[ENTITY_VALIDATE] Low entity confidence ({entity_confidence:.2f}) or missing entities")
+
+        # =================================================================
+        # TIME PERIOD VALIDATION (for time_series queries)
+        # =================================================================
+        period_result = {}
+        if query_type in ["time_series", "time_series_comparison"]:
+            # Check if period exists in parsed_intent or state
+            parsed_intent = state.get("parsed_intent", {})
+
+            # Look for period in various places
+            period = None
+            period_source = None
+
+            # Check in parsed_intent steps
+            if parsed_intent.get("steps"):
+                for step in parsed_intent["steps"]:
+                    step_filters = step.get("filters", [])
+                    for f in step_filters:
+                        if "DocumentDate" in f.get("field_hint", "") and "DATEADD" in str(f.get("value_hint", "")):
+                            period = f.get("value_hint", "")
+                            period_source = "parsed_intent"
+                            break
+                    if period:
+                        break
+
+            # Check in active_query_context
+            if not period:
+                active_context = state.get("active_query_context", {})
+                filters = active_context.get("applied_filters", [])
+                for f in filters:
+                    if f.get("column") == "DocumentDate" and "DATEADD" in str(f.get("value", "")):
+                        period = f.get("value", "")
+                        period_source = "active_context"
+                        break
+
+            # Check user query for time indicators
+            if not period:
+                time_indicators = ["son", "geçen", "bu", "şu", "bu yıl", "geçen ay", "son 6 ay", "son hafta"]
+                if any(indicator in user_message.lower() for indicator in time_indicators):
+                    period = "inferred_from_query"
+                    period_source = "user_query"
+
+            logger.info(f"[PERIOD_VALIDATE] Period: {period}, source: {period_source}")
+
+            # If no period found, need clarification
+            if not period:
+                logger.warning(f"[PERIOD_VALIDATE] Time series query but no period found!")
+                needs_clarification = True
+                clarification_type = "period"
+
+            period_result = {
+                "period": period,
+                "period_source": period_source,
+                "has_period": bool(period)
+            }
+
+        return {
+            "extracted_entities": entity_result,
+            "extracted_period": period_result,
+            "_needs_clarification": needs_clarification,
+            "_clarification_type": clarification_type,
+            "_entity_validation_done": True
+        }
+
+    return validate_entities_node
+
+
 async def ask_user_for_clarification_node(state: ReportState) -> Dict[str, Any]:
     """
     Ask user when query type is ambiguous (Phase 3).
@@ -1103,6 +1341,116 @@ async def ask_user_for_clarification_node(state: ReportState) -> Dict[str, Any]:
 
     logger.info(f"[ASK_USER] Query type ambiguous: '{user_message[:50]}...', "
                f"type={query_type}, confidence={confidence:.2f}")
+
+    # Check clarification type
+    clarification_type = state.get("_clarification_type")
+    entity_validation = state.get("_entity_validation_done", False)
+
+    # =================================================================
+    # PERIOD CLARIFICATION (for time_series queries)
+    # =================================================================
+    if entity_validation and clarification_type == "period":
+        extracted_period = state.get("extracted_period", {})
+
+        message = f"""🤔 **Sorgunuz:** "{user_message}"
+
+⏰ Hangi zaman aralığını analiz etmek istiyorsunuz?
+
+**Öneriler:**
+- Son 7 gün
+- Son 1 ay
+- Son 3 ay
+- Son 6 ay
+- Son 1 yıl
+- Bu ay
+- Bu yıl
+
+Lütfen zaman aralığını girin (örn: "son 6 ay", "bu yıl"):
+"""
+
+        from langgraph.types import interrupt
+        user_input = interrupt({
+            "message": message,
+            "type": "period_clarification",
+            "query_type": query_type
+        })
+
+        logger.info(f"[ASK_USER] User clarified period: {user_input}")
+
+        # Parse period input
+        period_mapping = {
+            "son 7 gün": "7 DAY",
+            "son 1 ay": "1 MONTH",
+            "son 3 ay": "3 MONTH",
+            "son 6 ay": "6 MONTH",
+            "son 1 yıl": "1 YEAR",
+            "bu ay": "CURRENT_MONTH",
+            "bu yıl": "CURRENT_YEAR",
+        }
+
+        period_value = None
+        user_lower = user_input.lower().strip()
+        for key, value in period_mapping.items():
+            if key in user_lower:
+                period_value = value
+                break
+
+        # If not in mapping, try to extract manually
+        if not period_value:
+            period_value = user_input  # Use as-is, will be processed by SQL architect
+
+        return {
+            "extracted_period": {
+                "period": period_value,
+                "period_source": "user_clarification",
+                "has_period": True
+            },
+            "_needs_clarification": False,
+            "_clarification_type": None
+        }
+
+    # =================================================================
+    # ENTITY CLARIFICATION (for comparison queries)
+    # =================================================================
+    extracted_entities = state.get("extracted_entities", {})
+
+    if entity_validation and clarification_type == "entity" and extracted_entities.get("needs_clarification"):
+        entities = extracted_entities.get("entities", [])
+        entity_column = extracted_entities.get("entity_column", "Entity")
+
+        # Ask user which entities to compare
+        message = f"""🤔 **Sorgunuz:** "{user_message}"
+
+Hangi {entity_column}'leri karşılaştırmak istiyorsunuz?
+
+{'📌 Tespit edilen: ' + ', '.join(entities) if entities else ''}
+
+Lütfen karşılaştırmak istediğiniz en az 2 {entity_column} girin (virgülle ayırın):
+"""
+
+        from langgraph.types import interrupt
+        user_input = interrupt({
+            "message": message,
+            "type": "entity_clarification",
+            "current_entities": entities,
+            "entity_column": entity_column
+        })
+
+        # Parse user input (comma separated)
+        clarified_entities = [e.strip() for e in user_input.split(",")]
+
+        logger.info(f"[ASK_USER] User clarified entities: {clarified_entities}")
+
+        return {
+            "extracted_entities": {
+                "entities": clarified_entities,
+                "entity_column": entity_column,
+                "confidence": 1.0,
+                "needs_clarification": False,
+                "entity_source": "user_clarification"
+            },
+            "_needs_clarification": False
+        }
 
     # Options for user selection
     options = {
@@ -1832,10 +2180,19 @@ def _parse_delta_changes_pattern_matching(
             delta_changes["limit_change"] = limit
             logger.info(f"[DELTA_SQL] Pattern: Detected limit change: {limit}")
 
-    # Ordering changes
+    # Ordering changes - Parse basic ordering patterns
     if any(keyword in user_query_lower for keyword in ["sırala", "büyükten", "küçükten", "order"]):
-        delta_changes["ordering_change"] = user_query
-        logger.info("[DELTA_SQL] Pattern: Detected ordering change")
+        # Try to extract direction from user query
+        direction = "DESC" if any(k in user_query_lower for k in ["büyükten", "desc"]) else "ASC"
+
+        # For pattern matching, we can't reliably extract column name
+        # Mark it for LLM parsing or use default
+        delta_changes["ordering_change"] = {
+            "column": None,  # Will be resolved by LLM or context
+            "direction": direction,
+            "_needs_parsing": True
+        }
+        logger.info(f"[DELTA_SQL] Pattern: Detected ordering change (direction: {direction})")
 
     # If no changes detected, return None
     if not any([
@@ -1976,17 +2333,17 @@ def _apply_sql_delta(
             order_clause = f"ORDER BY {column} {direction}"
 
             if "ORDER BY" in modified_sql.upper():
-                # Replace existing ORDER BY
+                # Remove existing ORDER BY clause completely (supports multiple columns)
+                # Pattern matches: ORDER BY ... (everything until semicolon or end)
                 modified_sql = re.sub(
-                    r'ORDER BY\s+\S+\s+(ASC|DESC)?',
-                    order_clause,
+                    r'\s*ORDER\s+BY\s+[^;]+',
+                    '',
                     modified_sql,
-                    count=1,
                     flags=re.IGNORECASE
-                )
-            else:
-                # Add ORDER BY at end
-                modified_sql += f" {order_clause}"
+                ).rstrip()
+
+            # Add new ORDER BY at end
+            modified_sql += f" {order_clause}"
 
             logger.info(f"[DELTA_SQL] ✓ Applied ordering: {order_clause}")
 
@@ -2114,10 +2471,19 @@ async def _fallback_pattern_matching(user_query: str, intent_type: str) -> Optio
             delta_changes["limit_change"] = limit
             logger.info(f"[DELTA_SQL] Pattern: Detected limit change: {limit}")
 
-    # Ordering changes
+    # Ordering changes - Parse basic ordering patterns
     if any(keyword in user_query_lower for keyword in ["sırala", "büyükten", "küçükten", "order"]):
-        delta_changes["ordering_change"] = user_query
-        logger.info("[DELTA_SQL] Pattern: Detected ordering change")
+        # Try to extract direction from user query
+        direction = "DESC" if any(k in user_query_lower for k in ["büyükten", "desc"]) else "ASC"
+
+        # For pattern matching, we can't reliably extract column name
+        # Mark it for LLM parsing or use default
+        delta_changes["ordering_change"] = {
+            "column": None,  # Will be resolved by LLM or context
+            "direction": direction,
+            "_needs_parsing": True
+        }
+        logger.info(f"[DELTA_SQL] Pattern: Detected ordering change (direction: {direction})")
 
     # If no changes detected, return None
     if not any([

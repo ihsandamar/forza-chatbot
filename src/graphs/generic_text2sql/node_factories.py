@@ -123,6 +123,11 @@ def create_value_resolver_node(node_kit: GenericText2SQLNodeKit):
         """
         logger.info("[VALUE_RESOLVER] Starting value resolution (merged into Report Agent)...")
 
+        # Early exit if critical error exists (from previous nodes)
+        if state.get("error") and "CRITICAL" in state.get("error", ""):
+            logger.warning(f"[VALUE_RESOLVER] Skipping due to critical error: {state['error'][:100]}...")
+            return {"resolved_steps": []}  # Return empty to prevent downstream errors
+
         try:
             # Call NodeKit method (already supports RunnableConfig)
             result = await node_kit.value_resolver_node(state, config=config)
@@ -133,9 +138,13 @@ def create_value_resolver_node(node_kit: GenericText2SQLNodeKit):
 
         except Exception as e:
             logger.error(f"[VALUE_RESOLVER] Error: {e}", exc_info=True)
+            # Safe fallback: Handle None parsed_intent
+            parsed_intent = state.get("parsed_intent")
+            fallback_steps = parsed_intent.get("steps", []) if parsed_intent else []
+
             return {
                 "error": f"Value resolution failed: {e}",
-                "resolved_steps": state.get("parsed_intent", {}).get("steps", [])
+                "resolved_steps": fallback_steps
             }
 
     return value_resolver_node
@@ -163,6 +172,11 @@ def create_metadata_enrichment_node(node_kit: GenericText2SQLNodeKit):
     ) -> Dict[str, Any]:
         """Enrich metadata from database."""
         logger.info("[METADATA_ENRICHMENT] Starting metadata enrichment...")
+
+        # Early exit if critical error exists (from previous nodes)
+        if state.get("error") and "CRITICAL" in state.get("error", ""):
+            logger.warning(f"[METADATA_ENRICHMENT] Skipping due to critical error: {state['error'][:100]}...")
+            return {}  # Pass through without changes
 
         try:
             result = await node_kit.metadata_enrichment_node(state, config=config)
@@ -198,8 +212,29 @@ def create_business_rules_node(node_kit: GenericText2SQLNodeKit):
         state: Dict[str, Any],
         config: RunnableConfig = None
     ) -> Dict[str, Any]:
-        """Retrieve business rules from vector store."""
+        """
+        Retrieve business rules from vector store.
+
+        CRITICAL GUARD: Checks if parsed_intent exists (set by sql_architect).
+        If missing, it means sql_architect was skipped or failed.
+        """
         logger.info("[BUSINESS_RULES] Retrieving business rules...")
+
+        # CRITICAL: Check if parsed_intent exists (should be set by sql_architect)
+        if not state.get("parsed_intent"):
+            logger.error("[BUSINESS_RULES] CRITICAL: No parsed_intent found!")
+            logger.error("[BUSINESS_RULES] This means sql_architect was skipped or failed.")
+            logger.error("[BUSINESS_RULES] Cannot continue SQL generation without parsed_intent.")
+
+            return {
+                "error": "CRITICAL: sql_architect did not run or failed. Cannot generate SQL without parsed_intent. "
+                        "This may be due to: (1) Conversation resume from invalid checkpoint, "
+                        "(2) Graph flow error, or (3) sql_architect failure. "
+                        "Please start a new conversation.",
+                "business_rules": {},
+                "parsed_intent": None,  # Explicitly set to None
+                "resolved_steps": []    # Prevent downstream errors
+            }
 
         try:
             result = await node_kit.retrieve_business_rules_node(state, config=config)
@@ -237,6 +272,11 @@ def create_sql_query_builder_node(node_kit: GenericText2SQLNodeKit):
     ) -> Dict[str, Any]:
         """Build SQL queries from resolved steps."""
         logger.info("[SQL_QUERY_BUILDER] Building SQL queries...")
+
+        # Early exit if critical error exists (from previous nodes)
+        if state.get("error") and "CRITICAL" in state.get("error", ""):
+            logger.warning(f"[SQL_QUERY_BUILDER] Skipping due to critical error: {state['error'][:100]}...")
+            return {"sql_queries": []}  # Return empty to prevent downstream errors
 
         try:
             result = await node_kit.sql_query_builder_node(state, config=config)

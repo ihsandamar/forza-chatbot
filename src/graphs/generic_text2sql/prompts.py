@@ -474,8 +474,14 @@ Tablo: {table_name}
 
 **4. ORDER BY (Zaman Serisi için KRİTİK!)**:
 - GROUP BY'da zaman ifadesi varsa → ORDER BY'a MUTLAKA ekle!
+- Birden fazla GROUP BY alanı varsa → hepsini ORDER BY'a ekle (AYNI SIRAYLA, virgülle ayırarak)
 - Örnek: `GROUP BY YEAR(DocumentDate), MONTH(DocumentDate)` → `ORDER BY YEAR(DocumentDate), MONTH(DocumentDate)`
 - Örnek: `GROUP BY CAST(DocumentDate AS DATE)` → `ORDER BY CAST(DocumentDate AS DATE)`
+- **KURALI**: order_by null ise veya belirtilmemişse:
+  * GROUP BY'daki TÜM alanları ORDER BY'a ekle
+  * Aynı sırayı koru (GROUP BY'daki sıra = ORDER BY'daki sıra)
+  * Direction: Zaman alanları için ASC (kronolojik sıra)
+- **ÖNEMLİ**: ORDER BY'da virgül eksik olursa SQL syntax hatası olur!
 
 **5. MSSQL Syntax**:
 - Limit → TOP kullan
@@ -556,6 +562,8 @@ GROUP BY CAST(DocumentDate AS DATE)
 ORDER BY CAST(DocumentDate AS DATE) ASC
 ```
 
+**NOT**: GROUP BY'daki AYNI ifadeyi ORDER BY'da da kullan! CAST, YEAR(), MONTH() gibi fonksiyonları birebir kopyala.
+
 Şimdi SQL oluştur (sadece sorgu):
 """
 
@@ -594,6 +602,15 @@ Mevcut Kolonlar:
 ### KONUŞMA BAĞLAMI (Phase 3: Context-Aware SQL) ⚡
 {conversation_context}
 
+### SORGU TİPİ BAĞLAMI (Phase 1: Query Type Actions) ⚡
+{query_type_context}
+
+⚠️ **QUERY TYPE KULLANIRKEN DİKKAT!**
+- Eğer query type "ranking", "comparison", "aggregation" gibi gruplama gerektiren bir tip ise:
+  - Aggregation fonksiyonları kullanacaksın (SUM, COUNT, AVG, etc.)
+  - **MUTLAKA** gruplama kolonlarını **group_by**'a ekle!
+  - Örnek: "En çok satan 10 ürün" → group_by: ["ProductName"] ZORUNLU!
+
 ## KULLANICI SORUSU
 {user_query}
 
@@ -607,7 +624,7 @@ Mevcut Kolonlar:
 2. **[Phase 3] Önceki sorguyla ilişkisi var mı? Bir modifikasyon mu yapıyor?**
 3. Hangi filtreleme koşulları var? **[Phase 3] Önceki filtreler korunmalı mı?**
 4. Hesaplama/toplama var mı?
-5. Gruplama gerekiyor mu?
+5. **Gruplama gerekiyor mu? → Aggregation varsa gruplama ZORUNLU!** ⚠️
 6. Bu sorgu için hangi İŞ KURALLARI geçerli? (ÇOK ÖNEMLİ!)
 7. Tarih ifadeleri var mı? Bunları nasıl çözeceğim?
 
@@ -720,23 +737,126 @@ Yukarıda verilen İŞ KURALLARI'nı (business_rules) OKU ve UYGULA:
 - **Aggregation YOKSA**: select alanını kullan (kullanıcının görmek istediği kolonlar)
 - **Aggregation VARSA**: select genelde null olur (aggregation sonuçları döner)
 
-**KRİTİK KURAL - PERİYODİK GRUPLAMA (MUTLAKA UYGULA!):**
+**⚠️ KRİTİK GROUP BY KURALI (SQL HATASI ÖNLEME!):**
 
-Kullanıcı periyodik ifade kullanırsa + aggregation varsa → MUTLAKA group_by ekle!
+EĞER aggregation VARSA:
+- Görmek istediğin TÜM kolonları **group_by**'a ekle!
+- Aggregation olmayan her kolon MUTLAKA group_by'da olmalı!
+
+**YANLIŞ ❌:**
+```json
+{{
+  "select": ["ProductName"],  // ProductName select'te ama group_by'da yok!
+  "aggregations": [{{"function": "SUM", "field_hint": "Quantity"}}],
+  "group_by": []  // HATA! ProductName eksik!
+}}
+```
+
+**DOĞRU ✅:**
+```json
+{{
+  "select": null,  // Aggregation varsa select genelde null
+  "aggregations": [{{"function": "SUM", "field_hint": "Quantity"}}],
+  "group_by": ["ProductName"]  // ProductName group_by'da!
+}}
+```
+
+**⚠️⚠️⚠️ KRİTİK GROUP BY KURALI - SELECT UYUMU (SQL HATASI ÖNLEME!) ⚠️⚠️⚠️**
+
+BU KURAL MUTLAKA UYGULANMALIDIR - İSTİSNA YOK!
+
+EĞER aggregation VARSA:
+1. SELECT'teki TÜM non-aggregate kolonlar MUTLAKA group_by'da olmalı
+2. group_by'daki TÜM kolonlar MUTLAKA SELECT'te olmalı (grafik için zorunlu!)
+3. "select": null kullan (en güvenli yöntem - SQL builder otomatik ekler)
+
+**COMPARISON ve TIME_SERIES_COMPARISON İÇİN ÖZELLİKLE ZORUNLU:**
+
+❌ HATALI ÖRNEK (ASLA YAPMA):
+{{
+  "select": null,
+  "aggregations": [{{"function": "SUM", "field_hint": "RowAmount"}}],
+  "group_by": ["CategoryName", "YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+  // ❌ SQL SELECT'te sadece SUM olacak, diğer kolonlar yok! HATA!
+}}
+
+Bu YANLIŞ SQL oluşturulacak:
+SELECT SUM(RowAmount) AS TotalSales  -- ❌ CategoryName, Year, Month YOK!
+FROM ...
+GROUP BY CategoryName, YEAR(DocumentDate), MONTH(DocumentDate)
+-- ❌ SQL HATASI: SELECT'te olmayan kolonları GROUP BY'da kullanamazsın!
+
+✅ DOĞRU YAPILIŞ:
+{{
+  "select": ["CategoryName", "YEAR(DocumentDate)", "MONTH(DocumentDate)"],
+  "aggregations": [{{"function": "SUM", "field_hint": "RowAmount", "alias": "TotalSales"}}],
+  "group_by": ["CategoryName", "YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+}}
+
+Bu DOĞRU SQL oluşturulacak:
+SELECT
+    CategoryName,                    -- ✅ GROUP BY'da var
+    YEAR(DocumentDate) AS Year,      -- ✅ GROUP BY'da var
+    MONTH(DocumentDate) AS Month,    -- ✅ GROUP BY'da var
+    SUM(RowAmount) AS TotalSales     -- ✅ Aggregation
+FROM ...
+GROUP BY CategoryName, YEAR(DocumentDate), MONTH(DocumentDate)
+
+**TIME_SERIES_COMPARISON İÇİN ÖZEL KURAL:**
+Kullanıcı "aylık bazda" diyorsa:
+- group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)", "{{entity_column}}"]
+- select: ["YEAR(DocumentDate)", "MONTH(DocumentDate)", "{{entity_column}}"]
+- order_by: null (GROUP BY kolonları otomatik sıralar)
+
+**KONTROL LİSTESİ (Her SQL'de uygula):**
+□ Aggregation var mı? → EVET ise devam
+□ group_by boş değil mi? → EVET ise devam
+□ group_by'daki HER kolon select'te var mı? → KONTROL ET!
+□ select'te "null" mı yoksa liste mi? → Liste ise group_by ile AYNI olmalı!
+
+**ÖRNEK - Ranking Query:**
+"En çok satan 10 ürünü göster"
+```json
+{{
+  "select": null,
+  "aggregations": [{{"function": "SUM", "field_hint": "Quantity", "alias": "TotalQty"}}],
+  "group_by": ["ProductName"],  // ← ProductName MUTLAKA group_by'da!
+  "order_by": {{"field_hint": "TotalQty", "direction": "DESC"}},
+  "limit": 10
+}}
+```
+
+**⚠️ KRİTİK KURAL - PERİYODİK GRUPLAMA (MUTLAKA UYGULA!) ⚠️**
+
+ZAMAN GRANULARİTY + AGGREGATION → ZORUNLU group_by VE select!
 
 **Periyodik İfadeler ve Karşılıkları:**
 - "günlük", "her gün", "gün gün", "günlere göre", "gün bazında"
   → group_by: ["CAST(DocumentDate AS DATE)"]
+  → select: ["CAST(DocumentDate AS DATE)"]  # ← MUTLAKA ekle!
+  → order_by: null (GROUP BY alanları otomatik kullanılır)
 
-- "aylık", "her ay", "ay ay", "aylara göre", "ay bazında", "aylar bazında"
-  → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+- "aylık", "her ay", "ay ay", "aylara göre", "ay bazında", "aylar bazında", "aylık bazda"
+  → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]  # ← İKİSİ BİRDEN!
+  → select: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]    # ← İKİSİ BİRDEN!
+  → order_by: null (GROUP BY alanları otomatik kullanılır)
   * NOT: Birden fazla yıl olabilir, hem yıl hem ay gerekli
+  * SQL'de: ORDER BY YEAR(DocumentDate), MONTH(DocumentDate) olacak
 
 - "yıllık", "her yıl", "yıl yıl", "yıllara göre", "yıl bazında"
   → group_by: ["YEAR(DocumentDate)"]
+  → select: ["YEAR(DocumentDate)"]  # ← MUTLAKA ekle!
+  → order_by: null
 
 - "saatlik", "her saat", "saat saat", "saatlere göre", "saat bazında"
   → group_by: ["CAST(DocumentDate AS DATE)", "Hour"]
+  → select: ["CAST(DocumentDate AS DATE)", "Hour"]  # ← MUTLAKA ekle!
+  → order_by: null
+
+**COMPARISON ILE KOMBINE OLURSA:**
+"X ve Y'nin aylık satışları" veya "Bu iki kategoriyi aylık bazda karşılaştır"
+→ group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)", "CategoryName"]  # ÜÇÜ BİRDEN!
+→ select: ["YEAR(DocumentDate)", "MONTH(DocumentDate)", "CategoryName"]    # ÜÇÜ BİRDEN!
 
 **ÖRNEK - YANLIŞ VE DOĞRU:**
 
@@ -901,7 +1021,7 @@ Düşünce Zinciri:
         {{"function": "SUM", "field_hint": "Quantity", "alias": "MonthlyQty"}}
       ],
       "group_by": ["YEAR(DocumentDate)", "MONTH(DocumentDate)"],
-      "order_by": {{"field_hint": "YEAR(DocumentDate), MONTH(DocumentDate)", "direction": "ASC"}},
+      "order_by": null,
       "limit": null,
       "depends_on": 2
     }}

@@ -874,12 +874,20 @@ class GenericText2SQLNodeKit:
             else:
                 logger.info(f"[VALUE_RESOLVER] Using table_name from state: {table_name}")
 
+            # Check if parsed_intent exists (critical for value resolution)
+            parsed_intent = state.get("parsed_intent")
+            if not parsed_intent:
+                logger.error("[VALUE_RESOLVER] No parsed_intent found - cannot resolve values")
+                return {
+                    "error": "Value resolution requires parsed_intent",
+                    "resolved_steps": []
+                }
+
             # Get ValueResolverService with table name
             db_conn = get_db_connection_string(state)
             resolver = await get_value_resolver(db_conn, table_name)
 
             # Deep copy steps to avoid mutating original
-            parsed_intent = state["parsed_intent"]
             resolved_steps = deepcopy(parsed_intent["steps"])
 
             # Track resolution statistics
@@ -1002,7 +1010,23 @@ class GenericText2SQLNodeKit:
             # Check if resolved_steps exists
             if not state.get("resolved_steps"):
                 logger.error("No resolved_steps found in state")
-                state["error"] = "SQL query oluşturma için resolved_steps gerekli"
+
+                # Provide diagnostic info
+                has_parsed_intent = bool(state.get("parsed_intent"))
+                existing_error = state.get("error", "Yok")
+
+                logger.error(f"[SQL_QUERY_BUILDER] Diagnostic info:")
+                logger.error(f"  - parsed_intent exists: {has_parsed_intent}")
+                logger.error(f"  - existing error: {existing_error}")
+
+                # Enhanced error message
+                error_msg = "SQL query oluşturma için resolved_steps gerekli."
+                if not has_parsed_intent:
+                    error_msg += " (parsed_intent bulunamadı - sql_architect başarısız olmuş olabilir)"
+                if existing_error != "Yok":
+                    error_msg += f" (Önceki hata: {existing_error})"
+
+                state["error"] = error_msg
                 return state
 
             # Check if there was a critical error in previous steps
@@ -1255,7 +1279,24 @@ class GenericText2SQLNodeKit:
                 logger.info(f"[SQL_ARCHITECT] Previous filters: {len(conversation_context.get('previous_filters', []))}")
                 logger.info(f"[SQL_ARCHITECT] Result count: {conversation_context.get('result_row_count', 0)}")
 
-            # Single LLM call with collapsed architecture + Phase 3 context
+            # Phase 1: Extract SQL context hints from query_type
+            sql_context_hints = state.get("sql_context_hints")
+            query_type_context = ""
+
+            if sql_context_hints:
+                query_pattern = sql_context_hints.get("query_pattern", "unknown")
+                formatted_prompt = sql_context_hints.get("formatted_prompt", "")
+
+                logger.info(f"[SQL_ARCHITECT] ⚡ Phase 1: Using query_type context (pattern: {query_pattern})")
+                logger.info(f"[SQL_ARCHITECT] SQL hints: {len(sql_context_hints.get('sql_hints', []))} hints")
+                logger.info(f"[SQL_ARCHITECT] Extracted entities: {sql_context_hints.get('extracted_entities', {})}")
+
+                # Use formatted prompt (ready for LLM)
+                query_type_context = formatted_prompt
+            else:
+                logger.info("[SQL_ARCHITECT] No query_type context available")
+
+            # Single LLM call with collapsed architecture + Phase 3 context + Phase 1 query_type
             llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
             chain = SQL_ARCHITECT_PROMPT | llm
 
@@ -1271,7 +1312,8 @@ class GenericText2SQLNodeKit:
                 "table_name": escaped_table_name,
                 "schema_metadata": schema_text,
                 "business_rules": business_rules_text,
-                "conversation_context": context_text  # Phase 3: Add context
+                "conversation_context": context_text,  # Phase 3: Add context
+                "query_type_context": query_type_context  # Phase 1: Add query_type SQL hints
             })
 
             # Parse JSON response using robust parser
