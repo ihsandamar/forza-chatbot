@@ -20,7 +20,8 @@ from .ambiguity_framework import (
     build_column_ambiguity_metadata,
     build_value_ambiguity_metadata,
     build_intent_ambiguity_metadata,
-    build_prompt_scope_metadata
+    build_prompt_scope_metadata,
+    build_query_type_metadata
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class IntentStageDetector(AmbiguityDetector):
         1. Prompt scope (if query too short)
         2. Context ambiguity (if context exists and unclear if continuing)
         3. Intent ambiguity (if intent classification confidence low)
+        4. Query type ambiguity (if query type unclear - NEW!)
 
         Args:
             state: Current ReportState
@@ -91,6 +93,12 @@ class IntentStageDetector(AmbiguityDetector):
         if intent_ambiguity:
             logger.info("[AMBIGUITY] Intent ambiguity detected")
             return intent_ambiguity
+
+        # 4. Check query type ambiguity (Priority #3.5 - NEW!)
+        query_type_ambiguity = self._detect_query_type_ambiguity(state)
+        if query_type_ambiguity:
+            logger.info("[AMBIGUITY] Query type ambiguity detected")
+            return query_type_ambiguity
 
         return None
 
@@ -386,6 +394,130 @@ class IntentStageDetector(AmbiguityDetector):
             )
 
         return None
+
+    def _detect_query_type_ambiguity(
+        self,
+        state: Dict[str, Any]
+    ) -> Optional[AmbiguityContext]:
+        """
+        Detect query type ambiguity - unclear which query type user wants.
+
+        Detection criteria:
+        1. Intent type is "new_query" (not modify/followup)
+        2. Query type confidence < 0.65 (low confidence)
+        3. Query could match multiple types (e.g., "Toplam ciro" → single_value or ranking)
+
+        Examples of ambiguous queries:
+        - "Toplam ciro" → single_value (total) or ranking (top products by revenue)?
+        - "Satışlar" → aggregation (group by category) or single_value (total)?
+        - "En çok satan" → ranking (top products) or single_value (max value)?
+
+        Args:
+            state: Current ReportState
+
+        Returns:
+            AmbiguityContext if detected, None otherwise
+        """
+        intent_type = state.get("_intent_type", "")
+        query_type = state.get("query_type")
+        query_type_confidence = state.get("query_type_confidence", 0.0)
+        user_query = state.get("user_query", "")
+
+        # Only check for new queries (not modifications)
+        if intent_type != "new_query":
+            return None
+
+        # Check if query type confidence is low
+        if query_type_confidence >= 0.65:
+            return None
+
+        # Detect possible query types based on query patterns
+        possible_types = self._detect_possible_query_types(user_query, query_type)
+
+        # Need at least 2 possible types to have ambiguity
+        if len(possible_types) < 2:
+            return None
+
+        logger.warning(
+            f"[QUERY_TYPE_AMBIGUITY] ⚠️ DETECTED! "
+            f"Query: '{user_query}' - Detected: {query_type} (conf: {query_type_confidence:.2f}), "
+            f"Possible: {possible_types}"
+        )
+
+        # Build metadata
+        metadata = build_query_type_metadata(
+            query=user_query,
+            possible_types=possible_types,
+            detected_type=query_type,
+            detection_confidence=query_type_confidence
+        )
+
+        context_summary = self._get_active_context_summary(state)
+
+        return AmbiguityContext(
+            ambiguity_type=AmbiguityType.QUERY_TYPE,
+            user_query=user_query,
+            active_context_summary=context_summary,
+            candidates=possible_types,
+            metadata=metadata,
+            detection_stage="intent",
+            auto_resolvable=False  # Never auto-resolve query type!
+        )
+
+    def _detect_possible_query_types(
+        self,
+        user_query: str,
+        detected_type: Optional[str]
+    ) -> List[str]:
+        """
+        Detect possible query types for ambiguous query.
+
+        Args:
+            user_query: User's query
+            detected_type: Query type detected by LLM (if any)
+
+        Returns:
+            List of possible query types (2-4 types)
+        """
+        query_lower = user_query.lower()
+        possible = []
+
+        # Pattern 1: "Toplam X" → single_value OR ranking
+        if any(kw in query_lower for kw in ["toplam", "toplamı", "kaç", "ne kadar"]):
+            # Could be single value OR could want top-N
+            if "en" not in query_lower:  # "en çok" means ranking
+                possible.extend(["single_value", "aggregation"])
+                if any(kw in query_lower for kw in ["göre", "bazlı", "dağılım"]):
+                    possible.append("distribution")
+
+        # Pattern 2: "En çok/az X" → ranking OR single_value (max/min)
+        if any(kw in query_lower for kw in ["en çok", "en az", "en yüksek", "en düşük"]):
+            possible.append("ranking")
+            # Could also want single max value
+            if not any(num_kw in query_lower for num_kw in ["10", "5", "3", "ilk", "top"]):
+                possible.append("single_value")
+
+        # Pattern 3: Generic aggregation → multiple interpretations
+        if any(kw in query_lower for kw in ["satış", "ciro", "miktar"]) and len(query_lower.split()) <= 3:
+            if "toplam" not in query_lower and "en" not in query_lower:
+                possible.extend(["single_value", "aggregation", "ranking"])
+
+        # Pattern 4: "X göre Y" → aggregation OR distribution
+        if "göre" in query_lower or "bazlı" in query_lower or "bazında" in query_lower:
+            possible.extend(["aggregation", "distribution"])
+
+        # Remove duplicates and limit to 4
+        possible = list(dict.fromkeys(possible))[:4]
+
+        # Ensure detected type is included if exists
+        if detected_type and detected_type not in possible:
+            possible.insert(0, detected_type)
+
+        # If we have < 2 types, no ambiguity
+        if len(possible) < 2:
+            return []
+
+        return possible[:4]  # Max 4 options
 
 
 # =============================================================================

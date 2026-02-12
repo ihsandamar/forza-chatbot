@@ -25,7 +25,7 @@ from abc import ABC, abstractmethod
 
 class AmbiguityType(str, Enum):
     """
-    5 ambiguity types ordered by priority (highest to lowest).
+    6 ambiguity types ordered by priority (highest to lowest).
 
     Priority determines which ambiguity to resolve first when multiple exist.
     """
@@ -38,6 +38,9 @@ class AmbiguityType(str, Enum):
 
     # Priority 3: Important - what does user want to do?
     INTENT = "intent_ambiguity"
+
+    # Priority 3.5: Query type unclear - ranking vs single_value vs aggregation?
+    QUERY_TYPE = "query_type_ambiguity"
 
     # Priority 4: Medium - which column to use?
     COLUMN = "column_ambiguity"
@@ -369,6 +372,35 @@ def build_prompt_scope_metadata(
             "Belirli bir filtre ile göster",
             "Gruplama ile göster"
         ],
+    }
+
+
+def build_query_type_metadata(
+    query: str,
+    possible_types: List[str],
+    confidence_scores: Optional[Dict[str, float]] = None,
+    detected_type: Optional[str] = None,
+    detection_confidence: float = 0.0
+) -> Dict[str, Any]:
+    """
+    Build metadata for query type ambiguity.
+
+    Args:
+        query: User query
+        possible_types: List of possible query types
+        confidence_scores: Optional confidence scores for each type
+        detected_type: Type detected by LLM (if any)
+        detection_confidence: Confidence of detected type
+
+    Returns:
+        Metadata dict
+    """
+    return {
+        "query": query,
+        "possible_types": possible_types,
+        "confidence_scores": confidence_scores or {},
+        "detected_type": detected_type,
+        "detection_confidence": detection_confidence,
     }
 
 

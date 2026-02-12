@@ -574,33 +574,87 @@ Referans: {'EVET - önceki sonuçları kullanmalı' if is_followup else 'YOK'}
 {previous_context if is_followup else ''}
 
 Query Types:
-- single_value: Tek metrik ("Toplam ciro nedir?")
-- ranking: Top-N sıralama ("En çok satan 10 ürün")
-- comparison: Karşılaştırma ("İstanbul vs Ankara")
-  ⚠️ ÖNEMLİ: TEK bir zaman noktası veya dönem için karşılaştırma
-  ⚠️ ZAMAN GRANULARİTY ifadesi YOKSA → comparison
-- time_series: Zaman serisi ("Son 6 aydaki satışlar")
-  ⚠️ TEK entity'nin zaman içindeki değişimi
-- time_series_comparison: Çoklu zaman serisi ("X ve Y'nin son yıldaki satışı")
-  ⚠️ KRİTİK: BİRDEN FAZLA entity + ZAMAN GRANULARİTY → time_series_comparison
-  ⚠️ STRONG INDICATORS: "aylık bazda", "günlük", "ay ay", "haftalık", "her ay",
-     "aylara göre", "günlere göre", "tarihe göre", "zamana göre", "tarih bazında"
-     + karşılaştırma ifadeleri ("ile kıyasla", "karşılaştır", "vs")
-- aggregation: Gruplama ("Kategorilere göre toplam")
-- distribution: Dağılım ("Satışların dağılımı")
-- trend: Trend analizi ("Satışlar artıyor mu?")
+
+1. **single_value** - TEK bir toplam/ortalama/sayı değeri
+   ⚠️ KRİTİK İŞARETLER:
+   - "Toplam", "Toplamı", "Toplam ne", "Toplam kaç"
+   - "Ortalama", "Ortalaması"
+   - "Kaç tane", "Ne kadar", "Miktar"
+   - "Maksimum", "Minimum", "En yüksek değer", "En düşük değer" (TEK DEĞER isteniyorsa)
+   - GRUPLAMA YOK, SIRALAMA YOK, sadece TEK SAYISAL SONUÇ
+
+   ✅ DOĞRU ÖRNEKLER:
+   - "Toplam ciro nedir?" → single_value (tek değer: 1.250.000 TL)
+   - "Toplam ciro" → single_value
+   - "Ortalama sipariş tutarı" → single_value
+   - "Kaç müşterimiz var?" → single_value
+   - "Ne kadar satış yaptık?" → single_value (toplam satış)
+   - "Toplam kaç sipariş var?" → single_value
+
+   ❌ YANLIŞ:
+   - "En çok ciro yapan 10 şube" → ranking (sıralama var!)
+   - "Kategorilere göre toplam" → aggregation (gruplama var!)
+
+2. **ranking** - Top-N sıralama (en yüksek/düşük değerler)
+   ⚠️ KRİTİK İŞARETLER:
+   - "En çok", "En az", "En yüksek", "En düşük"
+   - "Top", "İlk", "Son"
+   - Sayı belirtimi: "10 ürün", "5 şube"
+
+   ✅ ÖRNEKLER:
+   - "En çok satan 10 ürün" → ranking
+   - "En az ciro yapan 5 şube" → ranking
+   - "Top 3 kategori" → ranking
+
+3. **comparison** - Karşılaştırma (2+ entity)
+   ⚠️ ÖNEMLİ: TEK bir zaman noktası veya dönem için karşılaştırma
+   ⚠️ ZAMAN GRANULARİTY ifadesi YOKSA → comparison
+
+   ✅ ÖRNEKLER:
+   - "İstanbul vs Ankara" → comparison
+   - "İstanbul ile Ankara satışları" → comparison (zaman granularity yok)
+
+4. **time_series** - Zaman serisi
+   ⚠️ TEK entity'nin zaman içindeki değişimi
+
+   ✅ ÖRNEKLER:
+   - "Son 6 aydaki satışlar" → time_series (tek entity)
+
+5. **time_series_comparison** - Çoklu zaman serisi
+   ⚠️ KRİTİK: BİRDEN FAZLA entity + ZAMAN GRANULARİTY → time_series_comparison
+   ⚠️ STRONG INDICATORS: "aylık bazda", "günlük", "ay ay", "haftalık", "her ay",
+      "aylara göre", "günlere göre", "tarihe göre", "zamana göre", "tarih bazında"
+      + karşılaştırma ifadeleri ("ile kıyasla", "karşılaştır", "vs")
+
+   ✅ ÖRNEKLER:
+   - "X ve Y'nin aylık satışları" → time_series_comparison (2 entity + aylık)
+   - "Bu iki kategoriyi aylık bazda karşılaştır" → time_series_comparison
+   - "Bunu cajun dürüm ile tarihe göre kıyasla" → time_series_comparison (2 entity + tarihe göre)
+
+6. **aggregation** - Gruplama
+
+   ✅ ÖRNEKLER:
+   - "Kategorilere göre toplam" → aggregation
+
+7. **distribution** - Dağılım
+
+   ✅ ÖRNEKLER:
+   - "Satışların dağılımı" → distribution
+
+8. **trend** - Trend analizi
+
+   ✅ ÖRNEKLER:
+   - "Satışlar artıyor mu?" → trend
+
+KRİTİK KURAL - single_value vs ranking vs aggregation:
+- "Toplam X" (GRUPLAMA YOK) → single_value ✅
+- "En çok X yapan 10 Y" → ranking ✅
+- "Y'lere göre X toplam" → aggregation ✅
 
 KRİTİK KURAL - ZAMAN GRANULARİTY TESPİTİ:
 - Kullanıcı "aylık", "günlük", "haftalık", "yıllık", "ay ay", "gün gün" gibi
   ifadeler kullandıysa VE 2+ entity karşılaştırıyorsa
   → query_type MUTLAKA "time_series_comparison" OLMALI!
-
-ÖRNEKLER:
-✅ "İstanbul ile Ankara satışları" → comparison (zaman granularity yok)
-✅ "Son 6 aydaki satışlar" → time_series (tek entity)
-✅ "X ve Y'nin aylık satışları" → time_series_comparison (2 entity + aylık)
-✅ "Bu iki kategoriyi aylık bazda karşılaştır" → time_series_comparison
-✅ "Bunu cajun dürüm ile tarihe göre kıyasla" → time_series_comparison (2 entity + tarihe göre)
 
 JSON döndür (sadece JSON):
 {{
@@ -610,7 +664,7 @@ JSON döndür (sadece JSON):
     "reasoning": "Kullanıcı top-N sıralama istiyor"
 }}
 
-ÖNEMLI: Eğer sorgu belirsizse (confidence < 0.6), needs_clarification: true yap."""
+ÖNEMLI: Eğer sorgu belirsizse (confidence < 0.65), needs_clarification: true yap."""
 
     try:
         response = await llm.ainvoke(prompt)
@@ -639,7 +693,7 @@ JSON döndür (sadece JSON):
             confidence = 0.3
 
         # Low confidence → clarification needed
-        if confidence < 0.6:
+        if confidence < 0.65:
             needs_clarification = True
             logger.warning(f"[QUERY_ANALYSIS] Low confidence ({confidence:.2f}), needs clarification")
 

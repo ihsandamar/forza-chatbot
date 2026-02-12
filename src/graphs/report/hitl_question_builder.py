@@ -140,6 +140,7 @@ class HITLQuestionBuilder:
             AmbiguityType.CONTEXT: self._build_context_question,
             AmbiguityType.PROMPT_SCOPE: self._build_prompt_scope_question,
             AmbiguityType.INTENT: self._build_intent_question,
+            AmbiguityType.QUERY_TYPE: self._build_query_type_question,
             AmbiguityType.COLUMN: self._build_column_question,
             AmbiguityType.VALUE: self._build_value_question,
         }
@@ -364,6 +365,105 @@ class HITLQuestionBuilder:
                 "possible_intents": possible_intents
             }
         )
+
+    # =========================================================================
+    # QUERY TYPE AMBIGUITY - Priority #3.5 (NEW!)
+    # =========================================================================
+
+    def _build_query_type_question(self, ctx: AmbiguityContext) -> QuestionTemplate:
+        """
+        Build query type ambiguity question.
+
+        Example:
+            User: "Toplam ciro"
+
+            Question:
+                ❓ Ne tür bir analiz yapmak istiyorsunuz?
+
+                💡 Sorgunuz birden fazla analiz türüne uyuyor.
+
+                Seçenekler:
+                  1. Tek bir toplam değer göster (Örn: Toplam ciro: 1.250.000 TL)
+                  2. Kategorilere göre grupla (Örn: Her kategori için toplam)
+                  3. En yüksek/düşük değerleri sırala (Örn: En çok ciro yapan 10 ürün)
+
+        Args:
+            ctx: AmbiguityContext with type=QUERY_TYPE
+
+        Returns:
+            QuestionTemplate for query type ambiguity
+        """
+        query = ctx.user_query
+        possible_types = ctx.metadata.get("possible_types", ctx.candidates)
+        detected_type = ctx.metadata.get("detected_type")
+
+        # Build title
+        title = "Ne tür bir analiz yapmak istiyorsunuz?"
+
+        # Build explanation
+        if detected_type:
+            explanation = (
+                f"'{query}' sorgusu için '{self._get_query_type_label(detected_type)}' tespit ettim,\n"
+                f"    ancak başka analiz türleri de mümkün. Hangisini tercih edersiniz?"
+            )
+        else:
+            explanation = f"'{query}' - Sorgunuz birden fazla analiz türüne uyuyor."
+
+        # Build options with descriptions
+        options = []
+        for qtype in possible_types:
+            label = self._get_query_type_option_label(qtype, query)
+            options.append(label)
+
+        return QuestionTemplate(
+            title=title,
+            explanation=explanation,
+            context_summary=ctx.active_context_summary,
+            options=options,
+            metadata={
+                "ambiguity_type": AmbiguityType.QUERY_TYPE,
+                "possible_types": possible_types,
+                "detected_type": detected_type,
+                "query_type_mapping": {opt: qtype for opt, qtype in zip(options, possible_types)}
+            }
+        )
+
+    def _get_query_type_label(self, query_type: str) -> str:
+        """Get Turkish label for query type."""
+        labels = {
+            "single_value": "Tek Değer",
+            "ranking": "Sıralama (Top-N)",
+            "comparison": "Karşılaştırma",
+            "time_series": "Zaman Serisi",
+            "time_series_comparison": "Zaman Serisi Karşılaştırma",
+            "aggregation": "Gruplama",
+            "distribution": "Dağılım",
+            "trend": "Trend Analizi"
+        }
+        return labels.get(query_type, query_type)
+
+    def _get_query_type_option_label(self, query_type: str, user_query: str) -> str:
+        """
+        Get user-friendly option label for query type.
+
+        Args:
+            query_type: Query type identifier
+            user_query: User's original query for context
+
+        Returns:
+            User-friendly label with example
+        """
+        labels = {
+            "single_value": "Tek bir toplam/ortalama değer göster (Örn: Toplam ciro: 1.250.000 TL)",
+            "ranking": "En yüksek/düşük değerleri sırala (Örn: En çok ciro yapan 10 ürün)",
+            "comparison": "İki veya daha fazla öğeyi karşılaştır (Örn: İstanbul vs Ankara)",
+            "time_series": "Zaman içindeki değişimi göster (Örn: Son 6 aydaki aylık satışlar)",
+            "time_series_comparison": "Birden fazla öğenin zaman içindeki karşılaştırması",
+            "aggregation": "Kategorilere/gruplara göre topla (Örn: Her kategori için toplam)",
+            "distribution": "Dağılım ve oranları göster (Örn: Satışların şubelere göre dağılımı)",
+            "trend": "Artış/azalış trendini analiz et (Örn: Satışlar artıyor mu?)"
+        }
+        return labels.get(query_type, query_type)
 
     # =========================================================================
     # COLUMN AMBIGUITY - Priority #4
