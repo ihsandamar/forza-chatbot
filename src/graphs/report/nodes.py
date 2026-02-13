@@ -2773,6 +2773,7 @@ async def check_results_node(state: ReportState) -> Dict[str, Any]:
     return {
         "active_query_context": updated_context,
         "query_history": [new_checkpoint],
+        "clarification_count": 0,  # ✅ Reset after successful query
         # Clear temporary flags
         "_merge_preserved_context": None,
         "_preserved_filters": None,
@@ -4245,9 +4246,21 @@ def _process_context_clarification(
         keep_filters = False
 
     else:
-        # Default: keep filters (safe choice)
-        logger.warning("[HITL] Unclear response, defaulting to keep filters")
-        keep_filters = True
+        # Default: keep filters (safe choice) but inform user
+        logger.warning(f"[HITL] Unclear response: '{user_response}', defaulting to keep filters")
+
+        # ✅ Inform user about unclear response
+        from langchain_core.messages import AIMessage
+        return {
+            "messages": [AIMessage(content=(
+                "⚠️ Cevabınızı tam anlayamadım. Filtreleri koruyorum.\n\n"
+                "💡 İpucu: Gelecekte '1' veya '2' yazabilirsiniz."
+            ))],
+            "_intent_type": "modify_filter",
+            "_execution_mode": "contextual_full",
+            "_preserve_context": True
+        }
+        # keep_filters = True  # Removed - handled in return above
 
     if keep_filters:
         logger.info("[HITL] User chose to KEEP filters (contextual_full mode)")

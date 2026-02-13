@@ -428,7 +428,8 @@ class IntentStageDetector(AmbiguityDetector):
             return None
 
         # Check if query type confidence is low
-        if query_type_confidence >= 0.65:
+        # ✅ Improved threshold: 0.7 (was 0.65) - less false positives
+        if query_type_confidence >= 0.7:
             return None
 
         # Detect possible query types based on query patterns
