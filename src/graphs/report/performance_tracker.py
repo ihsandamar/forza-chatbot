@@ -1,6 +1,9 @@
 """
 Performance Tracker for Report Graph
 
+⚠️ DEPRECATED: This module is currently not used in the report graph.
+The PerformanceTracker was designed but never integrated into the node execution flow.
+
 Phase 4: Real-time metrics collection for monitoring and optimization.
 
 Features:

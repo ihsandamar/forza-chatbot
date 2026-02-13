@@ -249,14 +249,8 @@ class ReportState(TypedDict):
     # -------------------------------------------------------------------------
     # Cache Tracking (Phase 1)
     # -------------------------------------------------------------------------
-    _cache_hits: Optional[List[str]]                # Which caches hit (for monitoring)
-    _token_usage: Optional[Dict[str, int]]          # Token tracking per node
-
-    # -------------------------------------------------------------------------
-    # Performance Metrics (Phase 1)
-    # -------------------------------------------------------------------------
-    _node_timings: Optional[Dict[str, float]]       # Latency per node (ms)
-    _total_latency: Optional[float]                 # End-to-end latency (ms)
+    # REMOVED: _cache_hits, _token_usage, _node_timings, _total_latency
+    # Reason: PerformanceTracker was initialized but never used in any node
 
     # -------------------------------------------------------------------------
     # LLM Reasoning Traces: Debugging ve monitoring için

@@ -871,15 +871,9 @@ async def immediate_acknowledgment_node(state: ReportState) -> Dict[str, Any]:
     if session_id:
         logger.info(f"[REPORT] [SESSION] ID: {session_id}")
 
-    # Phase 4: Initialize performance tracker
-    from .performance_tracker import PerformanceTracker
-    tracker = PerformanceTracker()
-    logger.info("[REPORT] Phase 4: Performance tracker initialized")
-
     return {
         "messages": [AIMessage(content="🔄 Sorgunuz işleniyor...")],
-        "conversation_turn": new_turn,
-        "_performance_tracker": tracker
+        "conversation_turn": new_turn
     }
 
 
