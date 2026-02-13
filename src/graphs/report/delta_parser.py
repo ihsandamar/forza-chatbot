@@ -495,35 +495,45 @@ class SQLModifier:
                 return modified_sql
 
             if new_grouping:
+                # CRITICAL FIX: Ensure GROUP BY columns are in SELECT clause
+                # This prevents "Invalid column name" errors
+                modified_sql = self._ensure_grouping_columns_in_select(sql, new_grouping)
+
                 group_by_str = ", ".join(new_grouping)
 
-                # Check if GROUP BY exists
-                if re.search(r'\s+GROUP\s+BY\s+', sql, re.IGNORECASE):
-                    # Replace existing GROUP BY
-                    modified_sql = re.sub(
-                        r'GROUP\s+BY\s+[^;]+',
-                        f'GROUP BY {group_by_str}',
-                        sql,
-                        flags=re.IGNORECASE
-                    )
-                    logger.info(f"[SQL_MODIFIER] Updated GROUP BY: {group_by_str}")
+                # CRITICAL FIX 2: Handle CTE (WITH ... AS) structure
+                # If SQL has CTE, GROUP BY must be added INSIDE the CTE, not in final SELECT
+                if self._is_cte_query(modified_sql):
+                    modified_sql = self._add_group_by_to_cte(modified_sql, group_by_str, new_grouping)
+                    logger.info(f"[SQL_MODIFIER] Added GROUP BY to CTE: {group_by_str}")
                 else:
-                    # Add new GROUP BY before ORDER BY or at end
-                    if 'ORDER BY' in sql.upper():
+                    # Check if GROUP BY exists
+                    if re.search(r'\s+GROUP\s+BY\s+', modified_sql, re.IGNORECASE):
+                        # Replace existing GROUP BY
                         modified_sql = re.sub(
-                            r'(.*?)\s+(ORDER\s+BY\s+.*)',
-                            rf'\1 GROUP BY {group_by_str} \2',
-                            sql,
+                            r'GROUP\s+BY\s+[^;]+',
+                            f'GROUP BY {group_by_str}',
+                            modified_sql,
                             flags=re.IGNORECASE
                         )
+                        logger.info(f"[SQL_MODIFIER] Updated GROUP BY: {group_by_str}")
                     else:
-                        # Add at end (before semicolon if exists)
-                        if sql.rstrip().endswith(';'):
-                            modified_sql = sql.rstrip()[:-1] + f' GROUP BY {group_by_str};'
+                        # Add new GROUP BY before ORDER BY or at end
+                        if 'ORDER BY' in modified_sql.upper():
+                            modified_sql = re.sub(
+                                r'(.*?)\s+(ORDER\s+BY\s+.*)',
+                                rf'\1 GROUP BY {group_by_str} \2',
+                                modified_sql,
+                                flags=re.IGNORECASE
+                            )
                         else:
-                            modified_sql = sql + f' GROUP BY {group_by_str}'
+                            # Add at end (before semicolon if exists)
+                            if modified_sql.rstrip().endswith(';'):
+                                modified_sql = modified_sql.rstrip()[:-1] + f' GROUP BY {group_by_str};'
+                            else:
+                                modified_sql = modified_sql + f' GROUP BY {group_by_str}'
 
-                    logger.info(f"[SQL_MODIFIER] Added GROUP BY: {group_by_str}")
+                        logger.info(f"[SQL_MODIFIER] Added GROUP BY: {group_by_str}")
 
                 # Add HAVING clause if specified
                 if having_clause:
@@ -547,6 +557,170 @@ class SQLModifier:
 
         except Exception as e:
             logger.error(f"[SQL_MODIFIER] Error modifying aggregations: {e}")
+            return sql
+
+    def _is_cte_query(self, sql: str) -> bool:
+        """
+        Check if SQL query uses CTE (WITH ... AS) structure.
+
+        Args:
+            sql: SQL query to check
+
+        Returns:
+            True if query uses CTE, False otherwise
+        """
+        return bool(re.search(r'^\s*WITH\s+\w+\s+AS\s*\(', sql, re.IGNORECASE | re.MULTILINE))
+
+    def _add_group_by_to_cte(self, sql: str, group_by_str: str, grouping_columns: List[str]) -> str:
+        """
+        Add GROUP BY clause inside CTE and update final SELECT.
+
+        Handles CTE structure properly:
+        WITH step_1 AS (
+          SELECT ... FROM ... WHERE ...
+          GROUP BY col  ← Add here
+        )
+        SELECT col, agg FROM step_1  ← Update SELECT columns
+
+        Args:
+            sql: Original SQL with CTE
+            group_by_str: GROUP BY clause string (e.g., "CategoryName, BranchName")
+            grouping_columns: List of grouping column names
+
+        Returns:
+            Modified SQL with GROUP BY in CTE and updated final SELECT
+        """
+        try:
+            # Find the CTE closing parenthesis
+            # CTE structure: WITH name AS ( ... ) SELECT ...
+            # We need to add GROUP BY before the closing )
+
+            # Pattern to match: WITH ... AS ( ... )
+            # We want to insert GROUP BY before the last ) before SELECT
+            cte_pattern = r'(WITH\s+\w+\s+AS\s*\(.*?)\s*\)\s*(SELECT.*FROM\s+\w+)'
+
+            match = re.search(cte_pattern, sql, re.IGNORECASE | re.DOTALL)
+            if not match:
+                logger.warning("[SQL_MODIFIER] Could not parse CTE structure, applying GROUP BY normally")
+                return sql
+
+            cte_body = match.group(1)  # Everything up to closing )
+            final_select = match.group(2)  # Final SELECT ... FROM cte_name
+
+            # Check if GROUP BY already exists in CTE
+            if re.search(r'\s+GROUP\s+BY\s+', cte_body, re.IGNORECASE):
+                # Replace existing GROUP BY in CTE
+                cte_body = re.sub(
+                    r'GROUP\s+BY\s+[^\)]+',
+                    f'GROUP BY {group_by_str}',
+                    cte_body,
+                    flags=re.IGNORECASE
+                )
+                logger.info(f"[SQL_MODIFIER] Replaced GROUP BY in CTE: {group_by_str}")
+            else:
+                # Add GROUP BY at end of CTE (before closing parenthesis)
+                cte_body = cte_body.rstrip() + f'\n  GROUP BY {group_by_str}'
+                logger.info(f"[SQL_MODIFIER] Added GROUP BY to CTE: {group_by_str}")
+
+            # Update final SELECT to include grouping columns
+            final_select = self._update_final_select_for_grouping(final_select, grouping_columns)
+
+            # Reconstruct SQL
+            modified_sql = cte_body + "\n)\n" + final_select
+
+            return modified_sql
+
+        except Exception as e:
+            logger.error(f"[SQL_MODIFIER] Error adding GROUP BY to CTE: {e}", exc_info=True)
+            return sql
+
+    def _update_final_select_for_grouping(self, final_select: str, grouping_columns: List[str]) -> str:
+        """
+        Update final SELECT statement to include grouping columns.
+
+        Args:
+            final_select: Final SELECT statement (e.g., "SELECT TotalRevenue FROM step_1")
+            grouping_columns: List of grouping columns to add
+
+        Returns:
+            Updated SELECT with grouping columns
+        """
+        try:
+            # Find SELECT clause in final select
+            select_match = re.search(r'SELECT\s+(.*?)\s+FROM', final_select, re.IGNORECASE | re.DOTALL)
+            if not select_match:
+                logger.warning("[SQL_MODIFIER] Could not parse final SELECT for grouping columns")
+                return final_select
+
+            current_columns = select_match.group(1).strip()
+
+            # Check which grouping columns are missing
+            columns_to_add = []
+            for col in grouping_columns:
+                col_pattern = rf'\b{re.escape(col)}\b'
+                if not re.search(col_pattern, current_columns, re.IGNORECASE):
+                    columns_to_add.append(col)
+
+            # Add missing columns at the beginning (grouping columns should come first)
+            if columns_to_add:
+                updated_columns = ", ".join(columns_to_add) + ", " + current_columns
+                final_select = final_select.replace(
+                    select_match.group(0),
+                    f"SELECT {updated_columns} FROM"
+                )
+                logger.info(f"[SQL_MODIFIER] Added {len(columns_to_add)} grouping columns to final SELECT")
+
+            return final_select
+
+        except Exception as e:
+            logger.error(f"[SQL_MODIFIER] Error updating final SELECT: {e}")
+            return final_select
+
+    def _ensure_grouping_columns_in_select(self, sql: str, grouping_columns: List[str]) -> str:
+        """
+        Ensure GROUP BY columns are present in SELECT clause.
+
+        This prevents "Invalid column name" SQL errors when GROUP BY references
+        columns that are not in the SELECT list.
+
+        Args:
+            sql: Original SQL query
+            grouping_columns: List of columns to be used in GROUP BY
+
+        Returns:
+            Modified SQL with grouping columns added to SELECT if needed
+        """
+        try:
+            # Find SELECT clause (handle CTE case)
+            select_match = re.search(r'SELECT\s+(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
+            if not select_match:
+                logger.error("[SQL_MODIFIER] Could not find SELECT clause for grouping column check")
+                return sql
+
+            current_columns = select_match.group(1).strip()
+            columns_to_add = []
+
+            # Check each grouping column
+            for col in grouping_columns:
+                # Check if column is already in SELECT (case-insensitive)
+                # Handle both "column" and "column AS alias" cases
+                col_pattern = rf'\b{re.escape(col)}\b'
+                if not re.search(col_pattern, current_columns, re.IGNORECASE):
+                    # Column not in SELECT, need to add it
+                    columns_to_add.append(col)
+                    logger.info(f"[SQL_MODIFIER] Adding missing GROUP BY column to SELECT: {col}")
+
+            # Add missing columns to SELECT
+            if columns_to_add:
+                updated_columns = current_columns + ", " + ", ".join(columns_to_add)
+                modified_sql = sql.replace(select_match.group(0), f"SELECT {updated_columns} FROM")
+                logger.info(f"[SQL_MODIFIER] Added {len(columns_to_add)} GROUP BY columns to SELECT")
+                return modified_sql
+
+            return sql
+
+        except Exception as e:
+            logger.error(f"[SQL_MODIFIER] Error ensuring grouping columns in SELECT: {e}")
             return sql
 
     def _resolve_column_name(self, semantic_name: str) -> Optional[str]:
