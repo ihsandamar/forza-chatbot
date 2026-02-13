@@ -573,6 +573,10 @@ Referans: {'EVET - önceki sonuçları kullanmalı' if is_followup else 'YOK'}
 
 {previous_context if is_followup else ''}
 
+⚠️ KRİTİK: ZAMAN FİLTRESİ ≠ ZAMAN GRANULARİTY
+- "Son 1 yılda A vs B" → comparison (sadece zaman filtresi)
+- "A ve B'nin aylık karşılaştırması" → time_series_comparison (zaman granularity)
+
 Query Types:
 
 1. **single_value** - TEK bir toplam/ortalama/sayı değeri
@@ -609,10 +613,13 @@ Query Types:
 3. **comparison** - Karşılaştırma (2+ entity)
    ⚠️ ÖNEMLİ: TEK bir zaman noktası veya dönem için karşılaştırma
    ⚠️ ZAMAN GRANULARİTY ifadesi YOKSA → comparison
+   ⚠️ Zaman FİLTRESİ olabilir ama zaman GRANULARİTY (aylık, günlük) OLMAMALI
 
    ✅ ÖRNEKLER:
    - "İstanbul vs Ankara" → comparison
    - "İstanbul ile Ankara satışları" → comparison (zaman granularity yok)
+   - "Son 1 yılda dürümler ve içecekler karşılaştırması" → comparison (zaman filtresi var ama granularity yok!)
+   - "2024'te A ve B karşılaştırması" → comparison (zaman filtresi var ama aylık/günlük gibi granularity yok)
 
 4. **time_series** - Zaman serisi
    ⚠️ TEK entity'nin zaman içindeki değişimi
@@ -622,14 +629,20 @@ Query Types:
 
 5. **time_series_comparison** - Çoklu zaman serisi
    ⚠️ KRİTİK: BİRDEN FAZLA entity + ZAMAN GRANULARİTY → time_series_comparison
+   ⚠️ ZAMAN FİLTRESİ vs ZAMAN GRANULARİTY FARKI:
+      - "Son 1 yılda A vs B" → comparison (zaman filtresi, granularity YOK!)
+      - "A ve B'nin aylık karşılaştırması" → time_series_comparison (zaman granularity VAR!)
    ⚠️ STRONG INDICATORS: "aylık bazda", "günlük", "ay ay", "haftalık", "her ay",
-      "aylara göre", "günlere göre", "tarihe göre", "zamana göre", "tarih bazında"
+      "aylara göre", "günlere göre", "ay bazında", "gün bazında", "hafta bazında"
       + karşılaştırma ifadeleri ("ile kıyasla", "karşılaştır", "vs")
 
    ✅ ÖRNEKLER:
    - "X ve Y'nin aylık satışları" → time_series_comparison (2 entity + aylık)
    - "Bu iki kategoriyi aylık bazda karşılaştır" → time_series_comparison
-   - "Bunu cajun dürüm ile tarihe göre kıyasla" → time_series_comparison (2 entity + tarihe göre)
+   - "A ve B'nin son 6 aydaki AY AY karşılaştırması" → time_series_comparison
+
+   ❌ YANLIŞ:
+   - "Son 1 yılda dürümler vs içecekler" → time_series_comparison DEĞİL! comparison (zaman filtresi var ama granularity yok)
 
 6. **aggregation** - Gruplama
 
@@ -688,9 +701,66 @@ JSON döndür (sadece JSON):
         valid_types = ["single_value", "ranking", "comparison", "time_series",
                        "time_series_comparison", "aggregation", "distribution", "trend"]
         if query_type not in valid_types:
-            logger.warning(f"[QUERY_ANALYSIS] Invalid query_type: {query_type}, fallback to aggregation")
-            query_type = "aggregation"
-            confidence = 0.3
+            logger.warning(f"[QUERY_ANALYSIS] Invalid query_type returned by LLM: '{query_type}'")
+            logger.warning(f"[QUERY_ANALYSIS] Valid types: {valid_types}")
+            logger.info(f"[QUERY_ANALYSIS] Asking LLM to map invalid query_type to valid type...")
+
+            # LLM-driven mapping: Ask LLM to correct the query_type
+            try:
+                correction_prompt = f"""LLM yanlış query_type döndürdü: "{query_type}"
+
+Geçerli query_type'lar SADECE şunlar:
+- single_value
+- ranking
+- comparison
+- time_series
+- time_series_comparison
+- aggregation
+- distribution
+- trend
+
+Orijinal kullanıcı sorusu: "{user_message}"
+
+"{query_type}" açıklamasını yukarıdaki geçerli query_type'lardan birine map et.
+
+Sadece JSON döndür:
+{{
+    "corrected_query_type": "comparison",
+    "reasoning": "Kullanıcı iki kategori karşılaştırıyor, zaman granularity yok"
+}}"""
+
+                correction_response = await llm.ainvoke(correction_prompt)
+                correction_content = correction_response.content.strip()
+
+                # Extract JSON
+                if "```json" in correction_content:
+                    correction_content = correction_content.split("```json")[1].split("```")[0].strip()
+                elif "```" in correction_content:
+                    correction_content = correction_content.split("```")[1].split("```")[0].strip()
+
+                correction_data = json.loads(correction_content)
+                corrected_type = correction_data.get("corrected_query_type", "aggregation")
+
+                if corrected_type in valid_types:
+                    logger.info(f"[QUERY_ANALYSIS] LLM corrected '{query_type}' → '{corrected_type}'")
+                    query_type = corrected_type
+                    # LLM successfully corrected → boost confidence to avoid ask_user
+                    # If original confidence was low, raise it above ambiguity threshold (0.7)
+                    if confidence < 0.7:
+                        confidence = 0.75
+                        logger.info(f"[QUERY_ANALYSIS] Boosted confidence to {confidence} after successful LLM correction")
+                else:
+                    logger.error(f"[QUERY_ANALYSIS] LLM correction failed, using fallback")
+                    query_type = "aggregation"
+                    confidence = 0.3
+
+            except Exception as e:
+                logger.error(f"[QUERY_ANALYSIS] LLM correction error: {e}, using fallback")
+                query_type = "aggregation"
+                confidence = 0.3
+
+        # Log final query_type
+        logger.info(f"[QUERY_ANALYSIS] Final query_type after validation: '{query_type}' (confidence: {confidence:.2f})")
 
         # Low confidence → clarification needed
         if confidence < 0.65:
