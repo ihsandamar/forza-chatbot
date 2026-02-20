@@ -83,14 +83,29 @@ def make_analysis_bridge(analysis_agent):
 
 
 def make_viz_bridge(visualization_graph):
-    """Calls data_visualization subgraph with sql results + viz decision."""
+    """Calls data_visualization subgraph with sql results + viz decision.
+
+    Input field alignment notes:
+    - DataVisualizationState.raw_data is the canonical data field for the
+      visualization pipeline. Passing ``raw_data`` (instead of ``results``)
+      triggers state_transformer_node's fast path ("raw_data" in state →
+      return as-is), which preserves the pre-populated ``viz_decision`` from
+      the analysis agent.  Passing only ``results`` would cause the transformer
+      to rebuild the state from scratch and discard ``viz_decision``.
+    - ``viz_decision`` is passed from AnalysisResult so the visualization
+      subgraph honours the orchestrator's decision rather than making a second
+      redundant LLM call.
+    - ``user_query`` maps directly to DataVisualizationState.user_query.
+    """
 
     async def node(state: OrchestratorState) -> dict:
         sql_result = state.get("sql_result") or {}
         analysis_result = state.get("analysis_result") or {}
         classify_result = state.get("classify_result") or {}
         viz_input = {
-            "results": sql_result.get("results", []),
+            # Use raw_data (not results) to trigger the fast path in
+            # state_transformer_node, keeping viz_decision intact.
+            "raw_data": sql_result.get("results", []),
             "viz_decision": analysis_result.get("viz_decision", {}),
             "user_query": classify_result.get("user_query", ""),
         }
