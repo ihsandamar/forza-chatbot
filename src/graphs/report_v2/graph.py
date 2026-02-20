@@ -197,6 +197,7 @@ def build_report_v2_graph(
     llm=None,
     visualization_graph=None,
     checkpointer=None,
+    config_schema=None,
 ):
     """
     Compile the Report V2 network graph.
@@ -206,6 +207,8 @@ def build_report_v2_graph(
         llm: LLM instance (None = rule-based fallback for all agents)
         visualization_graph: Compiled data_visualization subgraph
         checkpointer: LangGraph checkpointer (default: MemorySaver)
+        config_schema: Runtime configuration schema exposed to LangGraph Dev/Studio.
+                       If None, defaults to ReportV2Configuration.
     """
     logger.info("[REPORT_V2] Building network graph...")
 
@@ -234,7 +237,11 @@ def build_report_v2_graph(
 
     logger.info("[REPORT_V2] Sub-agents compiled")
 
-    graph = StateGraph(OrchestratorState)
+    if config_schema is None:
+        from src.graphs.report_v2.configuration import ReportV2Configuration
+        config_schema = ReportV2Configuration
+
+    graph = StateGraph(OrchestratorState, config_schema=config_schema)
 
     graph.add_node("classify_agent", make_classify_bridge(classify_agent))
     graph.add_node("sql_agent", make_sql_bridge(sql_agent))

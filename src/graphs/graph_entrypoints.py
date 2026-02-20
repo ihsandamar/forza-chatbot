@@ -191,4 +191,5 @@ def report_v2_graph():
         node_kit=text2sql_node_kit,
         llm=llm,
         visualization_graph=visualization,
+        config_schema=GenericSQLAssistantConfiguration,
     )
