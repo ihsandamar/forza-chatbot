@@ -65,10 +65,13 @@ class SQLState(TypedDict):
     retry_count: Optional[int]
     sql_error_history: Optional[List[Dict]]
     no_records_message: Optional[str]
+    error: Optional[str]              # sql_executor error output
     _execution_mode: Optional[str]    # "full" | "delta"
     _delta_fallback: Optional[bool]
     _delta_changes: Optional[Dict]
     _sql_context_hint: Optional[str]
+    _conversation_entry: Optional[Dict[str, Any]]    # update_history_node writes this
+    _last_query_results: Optional[Dict[str, Any]]    # update_history_node writes this
     # OUTPUT
     results: Optional[List[Dict]]
     sql_result: Optional[SQLResult]
@@ -108,10 +111,13 @@ def create_sql_input(
         retry_count=0,
         sql_error_history=None,
         no_records_message=None,
+        error=None,
         _execution_mode=None,
         _delta_fallback=False,
         _delta_changes=None,
         _sql_context_hint=None,
+        _conversation_entry=None,
+        _last_query_results=None,
         # OUTPUT
         results=None,
         sql_result=None,
@@ -861,7 +867,7 @@ async def build_sql_result_node(state: SQLState) -> Dict[str, Any]:
     sql_query = sql_queries[-1] if sql_queries else ""
     no_records_message = state.get("no_records_message")
     active_context = state.get("active_context")
-    error = state.get("_error")  # Internal error key used by text2sql nodes
+    error = state.get("error")  # Error key used by text2sql pipeline nodes
     conversation_entry = state.get("_conversation_entry")
 
     # Build updated active context from execution results
