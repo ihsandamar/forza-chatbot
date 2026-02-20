@@ -455,12 +455,12 @@ async def build_analysis_result_node(state: AnalysisState) -> Dict[str, Any]:
     if should_visualize is None:
         should_visualize = bool(viz_decision.get("needs_graph", False))
 
-    result = AnalysisResult(
-        should_visualize=should_visualize,
-        viz_decision=viz_decision,
-        business_insights=business_insights,
-        viz_reasoning=viz_reasoning,
-    )
+    result: AnalysisResult = {
+        "should_visualize": should_visualize,
+        "viz_decision": viz_decision,
+        "business_insights": business_insights,
+        "viz_reasoning": viz_reasoning,
+    }
 
     logger.info(
         f"[ANALYSIS] [BUILD_RESULT] AnalysisResult assembled: "
@@ -532,10 +532,16 @@ def build_analysis_agent(business_tracker=None, report_interpreter=None):
 
     graph.add_edge(START, "check_results")
 
-    # Fan-out: both extract_insights AND decide_viz start after check_results.
-    # extract_insights is the conditional target; decide_viz is the unconditional edge.
-    # Both parallel nodes handle early-exit internally (check no_records_message/error).
-    graph.add_edge("check_results", "extract_insights")
+    # Conditional edge: early exit to build_analysis_result, or fan-out to extract_insights.
+    graph.add_conditional_edges(
+        "check_results",
+        route_after_check,
+        {
+            "build_result": "build_analysis_result",   # early exit — skip parallel branch
+            "extract_insights": "extract_insights",    # happy path — fan-out begins
+        },
+    )
+    # decide_viz always fans out (its internal guard handles error/no_records case)
     graph.add_edge("check_results", "decide_viz")
 
     # Fan-in: build_analysis_result waits for BOTH parallel nodes
