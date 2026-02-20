@@ -41,7 +41,10 @@ logger = logging.getLogger(__name__)
 def make_classify_bridge(classify_agent):
     async def node(state: OrchestratorState) -> dict:
         result = await classify_agent.ainvoke(create_classify_input(state))
-        return {"classify_result": result.get("classify_result")}
+        return {
+            "classify_result": result.get("classify_result"),
+            "clarification_count": result.get("clarification_count", state.get("clarification_count", 0)),
+        }
 
     return node
 
