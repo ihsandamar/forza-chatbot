@@ -163,6 +163,7 @@ class ClassifyState(TypedDict):
     _user_query: Optional[str]
     _ambiguity_context: Optional[Any]
     _modification_action: Optional[str]
+    _clarification_type: Optional[str]     # detect_ambiguity_node writes this, hitl reads it
     # Parallel node outputs (different keys — no conflict)
     _reference_context: Optional[Dict[str, Any]]   # detect_references_node writes this
     _extracted_entities: Optional[Dict[str, Any]]  # validate_entities_node writes this
@@ -198,6 +199,7 @@ def create_classify_input(orchestrator_state: Dict[str, Any]) -> ClassifyState:
         _user_query=None,
         _ambiguity_context=None,
         _modification_action=None,
+        _clarification_type=None,
         # Parallel outputs
         _reference_context=None,
         _extracted_entities=None,
@@ -699,7 +701,6 @@ def _make_classify_intent_node(llm=None):
                     "_user_query": user_message,
                     "_intent_type": "rollback",
                     "_confidence": 1.0,
-                    "_extracted_entities": {},
                 }
 
             viz_keywords = ["grafik yap", "chart", "bar chart", "pasta grafik", "çubuk grafik",
@@ -710,7 +711,6 @@ def _make_classify_intent_node(llm=None):
                     "_user_query": user_message,
                     "_intent_type": "visualize",
                     "_confidence": 0.95,
-                    "_extracted_entities": {},
                 }
 
             simple_query_keywords = ["göster", "listele", "rapor", "getir", "bul", "say"]
@@ -721,10 +721,8 @@ def _make_classify_intent_node(llm=None):
                         "_user_query": user_message,
                         "_intent_type": "new_query",
                         "_confidence": 0.85,
-                        "_extracted_entities": {},
                         "_query_type": None,
                         "_query_type_confidence": 0.0,
-                        "_reference_context_fast": {},
                         "_needs_clarification": False,
                     }
 
@@ -816,7 +814,6 @@ def _make_classify_intent_node(llm=None):
                     "_user_query": user_message,
                     "_intent_type": classification.intent_type.value,
                     "_confidence": classification.confidence,
-                    "_extracted_entities": classification.extracted_entities,
                     "_needs_clarification": True,
                 }
 
@@ -850,7 +847,6 @@ def _make_classify_intent_node(llm=None):
                 "_user_query": user_message,
                 "_intent_type": classification.intent_type.value,
                 "_confidence": classification.confidence,
-                "_extracted_entities": classification.extracted_entities,
             }
 
         # =====================================================================
@@ -867,7 +863,6 @@ def _make_classify_intent_node(llm=None):
             "_user_query": user_message,
             "_intent_type": classification.intent_type.value,
             "_confidence": classification.confidence,
-            "_extracted_entities": classification.extracted_entities,
         }
 
     return classify_intent_node
