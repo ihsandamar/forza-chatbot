@@ -168,6 +168,14 @@ class ClassifyState(TypedDict):
     _reference_context: Optional[Dict[str, Any]]   # detect_references_node writes this
     _extracted_entities: Optional[Dict[str, Any]]  # validate_entities_node writes this
     _entity_validation_done: Optional[bool]        # validate_entities_node writes this
+    # Clarification processor outputs
+    _selected_column: Optional[str]                # _process_column_clarification
+    _selected_value: Optional[str]                 # _process_value_clarification
+    _selected_table: Optional[str]                 # _process_legacy_clarification
+    _selected_filter_value: Optional[str]          # _process_legacy_clarification
+    _user_preference: Optional[str]                # _process_legacy_clarification
+    _preference_type: Optional[str]                # _process_legacy_clarification
+    _use_exact_input: Optional[bool]               # _process_legacy_clarification
     # OUTPUT
     classify_result: Optional[ClassifyResult]
 
@@ -204,6 +212,14 @@ def create_classify_input(orchestrator_state: Dict[str, Any]) -> ClassifyState:
         _reference_context=None,
         _extracted_entities=None,
         _entity_validation_done=False,
+        # Clarification processor outputs
+        _selected_column=None,
+        _selected_value=None,
+        _selected_table=None,
+        _selected_filter_value=None,
+        _user_preference=None,
+        _preference_type=None,
+        _use_exact_input=None,
         # OUTPUT
         classify_result=None,
     )
@@ -1311,7 +1327,7 @@ async def hitl_clarification_node(state: ClassifyState) -> Dict[str, Any]:
     # ENTITY CLARIFICATION
     # =================================================================
     if entity_validation_done and clarification_type == "entity" and \
-            (extracted_entities or {}).get("needs_clarification"):
+            (extracted_entities or {}).get("_needs_clarification_from_entities"):
 
         entities = (extracted_entities or {}).get("entities", [])
         entity_column = (extracted_entities or {}).get("entity_column", "Entity")
