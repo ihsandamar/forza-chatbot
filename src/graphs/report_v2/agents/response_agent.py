@@ -188,25 +188,12 @@ def _make_build_response_node(response_generator=None):
             logger.info("[RESPONSE_AGENT] [TEMPLATE] No-records response")
             return {"final_response": response_text}
 
-        # Viz artifact with HTML — embed as iframe
+        # Extract plotly HTML once for use at the end
         plotly_html = viz_artifact.get("plotly_html_snippet") if viz_artifact else None
-        if plotly_html:
-            html_full = (
-                "<!DOCTYPE html>\n"
-                "<html><head><meta charset=\"UTF-8\"></head>\n"
-                f"<body style=\"margin:0\">{plotly_html}</body></html>"
-            )
-            html_b64 = base64.b64encode(
-                html_full.encode("utf-8")
-            ).decode("ascii")
-            iframe = (
-                f'<iframe src="data:text/html;charset=utf-8;base64,{html_b64}" '
-                'width="100%" height="500" frameborder="0"></iframe>'
-            )
-            logger.info("[RESPONSE_AGENT] [TEMPLATE] Visualization response (iframe)")
-            return {"final_response": f"Grafik:\n{iframe}"}
 
-        # Data results
+        # Build main content first (data results + business insights)
+        response_parts = []
+
         if results:
             parts = [f"**Sonuclar** ({len(results)} kayit):\n"]
             for i, row in enumerate(results[:50], 1):
@@ -232,12 +219,32 @@ def _make_build_response_node(response_generator=None):
                     for follow_up in follow_ups[:2]:
                         parts.append(f"- {follow_up}")
 
+            response_parts.append("\n".join(parts))
             logger.info(f"[RESPONSE_AGENT] [TEMPLATE] Data response ({len(results)} rows)")
-            return {"final_response": "\n".join(parts)}
 
-        # Empty / nothing to show
-        logger.warning("[RESPONSE_AGENT] [TEMPLATE] No content found, returning fallback")
-        return {"final_response": "Sonuc bulunamadi."}
+        response_text = "\n\n".join(response_parts) if response_parts else "Sonuc bulunamadi."
+
+        if not response_parts:
+            logger.warning("[RESPONSE_AGENT] [TEMPLATE] No content found, returning fallback")
+
+        # Append viz iframe at the END — never replace content with only the iframe
+        if plotly_html:
+            html_full = (
+                "<!DOCTYPE html>\n"
+                "<html><head><meta charset=\"UTF-8\"></head>\n"
+                f"<body style=\"margin:0\">{plotly_html}</body></html>"
+            )
+            html_b64 = base64.b64encode(
+                html_full.encode("utf-8")
+            ).decode("ascii")
+            iframe = (
+                f'<iframe src="data:text/html;charset=utf-8;base64,{html_b64}" '
+                'width="100%" height="500" frameborder="0"></iframe>'
+            )
+            response_text = f"{response_text}\n\n**Grafik:**\n{iframe}"
+            logger.info("[RESPONSE_AGENT] [TEMPLATE] Appended visualization iframe")
+
+        return {"final_response": response_text}
 
     return build_response_node
 
