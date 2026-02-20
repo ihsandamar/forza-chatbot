@@ -474,8 +474,8 @@ def build_report_graph(
     logger.info("[REPORT] Adding edges...")
 
     # START → immediate_ack → classify_intent
-    graph.add_edge(START, "immediate_ack")
-    graph.add_edge("immediate_ack", "classify_intent")
+    graph.add_edge(START, "classify_intent")
+    # graph.add_edge("immediate_ack", "classify_intent")
 
     # classify_intent → conditional routing (LLM-based smart router)
     if enable_hitl:

@@ -429,15 +429,22 @@ Context: {context_info}
 
 ÖNEMLI:
 - "bu şubeler", "onlar", "bunları" → önceki sonuçlara referans
+- "ile karşılaştır", "ile kıyasla", "vs", "karşılaştır", "kıyasla" + önceki context var → önceki sorguya YENİ ENTITY EKLE (referans)
+- "Peki X ile karşılaştır" → önceki sorgu + X ekle (referans)
+- "X vs Y" (context yok) → YENİ sorgu, referans DEĞİL
 - "bu ay", "bu yıl" → zaman referansı, önceki sonuç DEĞİL
 - "en çok satan" → YENİ sorgu, referans DEĞİL
+
+KRİTİK: Karşılaştırma ifadeleri ("ile karşılaştır", "vs", "kıyasla") ÖNCEKİ CONTEXT VARSA follow-up olarak algılanmalı!
+- "Peki içecekler ile karşılaştır" (önceki sorgu: aylık dürümler) → REFERANS VAR (önceki query + içecekler ekle)
+- "İstanbul vs Ankara" (context yok) → REFERANS YOK (yeni sorgu)
 
 JSON döndür (sadece JSON):
 {{
     "has_reference": true,
     "reference_type": "previous_results",
     "confidence": 0.9,
-    "reasoning": "Kullanıcı 'bu şubeler' diyerek önceki sorguya atıfta bulunuyor"
+    "reasoning": "Kullanıcı 'ile karşılaştır' diyerek önceki sorguya yeni entity eklemek istiyor"
 }}
 
 reference_type seçenekleri:
@@ -549,6 +556,8 @@ async def _analyze_query_with_context(
         prev_query = last_conv.get("query", "")
         prev_type = last_conv.get("query_type", "")
         prev_results = last_conv.get("results", [])
+        prev_filters = last_conv.get("filters", [])
+        prev_grouping = last_conv.get("grouping", [])
 
         # Extract entities from previous results
         prev_entities = []
@@ -556,128 +565,138 @@ async def _analyze_query_with_context(
             first_key = list(prev_results[0].keys())[0]
             prev_entities = [r.get(first_key) for r in prev_results[:5]]
 
+        # Build context with filters and grouping info
+        filter_info = ""
+        if prev_filters:
+            filter_info = f"\nÖnceki Filtreler: {prev_filters}"
+
+        grouping_info = ""
+        if prev_grouping:
+            grouping_info = f"\nÖnceki Gruplama (GROUP BY): {prev_grouping}"
+
         previous_context = f"""
 Önceki Sorgu: "{prev_query}"
 Query Type: {prev_type}
-Sonuçlar: {prev_entities}
+Sonuçlar: {prev_entities}{filter_info}{grouping_info}
 Kullanıcı bu sonuçlara referans veriyor.
+
+⚠️ KRİTİK: KARŞILAŞTIRMA FOLLOW-UP için:
+- Eğer kullanıcı "X ile karşılaştır", "vs", "kıyasla" diyorsa
+- Ve önceki sorguda GRUPLAMA (GROUP BY) varsa
+- YENİ sorgu da AYNI GRUPLAMA ile yapılmalı!
+- Örnek: Önceki → "aylık dürümler" (GROUP BY YEAR, MONTH)
+          Yeni → "içecekler ile karşılaştır"
+          Sonuç → "aylık dürümler vs içecekler" (GROUP BY YEAR, MONTH KORUNMALI!)
 """
         context_parts.append(f"Önceki sorgu: {prev_type}")
 
     # 3. LLM prompt for query type classification
-    prompt = f"""Kullanıcının sorgu türünü tespit et.
+    prompt = f"""
+    Görev: Kullanıcının sorgu intent'ini tek bir query_type ile sınıflandır.
 
-Soru: {user_message}
-Context: {' | '.join(context_parts) if context_parts else 'Yok'}
-Referans: {'EVET - önceki sonuçları kullanmalı' if is_followup else 'YOK'}
+    INPUT
+    Soru: {user_message}
+    Context: {' | '.join(context_parts) if context_parts else 'Yok'}
+    Referans Durumu: {'Follow-up (önceki sonuçları kullanmalı)' if is_followup else 'Bağımsız'}
 
-{previous_context if is_followup else ''}
+    {previous_context if is_followup else ''}
 
-⚠️ KRİTİK: ZAMAN FİLTRESİ ≠ ZAMAN GRANULARİTY
-- "Son 1 yılda A vs B" → comparison (sadece zaman filtresi)
-- "A ve B'nin aylık karşılaştırması" → time_series_comparison (zaman granularity)
+    TEMEL AYRIMLAR
 
-Query Types:
+    1) ZAMAN FİLTRESİ ≠ ZAMAN GRANULARITY
+    - Zaman filtresi: "son 1 yıl", "2024'te", "geçen ay"
+    - Zaman granularity: "aylık", "günlük", "haftalık", "ay ay", "gün gün", "aylara göre"
 
-1. **single_value** - TEK bir toplam/ortalama/sayı değeri
-   ⚠️ KRİTİK İŞARETLER:
-   - "Toplam", "Toplamı", "Toplam ne", "Toplam kaç"
-   - "Ortalama", "Ortalaması"
-   - "Kaç tane", "Ne kadar", "Miktar"
-   - "Maksimum", "Minimum", "En yüksek değer", "En düşük değer" (TEK DEĞER isteniyorsa)
-   - GRUPLAMA YOK, SIRALAMA YOK, sadece TEK SAYISAL SONUÇ
+    Zaman filtresi tek başına time_series değildir.
+    Granularity varsa zaman serisi vardır.
 
-   ✅ DOĞRU ÖRNEKLER:
-   - "Toplam ciro nedir?" → single_value (tek değer: 1.250.000 TL)
-   - "Toplam ciro" → single_value
-   - "Ortalama sipariş tutarı" → single_value
-   - "Kaç müşterimiz var?" → single_value
-   - "Ne kadar satış yaptık?" → single_value (toplam satış)
-   - "Toplam kaç sipariş var?" → single_value
+    QUERY TYPES (yalnızca biri seçilecek)
 
-   ❌ YANLIŞ:
-   - "En çok ciro yapan 10 şube" → ranking (sıralama var!)
-   - "Kategorilere göre toplam" → aggregation (gruplama var!)
+    1. single_value
+    Tanım: Tek sayısal sonuç. Gruplama ve sıralama yok.
+    İndikatörler: toplam, ortalama, kaç, ne kadar, miktar, maksimum, minimum
+    Örnek:
+    - "Toplam ciro nedir?"
+    - "Kaç sipariş var?"
+    Karar Kuralı:
+    - Tek metrik
+    - Grup yok
+    - Top-N yok
 
-2. **ranking** - Top-N sıralama (en yüksek/düşük değerler)
-   ⚠️ KRİTİK İŞARETLER:
-   - "En çok", "En az", "En yüksek", "En düşük"
-   - "Top", "İlk", "Son"
-   - Sayı belirtimi: "10 ürün", "5 şube"
+    2. ranking
+    Tanım: Top-N sıralama.
+    İndikatörler: en çok, en az, top, ilk, son, N adet
+    Örnek:
+    - "En çok satan 10 ürün"
+    Karar Kuralı:
+    - Sıralama var
+    - Genelde sayı belirtilmiş
 
-   ✅ ÖRNEKLER:
-   - "En çok satan 10 ürün" → ranking
-   - "En az ciro yapan 5 şube" → ranking
-   - "Top 3 kategori" → ranking
+    3. comparison
+    Tanım: 2+ entity karşılaştırması, tek zaman noktası/dönem.
+    Zaman filtresi olabilir.
+    Granularity olmamalı.
+    Örnek:
+    - "İstanbul vs Ankara"
+    - "Son 1 yılda A ve B karşılaştırması"
+    Karar Kuralı:
+    - 2+ entity
+    - Granularity yok
 
-3. **comparison** - Karşılaştırma (2+ entity)
-   ⚠️ ÖNEMLİ: TEK bir zaman noktası veya dönem için karşılaştırma
-   ⚠️ ZAMAN GRANULARİTY ifadesi YOKSA → comparison
-   ⚠️ Zaman FİLTRESİ olabilir ama zaman GRANULARİTY (aylık, günlük) OLMAMALI
+    4. time_series
+    Tanım: Tek entity'nin zaman içindeki değişimi.
+    Granularity olabilir.
+    Örnek:
+    - "Son 6 aydaki satışlar"
+    Karar Kuralı:
+    - 1 entity
+    - Zaman boyutu var
 
-   ✅ ÖRNEKLER:
-   - "İstanbul vs Ankara" → comparison
-   - "İstanbul ile Ankara satışları" → comparison (zaman granularity yok)
-   - "Son 1 yılda dürümler ve içecekler karşılaştırması" → comparison (zaman filtresi var ama granularity yok!)
-   - "2024'te A ve B karşılaştırması" → comparison (zaman filtresi var ama aylık/günlük gibi granularity yok)
+    5. time_series_comparison
+    Tanım: 2+ entity + zaman granularity.
+    Güçlü İndikatörler:
+    - aylık bazda, ay ay, günlük, haftalık, aylara göre, günlere göre
+    Örnek:
+    - "X ve Y'nin aylık satışları"
+    Karar Kuralı:
+    - 2+ entity
+    - Granularity açıkça belirtilmiş
 
-4. **time_series** - Zaman serisi
-   ⚠️ TEK entity'nin zaman içindeki değişimi
+    6. aggregation
+    Tanım: Gruplama.
+    İndikatör: "göre"
+    Örnek:
+    - "Kategorilere göre toplam ciro"
+    Karar Kuralı:
+    - Grup var
+    - Top-N değil
 
-   ✅ ÖRNEKLER:
-   - "Son 6 aydaki satışlar" → time_series (tek entity)
 
-5. **time_series_comparison** - Çoklu zaman serisi
-   ⚠️ KRİTİK: BİRDEN FAZLA entity + ZAMAN GRANULARİTY → time_series_comparison
-   ⚠️ ZAMAN FİLTRESİ vs ZAMAN GRANULARİTY FARKI:
-      - "Son 1 yılda A vs B" → comparison (zaman filtresi, granularity YOK!)
-      - "A ve B'nin aylık karşılaştırması" → time_series_comparison (zaman granularity VAR!)
-   ⚠️ STRONG INDICATORS: "aylık bazda", "günlük", "ay ay", "haftalık", "her ay",
-      "aylara göre", "günlere göre", "ay bazında", "gün bazında", "hafta bazında"
-      + karşılaştırma ifadeleri ("ile kıyasla", "karşılaştır", "vs")
+    KRİTİK ÖNCELİK SIRASI (çakışma durumunda)
+    1. ranking
+    2. time_series_comparison
+    3. time_series
+    4. comparison
+    5. aggregation
+    6. single_value
 
-   ✅ ÖRNEKLER:
-   - "X ve Y'nin aylık satışları" → time_series_comparison (2 entity + aylık)
-   - "Bu iki kategoriyi aylık bazda karşılaştır" → time_series_comparison
-   - "A ve B'nin son 6 aydaki AY AY karşılaştırması" → time_series_comparison
 
-   ❌ YANLIŞ:
-   - "Son 1 yılda dürümler vs içecekler" → time_series_comparison DEĞİL! comparison (zaman filtresi var ama granularity yok)
+    BELİRSİZLİK
+    Eğer intent net değilse:
+    - confidence < 0.65
+    - needs_clarification = true
 
-6. **aggregation** - Gruplama
+    ÇIKTI
+    Sadece JSON döndür:
 
-   ✅ ÖRNEKLER:
-   - "Kategorilere göre toplam" → aggregation
+    {{
+        "query_type": "comparison",
+        "confidence": 0.87,
+        "needs_clarification": false,
+        "reasoning": "2 entity var, zaman filtresi var ancak granularity yok."
+    }}
+    """
 
-7. **distribution** - Dağılım
-
-   ✅ ÖRNEKLER:
-   - "Satışların dağılımı" → distribution
-
-8. **trend** - Trend analizi
-
-   ✅ ÖRNEKLER:
-   - "Satışlar artıyor mu?" → trend
-
-KRİTİK KURAL - single_value vs ranking vs aggregation:
-- "Toplam X" (GRUPLAMA YOK) → single_value ✅
-- "En çok X yapan 10 Y" → ranking ✅
-- "Y'lere göre X toplam" → aggregation ✅
-
-KRİTİK KURAL - ZAMAN GRANULARİTY TESPİTİ:
-- Kullanıcı "aylık", "günlük", "haftalık", "yıllık", "ay ay", "gün gün" gibi
-  ifadeler kullandıysa VE 2+ entity karşılaştırıyorsa
-  → query_type MUTLAKA "time_series_comparison" OLMALI!
-
-JSON döndür (sadece JSON):
-{{
-    "query_type": "ranking",
-    "confidence": 0.9,
-    "needs_clarification": false,
-    "reasoning": "Kullanıcı top-N sıralama istiyor"
-}}
-
-ÖNEMLI: Eğer sorgu belirsizse (confidence < 0.65), needs_clarification: true yap."""
 
     try:
         response = await llm.ainvoke(prompt)
@@ -1184,6 +1203,8 @@ def create_intent_classifier_node(llm: BaseChatModel, enable_fast_path: bool = T
         should_ask_user = query_analysis.get("needs_clarification", False)
 
         # Classification bilgisini state'e kaydet
+        # Note: reference_context.is_followup will be used in extract_query_node
+        # to preserve grouping and filters for comparison follow-ups
         return {
             "user_query": user_message,
             "_intent_type": classification.intent_type.value,
@@ -1891,6 +1912,43 @@ NOT: Entity isimlerini yukarıdaki listeden kullan, başka entity ekleme!
 
     if conversation_context:
         logger.info(f"[REPORT] [CONTEXT] Built conversation context: {list(conversation_context.keys())}")
+
+    # =========================================================================
+    # CRITICAL: COMPARISON FOLLOW-UP DETECTION
+    # =========================================================================
+    # If this is a follow-up (comparison like "ile karşılaştır") and there's
+    # active context with grouping/filters, we MUST preserve them
+    conversation_history = state.get("conversation_history", [])
+    if is_followup and conversation_history and active_context:
+        last_conv = conversation_history[-1]
+        prev_grouping = last_conv.get("grouping", [])
+        prev_filters = last_conv.get("filters", [])
+
+        # Check if user message contains comparison keywords
+        user_lower = user_query.lower()
+        comparison_keywords = ["karşılaştır", "kıyasla", " vs ", "ile karşılaştır", "ile kıyasla"]
+        is_comparison_followup = any(kw in user_lower for kw in comparison_keywords)
+
+        if is_comparison_followup and (prev_grouping or prev_filters):
+            logger.info(f"[REPORT] [COMPARISON_FOLLOWUP] Detected comparison follow-up!")
+            logger.info(f"[REPORT] [COMPARISON_FOLLOWUP] Preserving: {prev_grouping} grouping, {len(prev_filters)} filters")
+
+            # Add hints to the query to preserve grouping
+            grouping_hint = ""
+            if prev_grouping:
+                grouping_cols = ", ".join(prev_grouping)
+                grouping_hint = f"\n\n⚠️ KRİTİK: Önceki sorgu '{grouping_cols}' ile gruplanmıştı. YENİ sorgu da AYNI GRUPLAMA ile yapılmalı (GROUP BY {grouping_cols})!"
+
+            filter_hint = ""
+            if prev_filters:
+                # Extract time filters
+                time_filters = [f for f in prev_filters if "DocumentDate" in f.get("column", "")]
+                if time_filters:
+                    filter_hint = f"\n\n⚠️ Önceki zaman filtresi korunmalı: {time_filters}"
+
+            if grouping_hint or filter_hint:
+                user_query = f"{user_query}{grouping_hint}{filter_hint}"
+                logger.info(f"[REPORT] [COMPARISON_FOLLOWUP] Enhanced query with preservation hints")
 
     # Phase 1: Determine execution mode
     current_intent = state.get("_intent_type", "new_query")

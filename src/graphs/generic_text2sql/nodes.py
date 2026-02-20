@@ -532,6 +532,38 @@ async def sql_query_builder_node(state: GenericText2SQLState) -> GenericText2SQL
 
         resolved_steps = state["resolved_steps"]
 
+        # ✅ FIX: Inject previous filters from conversation_context
+        conversation_context = state.get("conversation_context", {})
+        previous_filters = conversation_context.get("previous_filters", [])
+
+        if previous_filters:
+            logger.info(f"[SQL_BUILDER] Found {len(previous_filters)} previous filters, injecting into resolved_steps")
+
+            # Add previous filters to first step's filters (if not already present)
+            if len(resolved_steps) > 0:
+                step_filters = resolved_steps[0].get("filters", [])
+
+                # Get existing filter columns to avoid duplicates
+                existing_columns = {f.get("field_hint") for f in step_filters if f.get("field_hint")}
+
+                # Inject missing previous filters
+                for prev_filter in previous_filters:
+                    column = prev_filter.get("column")
+                    if column and column not in existing_columns:
+                        # Add as resolved filter
+                        new_filter = {
+                            "field_hint": column,
+                            "operator": prev_filter.get("operator", "="),
+                            "value_hint": prev_filter.get("value"),
+                            "resolved_value": prev_filter.get("value"),  # Already resolved
+                            "resolution_confidence": 100,
+                            "_source": "previous_context"  # Mark source
+                        }
+                        step_filters.append(new_filter)
+                        logger.info(f"[SQL_BUILDER] Injected previous filter: {column} {prev_filter.get('operator')} {prev_filter.get('value')}")
+
+                resolved_steps[0]["filters"] = step_filters
+
         # Prepare resolved steps JSON for prompt
         steps_json = json.dumps(resolved_steps, indent=2, ensure_ascii=False)
 
