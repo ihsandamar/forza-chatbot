@@ -16,6 +16,11 @@ class ReportAgentConfiguration(BaseModel):
         description="Sorgunun uygulanacağı tablo adı",
     )
 
+    query: str = Field(
+        default="",
+        description="Tabloyu oluşturan SQL scripti (GO ile ayrılmış batch'ler desteklenir)",
+    )
+
     column_metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Kolon metaverileri — {kolon_adı: açıklama} formatında",

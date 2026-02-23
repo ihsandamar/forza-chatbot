@@ -334,3 +334,118 @@ def create_sql_executor_node(connection_string: str) -> Callable:
                 }
 
     return sql_executor_node
+
+
+# =============================================================================
+# NODE 0: CREATE TABLE  (graph START'tan önce)
+# =============================================================================
+
+def _execute_script_sync(connection_string: str, sql_script: str) -> None:
+    """
+    Multi-statement SQL scriptini senkron çalıştır.
+    GO ile ayrılmış batch'leri sırayla execute eder.
+    ValueResolverService ile aynı DSN parse mantığını kullanır.
+    """
+    from urllib.parse import urlparse, parse_qs
+
+    if connection_string.startswith("mssql+pyodbc://"):
+        parsed = urlparse(connection_string)
+        query_params = parse_qs(parsed.query)
+        driver = query_params.get("driver", ["ODBC Driver 17 for SQL Server"])[0]
+        server = parsed.hostname
+        if parsed.port:
+            server = f"{server},{parsed.port}"
+        pyodbc_conn_str = (
+            f"Driver={{{driver}}};"
+            f"Server={server};"
+            f"Database={parsed.path.lstrip('/')};"
+            f"UID={parsed.username};"
+            f"PWD={parsed.password};"
+            f"Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30"
+        )
+    else:
+        pyodbc_conn_str = connection_string
+
+    conn = pyodbc.connect(pyodbc_conn_str, autocommit=False)
+    cursor = conn.cursor()
+    try:
+        batches = [b.strip() for b in sql_script.split("GO") if b.strip()]
+        if not batches:
+            batches = [sql_script]
+        for batch in batches:
+            cleaned = "\n".join(
+                line for line in batch.splitlines()
+                if line.strip() and not line.strip().startswith("--")
+            )
+            if cleaned:
+                cursor.execute(cleaned)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def create_create_table_node(connection_string: str, default_table_name: str) -> Callable:
+    """
+    Pure Python: runtime config'ten query oku, tabloyu oluştur.
+    query boşsa node'u geç (no-op).
+    """
+
+    async def create_table_node(state: dict, *, config: RunnableConfig = None) -> dict:
+        query = _get_configurable(config, "query", "")
+        if not query or not query.strip():
+            logger.info("[CREATE_TABLE] No query in config, skipping table creation")
+            return {}
+
+        table_name = _get_configurable(config, "table_name", default_table_name)
+        logger.info(f"[CREATE_TABLE] Creating table '{table_name}' ({len(query)} chars)")
+
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(_db_executor, _execute_script_sync, connection_string, query)
+            logger.info(f"[CREATE_TABLE] '{table_name}' created successfully")
+        except Exception as e:
+            logger.error(f"[CREATE_TABLE] Error: {e}")
+            return {"error": f"Tablo oluşturulamadı: {e}"}
+
+        return {}
+
+    return create_table_node
+
+
+# =============================================================================
+# NODE 6: CLEANUP TABLE  (graph END'den önce)
+# =============================================================================
+
+def create_cleanup_table_node(connection_string: str, default_table_name: str) -> Callable:
+    """
+    Pure Python: tabloyu DROP et.
+    query config'te yoksa no-op.
+    """
+
+    async def cleanup_table_node(state: dict, *, config: RunnableConfig = None) -> dict:
+        query = _get_configurable(config, "query", "")
+        if not query or not query.strip():
+            logger.info("[CLEANUP_TABLE] No query in config, skipping cleanup")
+            return {}
+
+        table_name = _get_configurable(config, "table_name", default_table_name)
+        drop_sql = f"DROP TABLE IF EXISTS [{table_name}];"
+        logger.info(f"[CLEANUP_TABLE] Dropping '{table_name}'")
+
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(
+                _db_executor, _execute_script_sync, connection_string, drop_sql
+            )
+            logger.info(f"[CLEANUP_TABLE] '{table_name}' dropped")
+        except Exception as e:
+            logger.warning(f"[CLEANUP_TABLE] Drop failed (may not exist): {e}")
+            # Hata state'e yazılmaz — cleanup başarısız olsa da akış devam eder
+
+        return {}
+
+    return cleanup_table_node
