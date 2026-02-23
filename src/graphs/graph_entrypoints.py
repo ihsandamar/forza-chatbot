@@ -183,7 +183,7 @@ def report_agent_graph():
     chroma_persist_dir = str(project_root / "data" / "vector_store")
 
     return build_report_agent_graph(
-        llm=llm,
+        llm=llm.get_chat(),
         table_name="MasterReportDocumentTable",
         column_metadata={},
         connection_string=config.database.uri,
