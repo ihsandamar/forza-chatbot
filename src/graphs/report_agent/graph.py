@@ -13,6 +13,7 @@ from typing import Any, Dict
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from src.graphs.report_agent.configuration import ReportAgentConfiguration
 from src.graphs.report_agent.nodes import (
     build_response_node,
     create_classify_intent_node,
@@ -55,7 +56,7 @@ def build_report_agent_graph(
     )
     visualization = build_visualization_graph(llm)
 
-    graph = StateGraph(ReportState)
+    graph = StateGraph(ReportState, config_schema=ReportAgentConfiguration)
 
     graph.add_node("classify_intent", create_classify_intent_node(llm))
     graph.add_node("modify_sql", create_modify_sql_node(llm, column_metadata))

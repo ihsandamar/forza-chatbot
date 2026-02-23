@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import pyodbc
+from langchain_core.runnables import RunnableConfig
 
 from src.graphs.report_agent.subagents.text2sql.prompts import (
     FixedSQL,
@@ -32,6 +33,23 @@ logger = logging.getLogger(__name__)
 
 _db_executor = ThreadPoolExecutor(max_workers=3)
 MAX_RETRY = 2
+
+
+def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
+    """RunnableConfig'ten değer oku; yoksa fallback döndür."""
+    if not config:
+        return fallback
+    configurable = config.get("configurable", {})
+    if hasattr(configurable, key):
+        val = getattr(configurable, key)
+    elif isinstance(configurable, dict):
+        val = configurable.get(key)
+    else:
+        return fallback
+    # Boş dict/string/None → fallback
+    if val is None or val == "" or val == {}:
+        return fallback
+    return val
 
 
 # =============================================================================
@@ -71,14 +89,18 @@ def create_sql_planner_node(llm, column_metadata: Dict[str, Any]) -> Callable:
     LLM: user_query + query_type → QueryPlan.
 
     Single Responsibility: Kullanıcı niyetini yapısal sorgu planına çevirmek.
+    column_metadata: build-time default; runtime config varsa override edilir.
     """
     structured_llm = llm.with_structured_output(QueryPlan)
 
-    async def sql_planner_node(state: dict) -> dict:
+    async def sql_planner_node(state: dict, *, config: RunnableConfig = None) -> dict:
         user_query = state.get("user_query", "")
         query_type = state.get("query_type", "SINGLE")
         active_sql = state.get("active_sql")
         active_filters = state.get("active_filters") or []
+
+        # Runtime config varsa column_metadata override et
+        effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
 
         conversation_context = "Yeni sorgu, önceki bağlam yok."
         if active_sql:
@@ -90,7 +112,7 @@ def create_sql_planner_node(llm, column_metadata: Dict[str, Any]) -> Callable:
         prompt = QUERY_PLANNER_PROMPT.format(
             user_query=user_query,
             query_type=query_type,
-            column_metadata=json.dumps(column_metadata, ensure_ascii=False, indent=2),
+            column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
             conversation_context=conversation_context,
         )
 
@@ -215,24 +237,29 @@ def create_sql_builder_node(
     LLM: QueryPlan (resolved) + business_rules + column_metadata → T-SQL.
 
     Single Responsibility: Geçerli T-SQL üretmek.
+    table_name ve column_metadata: build-time default; runtime config varsa override edilir.
     Retry durumunda sql_error'ı alarak hatayı düzeltir.
     """
     structured_llm = llm.with_structured_output(GeneratedSQL)
 
-    async def sql_builder_node(state: dict) -> dict:
+    async def sql_builder_node(state: dict, *, config: RunnableConfig = None) -> dict:
         query_plan = state.get("query_plan", {})
         business_rules_context = state.get("business_rules_context") or "Uygulanacak rule yok."
         sql_error = state.get("sql_error") or ""
 
+        # Runtime config varsa override et
+        effective_table = _get_configurable(config, "table_name", table_name)
+        effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
+
         prompt = SQL_BUILDER_PROMPT.format(
-            table_name=table_name,
-            column_metadata=json.dumps(column_metadata, ensure_ascii=False, indent=2),
+            table_name=effective_table,
+            column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
             query_plan=json.dumps(query_plan, ensure_ascii=False, indent=2),
             business_rules_context=business_rules_context,
             sql_error=sql_error if sql_error else "Yok",
         )
 
-        logger.info(f"[SQL_BUILDER] Building SQL for table={table_name}"
+        logger.info(f"[SQL_BUILDER] Building SQL for table={effective_table}"
                     + (f" (retry, error={sql_error[:80]})" if sql_error else ""))
         generated: GeneratedSQL = await structured_llm.ainvoke(prompt)
         logger.info(f"[SQL_BUILDER] SQL: {generated.sql[:150]}")
