@@ -10,7 +10,7 @@ class Text2SQLState(TypedDict, total=False):
         sql_queries, results, error, active_results
 
     Internal keys (sadece bu subgraph içinde kullanılır):
-        query_plan, business_rules_context, retry_count, sql_error
+        query_schema, business_rules_context, retry_count, sql_error
     """
 
     # --- ReportState overlapping ---
@@ -24,7 +24,7 @@ class Text2SQLState(TypedDict, total=False):
     active_results: Optional[List[Dict[str, Any]]]
 
     # --- Internal ---
-    query_plan: Optional[Dict[str, Any]]       # QueryPlan.model_dump()
-    business_rules_context: Optional[str]      # Merged SQL components (string)
+    query_schema: Optional[Dict[str, Any]]     # QuerySchema.model_dump()
+    business_rules_context: Optional[str]      # LLM için formatlı kural listesi
     retry_count: int                           # 0 | 1 | 2
     sql_error: Optional[str]                   # Son SQL hata mesajı (retry için)
