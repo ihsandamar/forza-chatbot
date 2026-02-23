@@ -1,17 +1,18 @@
 """
-Text2SQL Subagent Graph
+Text2SQL Subagent Graph (v2)
 
-START → create_table → sql_planner → value_resolver → business_rules → sql_builder → sql_executor
-                                                                                ↑              ↓
-                                                                         (retry, max 2) ←──────┘
-                                                                                               ↓
-                                                                                       cleanup_table → END
+START → create_table → business_rules → sql_architect → value_resolver
+        → sql_generator → sql_executor ──────────────────────────────────┐
+                               ↑ (retry, max 2)                           │
+                               └──────────────────────────────────────────┘
+                                                                           ↓
+                                                                    cleanup_table → END
 
 create_table / cleanup_table: runtime config'te query varsa çalışır, yoksa no-op.
-
-Shared State: Text2SQLState (ReportState overlapping keys LangGraph'ın
-              subgraph mekanizması ile parent'a otomatik taşınır)
+sql_architect: TEK LLM çağrısı. Retry'da sql_error bağlamıyla yeniden çağrılır.
+sql_generator: Pure Python. LLM yok.
 """
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict
@@ -24,9 +25,9 @@ from src.graphs.report_agent.subagents.text2sql.nodes import (
     create_business_rules_node,
     create_cleanup_table_node,
     create_create_table_node,
-    create_sql_builder_node,
+    create_sql_architect_node,
     create_sql_executor_node,
-    create_sql_planner_node,
+    create_sql_generator_node,
     create_value_resolver_node,
 )
 from src.graphs.report_agent.subagents.text2sql.state import Text2SQLState
@@ -37,12 +38,13 @@ logger = logging.getLogger(__name__)
 
 def _route_after_executor(state: dict) -> str:
     """
-    Retry routing: sql_error set ve retry < MAX_RETRY ise sql_builder'a dön.
-    Aksi halde cleanup_table'a geç.
+    Retry routing:
+      sql_error set ve retry < MAX_RETRY → sql_architect (LLM yeniden şema üretir)
+      Aksi halde → cleanup_table
     """
     if state.get("sql_error") and state.get("retry_count", 0) <= MAX_RETRY:
-        logger.info(f"[TEXT2SQL] Retry {state['retry_count']}/{MAX_RETRY} → sql_builder")
-        return "sql_builder"
+        logger.info(f"[TEXT2SQL] Retry {state['retry_count']}/{MAX_RETRY} → sql_architect")
+        return "sql_architect"
     return "cleanup_table"
 
 
@@ -58,17 +60,14 @@ def build_text2sql_graph(
     Text2SQL subgraph'ı inşa et.
 
     Args:
-        llm: ChatOpenAI veya uyumlu LLM
-        table_name: Hedef DB tablo adı
-        column_metadata: {kolon_adı: {type, description, ...}}
-        connection_string: pyodbc bağlantı string'i
+        llm:                 ChatOpenAI veya uyumlu LLM
+        table_name:          Default tablo adı (runtime config override edebilir)
+        column_metadata:     {kolon_adı: açıklama} — runtime config override edebilir
+        connection_string:   pyodbc / mssql+pyodbc bağlantı string'i
         business_rules_path: business_rules.json dosya yolu
-        chroma_persist_dir: ChromaDB persist klasörü
-
-    Returns:
-        Compiled StateGraph (Text2SQLState)
+        chroma_persist_dir:  ChromaDB persist klasörü
     """
-    logger.info(f"[TEXT2SQL] Building subgraph for table: {table_name}")
+    logger.info(f"[TEXT2SQL] Building subgraph v2 for table: {table_name}")
 
     # --- Servis başlatma ---
     value_resolver = ValueResolverService(
@@ -82,43 +81,53 @@ def build_text2sql_graph(
     )
     vector_store.initialize_collections()
 
+    # --- Full rules data (sql_generator için) ---
+    try:
+        with open(business_rules_path, "r", encoding="utf-8") as f:
+            rules_json = json.load(f)
+        full_rules_data = rules_json if isinstance(rules_json, list) else rules_json.get("rules", [])
+        logger.info(f"[TEXT2SQL] Loaded {len(full_rules_data)} business rules for sql_generator")
+    except Exception as e:
+        logger.warning(f"[TEXT2SQL] Could not load business rules JSON: {e}")
+        full_rules_data = []
+
     # --- Node factories ---
-    create_table = create_create_table_node(connection_string, table_name)
-    sql_planner = create_sql_planner_node(llm, column_metadata)
+    create_table        = create_create_table_node(connection_string, table_name)
+    business_rules      = create_business_rules_node(vector_store)
+    sql_architect       = create_sql_architect_node(llm, column_metadata)
     value_resolver_node = create_value_resolver_node(value_resolver)
-    business_rules_node = create_business_rules_node(vector_store)
-    sql_builder = create_sql_builder_node(llm, table_name, column_metadata)
-    sql_executor = create_sql_executor_node(connection_string)
-    cleanup_table = create_cleanup_table_node(connection_string, table_name)
+    sql_generator       = create_sql_generator_node(table_name, full_rules_data)
+    sql_executor        = create_sql_executor_node(connection_string)
+    cleanup_table       = create_cleanup_table_node(connection_string, table_name)
 
     # --- Graph ---
     graph = StateGraph(Text2SQLState)
 
-    graph.add_node("create_table", create_table)
-    graph.add_node("sql_planner", sql_planner)
+    graph.add_node("create_table",   create_table)
+    graph.add_node("business_rules", business_rules)
+    graph.add_node("sql_architect",  sql_architect)
     graph.add_node("value_resolver", value_resolver_node)
-    graph.add_node("business_rules", business_rules_node)
-    graph.add_node("sql_builder", sql_builder)
-    graph.add_node("sql_executor", sql_executor)
-    graph.add_node("cleanup_table", cleanup_table)
+    graph.add_node("sql_generator",  sql_generator)
+    graph.add_node("sql_executor",   sql_executor)
+    graph.add_node("cleanup_table",  cleanup_table)
 
-    graph.add_edge(START, "create_table")
-    graph.add_edge("create_table", "sql_planner")
-    graph.add_edge("sql_planner", "value_resolver")
-    graph.add_edge("value_resolver", "business_rules")
-    graph.add_edge("business_rules", "sql_builder")
-    graph.add_edge("sql_builder", "sql_executor")
+    graph.add_edge(START,            "create_table")
+    graph.add_edge("create_table",   "business_rules")
+    graph.add_edge("business_rules", "sql_architect")
+    graph.add_edge("sql_architect",  "value_resolver")
+    graph.add_edge("value_resolver", "sql_generator")
+    graph.add_edge("sql_generator",  "sql_executor")
     graph.add_conditional_edges(
         "sql_executor",
         _route_after_executor,
-        {"sql_builder": "sql_builder", "cleanup_table": "cleanup_table"},
+        {"sql_architect": "sql_architect", "cleanup_table": "cleanup_table"},
     )
-    graph.add_edge("cleanup_table", END)
+    graph.add_edge("cleanup_table",  END)
 
     compiled = graph.compile()
     logger.info(
-        "[TEXT2SQL] Subgraph built: "
-        "create_table → sql_planner → value_resolver → business_rules → "
-        "sql_builder → sql_executor → cleanup_table (max 2 retry)"
+        "[TEXT2SQL] Subgraph v2 built: "
+        "create_table → business_rules → sql_architect → value_resolver "
+        "→ sql_generator → sql_executor → cleanup_table (max 2 retry)"
     )
     return compiled
