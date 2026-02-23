@@ -13,6 +13,7 @@ class IntentClassificationResult(BaseModel):
     intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT"]
     query_type: Literal["SINGLE", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
+    wants_visualization: bool = False           # Kullanıcı açıkça grafik/chart istedi mi?
     use_result_type: Optional[Literal["new_query", "revisualize"]] = None
     modification_action: Optional[str] = None   # "add_filter" | "remove_filter" | "change_limit" | "change_order"
     modification_target: Optional[str] = None   # "şehir", "tarih", "limit"
@@ -72,6 +73,14 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 - RANKING: Sıralama / top-N / en fazla / en az
 - COMPARISON: İki veya daha fazla grubun karşılaştırması
 - TIME_SERIES_COMPARISON: Dönemler arası karşılaştırma (ay/yıl/çeyrek)
+
+**wants_visualization:**
+- True: Kullanıcı açıkça grafik/görsel talep ediyor
+  → "grafik", "chart", "çizgi grafik", "bar", "pasta", "görselleştir", "diyagram", "şekil olarak göster" gibi ifadeler içeriyorsa
+  → use_result_type="revisualize" ise HER ZAMAN True
+  → Hem sorgu hem grafik istiyorsa (ör: "satışları bar chart olarak göster") True
+- False: Sadece veri/tablo istiyor, grafik talep etmiyor (DEFAULT)
+  → "şube satışları nedir?", "top 10 ürün" gibi salt veri sorguları → False
 
 **confidence:** 0.0-1.0 güven skoru.
 - 0.90+: Kesin

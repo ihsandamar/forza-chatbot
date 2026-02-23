@@ -75,6 +75,13 @@ def create_viz_decider_node(llm) -> Callable:
                 needs_graph=False, chart_type="table", reason="Veri yok"
             ).model_dump()}
 
+        # Kullanıcı grafik istemedi → direkt tablo, LLM çağrısı yok
+        if not state.get("wants_visualization", False):
+            logger.info("[VIZ_DECIDER] wants_visualization=False → table (no graph)")
+            return {"viz_decision": VizDecision(
+                needs_graph=False, chart_type="table", reason="Kullanıcı grafik talep etmedi"
+            ).model_dump()}
+
         if len(results) == 1 and data_profile and data_profile.get("column_count", 0) == 1:
             logger.info("[VIZ_DECIDER] Single value → no graph")
             return {"viz_decision": VizDecision(

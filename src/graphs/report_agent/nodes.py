@@ -46,7 +46,10 @@ def create_classify_intent_node(llm) -> Callable:
         )
 
         result: IntentClassificationResult = await structured_llm.ainvoke(prompt)
-        logger.info(f"[CLASSIFY] {result.intent_type}/{result.query_type} conf={result.confidence:.2f}")
+        logger.info(
+            f"[CLASSIFY] {result.intent_type}/{result.query_type} "
+            f"conf={result.confidence:.2f} wants_viz={result.wants_visualization}"
+        )
 
         if result.confidence < CONFIDENCE_THRESHOLD:
             options = ["Yeni sorgu yap"]
@@ -61,10 +64,14 @@ def create_classify_intent_node(llm) -> Callable:
             })
             result = _resolve_intent_from_answer(result, answer)
 
+        # revisualize her zaman görselleştirme talebidir
+        wants_viz = result.wants_visualization or (result.use_result_type == "revisualize")
+
         return {
             "intent_type": result.intent_type,
             "query_type": result.query_type,
             "intent_confidence": result.confidence,
+            "wants_visualization": wants_viz,
             "use_result_type": result.use_result_type,
             "messages": [HumanMessage(content=user_query)],
         }

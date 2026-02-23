@@ -14,6 +14,7 @@ class ReportState(TypedDict):
     intent_type: Optional[str]         # NEW_QUERY | MODIFY_QUERY | USE_RESULT
     query_type: Optional[str]          # SINGLE | RANKING | COMPARISON | TIME_SERIES_COMPARISON
     intent_confidence: Optional[float]
+    wants_visualization: Optional[bool]  # Kullanıcı açıkça grafik istedi mi?
     use_result_type: Optional[str]     # "new_query" | "revisualize"
 
     # Conversation Context (MODIFY ve USE_RESULT için)
@@ -41,6 +42,7 @@ def create_initial_state() -> ReportState:
         intent_type=None,
         query_type=None,
         intent_confidence=None,
+        wants_visualization=None,
         use_result_type=None,
         active_sql=None,
         active_results=None,
