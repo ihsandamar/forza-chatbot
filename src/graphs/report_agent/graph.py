@@ -40,11 +40,19 @@ def build_report_agent_graph(
     llm,
     table_name: str,
     column_metadata: Dict[str, Any],
-    business_rules: Dict[str, Any],
     connection_string: str,
+    business_rules_path: str,
+    chroma_persist_dir: str,
     checkpointer=None,
 ):
-    text2sql = build_text2sql_graph(llm, table_name, column_metadata, business_rules, connection_string)
+    text2sql = build_text2sql_graph(
+        llm,
+        table_name,
+        column_metadata,
+        connection_string,
+        business_rules_path,
+        chroma_persist_dir,
+    )
     visualization = build_visualization_graph(llm)
 
     graph = StateGraph(ReportState)

@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from src.graphs.base_graph import BaseGraph
 from src.graphs.data_visualization.graph import build_visualization_graph
 from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
@@ -7,6 +8,7 @@ from src.graphs.graph_repository import GraphRepository
 from src.graphs.routing.graph import RoutingGraph
 from src.graphs.supervisor.graph import create_supervisor_graph
 from src.graphs.report.graph import build_report_graph
+from src.graphs.report_agent.graph import build_report_agent_graph
 from src.models.llm import LLM
 from src.services.config_loader import ConfigLoader
 
@@ -157,4 +159,34 @@ def report_graph():
         enable_hitl=True,  # Enable Human-in-the-Loop features
         enable_natural_response=False,  # Disable LLM response generation, show data directly
         enable_merged_text2sql=True  # Use merged mode (hybrid optimization)
+    )
+
+
+def report_agent_graph():
+    """
+    Create and return the new report agent graph (report_agent redesign).
+
+    Shared-state subgraph pattern: Text2SQL + Visualization subgraphs share
+    ReportState. Native LangGraph interrupt() for HITL. Max 2 LLM calls/turn.
+    """
+    config = _get_config()
+    llm = LLM(
+        provider=config.llm.provider,
+        model=config.llm.model,
+        temperature=config.llm.temperature,
+        api_key=config.llm.api_key,
+    )
+
+    # Paths relative to project root
+    project_root = Path(__file__).parent.parent.parent
+    business_rules_path = str(project_root / "src" / "graphs" / "generic_text2sql" / "business_rules.json")
+    chroma_persist_dir = str(project_root / "data" / "vector_store")
+
+    return build_report_agent_graph(
+        llm=llm,
+        table_name="MasterReportDocumentTable",
+        column_metadata={},
+        connection_string=config.database.uri,
+        business_rules_path=business_rules_path,
+        chroma_persist_dir=chroma_persist_dir,
     )
