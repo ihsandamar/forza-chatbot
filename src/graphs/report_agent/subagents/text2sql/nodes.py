@@ -1,31 +1,33 @@
 """
-Text2SQL Subagent Nodes
+Text2SQL Subagent Nodes (v2)
 
-5 node:
-    sql_planner          - LLM: user_query → QueryPlan
-    value_resolver       - Pure Python: value_hints → resolved DB değerleri
-    business_rules       - Pure Python: user_query → SQL components (ChromaDB)
-    sql_builder          - LLM: QueryPlan (resolved) + rules → T-SQL
+7 node:
+    create_table         - Pure Python: tablo oluştur (no-op if no query config)
+    business_rules       - Pure Python: ChromaDB semantic search → context + IDs
+    sql_architect        - LLM (TEK ÇAĞRI): user_query → QuerySchema
+    value_resolver       - Pure Python: fuzzy match + interrupt() if low confidence
+    sql_generator        - Pure Python: QuerySchema → T-SQL (NO LLM)
     sql_executor         - Pure Python: SQL çalıştır, hata → retry
+    cleanup_table        - Pure Python: tabloyu drop et (no-op if no query config)
 """
 import asyncio
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import pyodbc
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import interrupt
 
 from src.graphs.report_agent.subagents.text2sql.prompts import (
-    FixedSQL,
-    GeneratedSQL,
-    QueryPlan,
-    SQL_BUILDER_PROMPT,
-    QUERY_PLANNER_PROMPT,
+    QuerySchema,
+    SQL_ARCHITECT_PROMPT,
 )
+from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
 
@@ -81,27 +83,34 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 
 
 # =============================================================================
-# NODE 1: SQL PLANNER
+# NODE 1: SQL ARCHITECT
 # =============================================================================
 
-def create_sql_planner_node(llm, column_metadata: Dict[str, Any]) -> Callable:
+def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
     """
-    LLM: user_query + query_type → QueryPlan.
+    LLM (TEK ÇAĞRI): user_query + column_metadata + date_context + business_rules → QuerySchema.
 
-    Single Responsibility: Kullanıcı niyetini yapısal sorgu planına çevirmek.
-    column_metadata: build-time default; runtime config varsa override edilir.
+    Tarih niyetini DateDescriptor olarak üretir (Python çözer).
+    Business rule ID'lerini applied_rule_ids'e yazar (Python SQL'e ekler).
+    Retry durumunda sql_error'ı alarak şemayı düzeltir.
     """
-    structured_llm = llm.with_structured_output(QueryPlan)
+    structured_llm = llm.with_structured_output(QuerySchema)
 
-    async def sql_planner_node(state: dict, *, config: RunnableConfig = None) -> dict:
+    async def sql_architect_node(state: dict, *, config: RunnableConfig = None) -> dict:
         user_query = state.get("user_query", "")
         query_type = state.get("query_type", "SINGLE")
+        business_rules_context = state.get("business_rules_context") or "Uygulanacak kural bulunamadı."
         active_sql = state.get("active_sql")
         active_filters = state.get("active_filters") or []
+        sql_error = state.get("sql_error") or "Yok"
 
-        # Runtime config varsa column_metadata override et
+        # Runtime config'ten column_metadata override
         effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
 
+        # Tarih bağlamı
+        today = date.today()
+
+        # Konuşma bağlamı
         conversation_context = "Yeni sorgu, önceki bağlam yok."
         if active_sql:
             conversation_context = f"Önceki SQL: {active_sql[:300]}"
@@ -109,22 +118,32 @@ def create_sql_planner_node(llm, column_metadata: Dict[str, Any]) -> Callable:
                 filters_str = json.dumps(active_filters[:3], ensure_ascii=False)
                 conversation_context += f"\nAktif filtreler: {filters_str}"
 
-        prompt = QUERY_PLANNER_PROMPT.format(
+        prompt = SQL_ARCHITECT_PROMPT.format(
             user_query=user_query,
             query_type=query_type,
+            today_date=today.isoformat(),
+            current_year=today.year,
+            current_month=today.month,
+            current_quarter=(today.month - 1) // 3 + 1,
             column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
+            business_rules_context=business_rules_context,
             conversation_context=conversation_context,
+            sql_error=sql_error,
         )
 
-        logger.info(f"[SQL_PLANNER] Planning: {user_query[:80]} (type={query_type})")
-        plan: QueryPlan = await structured_llm.ainvoke(prompt)
+        logger.info(f"[SQL_ARCHITECT] Planning: {user_query[:80]} (type={query_type})")
+        schema: QuerySchema = await structured_llm.ainvoke(prompt)
         logger.info(
-            f"[SQL_PLANNER] Plan: filters={len(plan.filters)}, "
-            f"aggs={len(plan.aggregations)}, limit={plan.limit}"
+            f"[SQL_ARCHITECT] Schema: filters={len(schema.filters)}, "
+            f"aggs={len(schema.aggregations)}, group_by={schema.group_by}, "
+            f"limit={schema.limit}, rules={schema.applied_rule_ids}"
         )
-        return {"query_plan": plan.model_dump()}
+        return {
+            "query_schema": schema.model_dump(),
+            "sql_error": None,  # Retry durumunda temizle
+        }
 
-    return sql_planner_node
+    return sql_architect_node
 
 
 # =============================================================================
@@ -133,47 +152,85 @@ def create_sql_planner_node(llm, column_metadata: Dict[str, Any]) -> Callable:
 
 def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable:
     """
-    Pure Python: QueryPlan.filters[].value_hint → resolved_value.
-
-    Single Responsibility: Fuzzy matching ile DB değerlerini bulmak.
+    Pure Python: QuerySchema.filters[].value_hint → resolved_value.
+    Düşük confidence (< 75) → interrupt() ile kullanıcıya sor.
     """
 
     async def value_resolver_node(state: dict) -> dict:
-        query_plan = state.get("query_plan")
-        if not query_plan or not query_plan.get("filters"):
+        raw_schema = state.get("query_schema")
+        if not raw_schema:
             return {}
 
-        filters = query_plan["filters"]
+        filters = raw_schema.get("filters", [])
+        if not filters:
+            return {}
+
         resolved_any = False
 
         for f in filters:
-            field_hint = f.get("field_hint", "")
+            column = f.get("column", "")
             value_hint = f.get("value_hint", "")
 
-            if not value_hint or f.get("resolved_value"):
+            # Atla: değer zaten çözülmüş, tarih, ya da boş
+            if (
+                f.get("resolved_value")
+                or f.get("date_descriptor")
+                or not value_hint
+                or f.get("operator") in ("IS NULL", "IS NOT NULL")
+            ):
                 continue
 
-            # field_hint → DB kolon adı (semantic map kullan)
-            db_column = value_resolver.resolve_column_name(field_hint)
-            if not db_column:
-                logger.debug(f"[VALUE_RESOLVER] No column for field_hint='{field_hint}'")
-                continue
+            # Fuzzy match
+            result = await value_resolver.resolve(value_hint, column)
 
-            result = await value_resolver.resolve(value_hint, db_column)
-            if result and result.get("confidence", 0) >= 75:
-                f["resolved_value"] = result["resolved"]
+            if not result:
+                # Çözülemedi → kullanıcıya sor
+                answer = interrupt({
+                    "type": "input",
+                    "question": f"'{value_hint}' değeri veritabanında bulunamadı. Lütfen tam değeri girin:",
+                })
+                f["resolved_value"] = answer
                 resolved_any = True
-                logger.info(
-                    f"[VALUE_RESOLVER] '{value_hint}' → '{result['resolved']}' "
-                    f"(conf={result['confidence']})"
-                )
+                continue
+
+            confidence = result.get("confidence", 0)
+            candidate = result.get("resolved", "")
+
+            if confidence >= 75:
+                f["resolved_value"] = candidate
+                f["resolution_confidence"] = confidence
+                resolved_any = True
+                logger.info(f"[VALUE_RESOLVER] '{value_hint}' → '{candidate}' (conf={confidence})")
+
+            elif confidence >= 50:
+                # Orta güven → onay iste
+                answer = interrupt({
+                    "type": "confirmation",
+                    "question": f"'{value_hint}' için '{candidate}' mi kastetdiniz?",
+                    "options": ["Evet", "Hayır, farklı bir değer girin"],
+                })
+                if answer == "Evet":
+                    f["resolved_value"] = candidate
+                    resolved_any = True
+                else:
+                    manual = interrupt({
+                        "type": "input",
+                        "question": f"'{value_hint}' için doğru değeri girin:",
+                    })
+                    f["resolved_value"] = manual
+                    resolved_any = True
+
             else:
-                logger.debug(
-                    f"[VALUE_RESOLVER] Low confidence for '{value_hint}' in '{db_column}'"
-                )
+                # Düşük güven → direkt sor
+                answer = interrupt({
+                    "type": "input",
+                    "question": f"'{value_hint}' değeri bulunamadı (en yakın: '{candidate}', %{confidence:.0f}). Lütfen tam değeri girin:",
+                })
+                f["resolved_value"] = answer
+                resolved_any = True
 
         if resolved_any:
-            return {"query_plan": query_plan}
+            return {"query_schema": raw_schema}
         return {}
 
     return value_resolver_node
@@ -185,9 +242,8 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
 
 def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callable:
     """
-    Pure Python: user_query → merged SQL components (ChromaDB semantic search).
-
-    Single Responsibility: Alakalı business rule SQL bileşenlerini bulmak.
+    Pure Python: user_query → business_rules_context (LLM için ID + açıklama formatı).
+    ChromaDB semantic search. sql_architect bu bağlamı okur, rule ID'lerini seçer.
     """
 
     async def business_rules_node(state: dict) -> dict:
@@ -206,9 +262,9 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callab
         merged = result.get("merged_sql", {})
         if not merged:
             logger.info("[BUSINESS_RULES] No relevant rules found")
-            return {"business_rules_context": ""}
+            return {"business_rules_context": "Uygulanacak kural bulunamadı."}
 
-        # Merged SQL components'i prompt-friendly string'e çevir
+        # Yeni format: ID + açıklama + SQL bileşenleri (LLM ID'leri okuyabilsin)
         parts = []
         for component, value in merged.items():
             if value:
@@ -225,55 +281,39 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callab
 
 
 # =============================================================================
-# NODE 4: SQL BUILDER
+# NODE 4: SQL GENERATOR
 # =============================================================================
 
-def create_sql_builder_node(
-    llm,
-    table_name: str,
-    column_metadata: Dict[str, Any],
+def create_sql_generator_node(
+    default_table_name: str,
+    full_rules_data: List[Dict[str, Any]],
 ) -> Callable:
     """
-    LLM: QueryPlan (resolved) + business_rules + column_metadata → T-SQL.
-
-    Single Responsibility: Geçerli T-SQL üretmek.
-    table_name ve column_metadata: build-time default; runtime config varsa override edilir.
-    Retry durumunda sql_error'ı alarak hatayı düzeltir.
+    Pure Python: QuerySchema → T-SQL. LLM kullanmaz.
+    sql_builder.generate_sql'i çağırır.
     """
-    structured_llm = llm.with_structured_output(GeneratedSQL)
 
-    async def sql_builder_node(state: dict, *, config: RunnableConfig = None) -> dict:
-        query_plan = state.get("query_plan", {})
-        business_rules_context = state.get("business_rules_context") or "Uygulanacak rule yok."
-        sql_error = state.get("sql_error") or ""
+    async def sql_generator_node(state: dict, *, config: RunnableConfig = None) -> dict:
+        raw_schema = state.get("query_schema")
+        if not raw_schema:
+            return {"error": "QuerySchema bulunamadı", "results": []}
 
-        # Runtime config varsa override et
-        effective_table = _get_configurable(config, "table_name", table_name)
-        effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
+        table_name = _get_configurable(config, "table_name", default_table_name)
+        today = date.today()
 
-        prompt = SQL_BUILDER_PROMPT.format(
-            table_name=effective_table,
-            column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
-            query_plan=json.dumps(query_plan, ensure_ascii=False, indent=2),
-            business_rules_context=business_rules_context,
-            sql_error=sql_error if sql_error else "Yok",
-        )
+        try:
+            sql = generate_sql(raw_schema, table_name, full_rules_data, today)
+            logger.info(f"[SQL_GENERATOR] SQL ready: {sql[:200]}")
+            return {"sql_queries": [sql]}
+        except Exception as e:
+            logger.error(f"[SQL_GENERATOR] Build error: {e}")
+            return {"error": f"SQL oluşturulamadı: {e}", "results": []}
 
-        logger.info(f"[SQL_BUILDER] Building SQL for table={effective_table}"
-                    + (f" (retry, error={sql_error[:80]})" if sql_error else ""))
-        generated: GeneratedSQL = await structured_llm.ainvoke(prompt)
-        logger.info(f"[SQL_BUILDER] SQL: {generated.sql[:150]}")
-
-        return {
-            "sql_queries": [generated.sql],
-            "sql_error": None,   # Temizle — yeni SQL üretildi
-        }
-
-    return sql_builder_node
+    return sql_generator_node
 
 
 # =============================================================================
-# NODE 5: SQL EXECUTOR
+# NODE 5: SQL EXECUTOR  (değişmez)
 # =============================================================================
 
 def create_sql_executor_node(connection_string: str) -> Callable:
