@@ -76,6 +76,7 @@ def build_text2sql_graph(
         rules_file_path=business_rules_path,
         persist_directory=chroma_persist_dir,
     )
+    vector_store.initialize_collections()
 
     # --- Node factories ---
     sql_planner = create_sql_planner_node(llm, column_metadata)
