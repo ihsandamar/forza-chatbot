@@ -66,12 +66,35 @@ def _serialize_row(columns: List[str], row: Any) -> Dict[str, Any]:
     return record
 
 
+def _parse_connection_string(connection_string: str) -> str:
+    """mssql+pyodbc:// SQLAlchemy URL'sini pyodbc connection string'e çevir."""
+    if not connection_string.startswith("mssql+pyodbc://"):
+        return connection_string
+
+    from urllib.parse import urlparse, parse_qs
+    parsed = urlparse(connection_string)
+    query_params = parse_qs(parsed.query)
+    driver = query_params.get("driver", ["ODBC Driver 17 for SQL Server"])[0]
+    server = parsed.hostname
+    if parsed.port:
+        server = f"{server},{parsed.port}"
+    return (
+        f"Driver={{{driver}}};"
+        f"Server={server};"
+        f"Database={parsed.path.lstrip('/')};"
+        f"UID={parsed.username};"
+        f"PWD={parsed.password};"
+        f"Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30"
+    )
+
+
 async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str, Any]]:
     """SQL'i thread pool'da async çalıştır."""
+    pyodbc_conn_str = _parse_connection_string(connection_string)
     loop = asyncio.get_event_loop()
 
     def _run():
-        conn = pyodbc.connect(connection_string, timeout=30)
+        conn = pyodbc.connect(pyodbc_conn_str, timeout=30)
         cursor = conn.cursor()
         cursor.execute(sql)
         columns = [col[0] for col in cursor.description]
@@ -384,28 +407,8 @@ def _execute_script_sync(connection_string: str, sql_script: str) -> None:
     """
     Multi-statement SQL scriptini senkron çalıştır.
     GO ile ayrılmış batch'leri sırayla execute eder.
-    ValueResolverService ile aynı DSN parse mantığını kullanır.
     """
-    from urllib.parse import urlparse, parse_qs
-
-    if connection_string.startswith("mssql+pyodbc://"):
-        parsed = urlparse(connection_string)
-        query_params = parse_qs(parsed.query)
-        driver = query_params.get("driver", ["ODBC Driver 17 for SQL Server"])[0]
-        server = parsed.hostname
-        if parsed.port:
-            server = f"{server},{parsed.port}"
-        pyodbc_conn_str = (
-            f"Driver={{{driver}}};"
-            f"Server={server};"
-            f"Database={parsed.path.lstrip('/')};"
-            f"UID={parsed.username};"
-            f"PWD={parsed.password};"
-            f"Encrypt=yes;TrustServerCertificate=yes;Connection Timeout=30"
-        )
-    else:
-        pyodbc_conn_str = connection_string
-
+    pyodbc_conn_str = _parse_connection_string(connection_string)
     conn = pyodbc.connect(pyodbc_conn_str, autocommit=False)
     cursor = conn.cursor()
     try:
