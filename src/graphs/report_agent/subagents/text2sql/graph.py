@@ -12,7 +12,6 @@ create_table / cleanup_table: runtime config'te query varsa çalışır, yoksa n
 sql_architect: TEK LLM çağrısı. Retry'da sql_error bağlamıyla yeniden çağrılır.
 sql_generator: Pure Python. LLM yok.
 """
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict
@@ -86,25 +85,12 @@ def build_text2sql_graph(
         logger.info("[TEXT2SQL] ChromaDB collections empty, building index...")
         vector_store.index_rules()
 
-    # --- Full rules data (sql_generator için) ---
-    try:
-        with open(business_rules_path, "r", encoding="utf-8") as f:
-            rules_json = json.load(f)
-        full_rules_data = (
-            rules_json if isinstance(rules_json, list)
-            else rules_json.get("business_logic_rules", rules_json.get("rules", []))
-        )
-        logger.info(f"[TEXT2SQL] Loaded {len(full_rules_data)} business rules for sql_generator")
-    except Exception as e:
-        logger.warning(f"[TEXT2SQL] Could not load business rules JSON: {e}")
-        full_rules_data = []
-
     # --- Node factories ---
     create_table        = create_create_table_node(connection_string, table_name)
     business_rules      = create_business_rules_node(vector_store)
     sql_architect       = create_sql_architect_node(llm, column_metadata)
     value_resolver_node = create_value_resolver_node(value_resolver)
-    sql_generator       = create_sql_generator_node(table_name, full_rules_data)
+    sql_generator       = create_sql_generator_node(table_name)
     sql_executor        = create_sql_executor_node(connection_string)
     cleanup_table       = create_cleanup_table_node(connection_string, table_name)
 

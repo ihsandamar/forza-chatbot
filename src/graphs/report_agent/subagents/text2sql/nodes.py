@@ -299,11 +299,9 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callab
 
 def create_sql_generator_node(
     default_table_name: str,
-    full_rules_data: List[Dict[str, Any]],
 ) -> Callable:
     """
-    Pure Python: QuerySchema → T-SQL. LLM kullanmaz.
-    sql_builder.generate_sql'i çağırır.
+    Pure Python: QuerySchema + state.auto_rules → T-SQL. LLM kullanmaz.
     """
 
     async def sql_generator_node(state: dict, *, config: RunnableConfig = None) -> dict:
@@ -312,10 +310,11 @@ def create_sql_generator_node(
             return {"error": "QuerySchema bulunamadı", "results": []}
 
         table_name = _get_configurable(config, "table_name", default_table_name)
+        auto_rules = state.get("auto_rules") or []
         today = date.today()
 
         try:
-            sql = generate_sql(raw_schema, table_name, full_rules_data, today)
+            sql = generate_sql(raw_schema, table_name, auto_rules, today)
             logger.info(f"[SQL_GENERATOR] SQL ready: {sql[:200]}")
             return {"sql_queries": [sql]}
         except Exception as e:

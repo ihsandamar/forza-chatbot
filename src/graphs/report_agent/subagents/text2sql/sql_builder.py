@@ -232,27 +232,26 @@ def _build_order_by(schema_dict: Dict[str, Any]) -> str:
 def generate_sql(
     schema_dict: Dict[str, Any],
     table_name: str,
-    full_rules_data: List[Dict[str, Any]],
+    auto_rules: List[Dict[str, Any]],
     today: date,
 ) -> str:
     """
-    QuerySchema dict + business rules + bugünün tarihi → T-SQL string.
+    QuerySchema dict + auto_rules + bugünün tarihi → T-SQL string.
 
     Args:
         schema_dict: QuerySchema.model_dump() çıktısı
         table_name:  Hedef tablo adı (runtime config'ten gelir)
-        full_rules_data: business_rules.json'dan yüklenen tam kural listesi
+        auto_rules:  business_rules_node'dan gelen resolved rule listesi (direkt uygulanır)
         today:       Bugünün tarihi (tarih çözme için)
 
     Returns:
         Executable T-SQL string
     """
-    # Uygulanan rule'ların tam verisini çek
-    applied_ids: List[str] = schema_dict.get("applied_rule_ids", [])
-    applied_rules = [r for r in full_rules_data if r.get("id") in applied_ids]
+    # auto_rules direkt applied_rules olarak kullan (ID lookup yok)
+    applied_rules = auto_rules
 
     if applied_rules:
-        logger.info(f"[SQL_GENERATOR] Applying {len(applied_rules)} business rules: {applied_ids}")
+        logger.info(f"[SQL_GENERATOR] Applying {len(applied_rules)} auto rules: {[r.get('id') for r in applied_rules]}")
 
     # TOP N
     limit = schema_dict.get("limit")
