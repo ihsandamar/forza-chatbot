@@ -152,7 +152,7 @@ class BusinessRulesVectorStore:
             "rule_id": rule['id'],
             "description": rule['description'],
             "modules": json.dumps(rule['modules'], ensure_ascii=False),
-            "related_tables": json.dumps(rule['related_tables'], ensure_ascii=False),
+            "related_tables": json.dumps(rule.get('related_tables', []), ensure_ascii=False),
             "is_default": str(rule['is_default']),  # ChromaDB string olarak ister
 
             # SQL components (metadata olarak)

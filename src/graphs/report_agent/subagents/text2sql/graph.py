@@ -81,11 +81,19 @@ def build_text2sql_graph(
     )
     vector_store.initialize_collections()
 
+    # Collections boşsa index'i oluştur (ilk çalışma veya chroma_dir temizlendiyse)
+    if vector_store.rules_collection.count() == 0:
+        logger.info("[TEXT2SQL] ChromaDB collections empty, building index...")
+        vector_store.index_rules()
+
     # --- Full rules data (sql_generator için) ---
     try:
         with open(business_rules_path, "r", encoding="utf-8") as f:
             rules_json = json.load(f)
-        full_rules_data = rules_json if isinstance(rules_json, list) else rules_json.get("rules", [])
+        full_rules_data = (
+            rules_json if isinstance(rules_json, list)
+            else rules_json.get("business_logic_rules", rules_json.get("rules", []))
+        )
         logger.info(f"[TEXT2SQL] Loaded {len(full_rules_data)} business rules for sql_generator")
     except Exception as e:
         logger.warning(f"[TEXT2SQL] Could not load business rules JSON: {e}")
