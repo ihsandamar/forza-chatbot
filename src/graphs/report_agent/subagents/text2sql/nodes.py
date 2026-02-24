@@ -263,6 +263,20 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
 # NODE 3: BUSINESS RULES
 # =============================================================================
 
+def _format_rule_sql_hint(sql: Dict[str, Any]) -> str:
+    """Rule SQL bileşenlerini kısa okunabilir hint'e çevirir."""
+    parts = []
+    if sql.get("aggregation"):
+        parts.append(f"AGG: {sql['aggregation'][:80]}")
+    if sql.get("filter"):
+        parts.append(f"FILTER: {sql['filter']}")
+    if sql.get("group_by"):
+        parts.append(f"GROUP_BY: {sql['group_by']}")
+    if sql.get("having"):
+        parts.append(f"HAVING: {sql['having']}")
+    return " | ".join(parts) if parts else "(SQL bileşeni yok)"
+
+
 def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callable:
     """
     Pure Python: user_query → business_rules_context (LLM için ID + açıklama formatı).
@@ -282,20 +296,24 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callab
             ),
         )
 
-        merged = result.get("merged_sql", {})
-        if not merged:
+        individual_rules = result.get("individual_rules", [])
+        if not individual_rules:
             logger.info("[BUSINESS_RULES] No relevant rules found")
             return {"business_rules_context": "Uygulanacak kural bulunamadı."}
 
-        # Yeni format: ID + açıklama + SQL bileşenleri (LLM ID'leri okuyabilsin)
+        # Individual rules formatı: LLM ID seçebilsin
         parts = []
-        for component, value in merged.items():
-            if value:
-                parts.append(f"{component.upper()}: {value}")
+        for rule in individual_rules:
+            rule_id  = rule.get("id", "?")
+            desc     = rule.get("description", "")
+            is_def   = rule.get("is_default", False)
+            sql_hint = _format_rule_sql_hint(rule.get("sql", {}))
+            tag      = " [VARSAYILAN — HER ZAMAN UYGULA]" if is_def else ""
+            parts.append(f"[{rule_id}]{tag}\n  Açıklama: {desc}\n  SQL: {sql_hint}")
 
-        context = "\n".join(parts)
+        context = "\n\n".join(parts)
         logger.info(
-            f"[BUSINESS_RULES] Found {result['total_count']} rules "
+            f"[BUSINESS_RULES] {result['total_count']} rules "
             f"({result['default_count']} default, {result['semantic_count']} semantic)"
         )
         return {"business_rules_context": context}
