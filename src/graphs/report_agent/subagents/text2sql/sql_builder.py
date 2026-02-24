@@ -161,17 +161,20 @@ def _build_where(
 ) -> str:
     """WHERE cümlesi oluştur. Boş string döner = WHERE yok."""
     conditions: List[tuple[str, str]] = []  # (logical_op, condition)
+    seen_conditions: set = set()            # exact duplicate önleme
 
     for f in filters:
         condition = _resolve_filter(f, today)
-        if condition:
+        if condition and condition not in seen_conditions:
             conditions.append((f.get("logical_operator", "AND"), condition))
+            seen_conditions.add(condition)
 
     # Business rule WHERE bileşenleri
     for rule in applied_rules:
         sql_filter = rule.get("sql", {}).get("filter", "")
-        if sql_filter:
+        if sql_filter and sql_filter not in seen_conditions:
             conditions.append(("AND", sql_filter))
+            seen_conditions.add(sql_filter)
 
     if not conditions:
         return ""
