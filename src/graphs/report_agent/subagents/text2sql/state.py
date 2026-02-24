@@ -10,7 +10,7 @@ class Text2SQLState(TypedDict, total=False):
         sql_queries, results, error, active_results
 
     Internal keys (sadece bu subgraph içinde kullanılır):
-        query_schema, business_rules_context, retry_count, sql_error
+        query_schema, auto_rules, retry_count, sql_error
     """
 
     # --- ReportState overlapping ---
@@ -24,7 +24,8 @@ class Text2SQLState(TypedDict, total=False):
     active_results: Optional[List[Dict[str, Any]]]
 
     # --- Internal ---
-    query_schema: Optional[Dict[str, Any]]     # QuerySchema.model_dump()
-    business_rules_context: Optional[str]      # LLM için formatlı kural listesi
-    retry_count: int                           # 0 | 1 | 2
-    sql_error: Optional[str]                   # Son SQL hata mesajı (retry için)
+    query_schema: Optional[Dict[str, Any]]       # QuerySchema.model_dump()
+    auto_rules:   Optional[List[Dict[str, Any]]] # ChromaDB'den bulunan rules — sql_generator uygular
+    retry_count:  int                            # 0 | 1 | 2
+    sql_error:    Optional[str]                  # Son SQL hata mesajı (retry için)
+    # business_rules_context KALDIRILDI — LLM artık kuralları görmüyor
