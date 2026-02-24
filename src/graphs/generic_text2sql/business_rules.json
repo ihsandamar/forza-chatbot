@@ -2,11 +2,11 @@
   "business_logic_rules": [
     {
       "id": "iade_dusulmus",
-      "description": "İadelerin toplam cirodan çıkarılarak hesaplama dahil edilmesi (CASE WHEN ile)",
+      "description": "Ciro, satış tutarı veya gelir hesaplanırken iade işlemlerinin toplam tutardan düşülmesi gerekir. Net ciro, iade hariç ciro, iade düşülmüş satış tutarı sorgularında uygulanır. DocumentTypeIsReturn = 1 olan kayıtlar negatif alınarak hesaplamaya katılır.",
       "modules": ["MasterReports"],
       "related_tables": [],
       "sql": {
-        "aggregation": "SUM(CASE WHEN DocumentTypeIsReturn = 1 THEN -RowAmount ELSE RowAmount END)",
+        "aggregation": "SUM(CASE WHEN [DocumentTypeIsReturn] = 1 THEN -[RowAmount] ELSE [RowAmount] END)",
         "filter": null,
         "group_by": null,
         "select": null,
@@ -16,13 +16,58 @@
       "is_default": true
     },
     {
-      "id": "sadece_acik_masa_dahil_et",
-      "description": "Sadece açık masaların veya ödemesi alınmamış masalarda toplam ciroya dahil edilmesi",
+      "id": "kapali_masa_filtre",
+      "description": "Ödemesi alınmış, hesabı kapanmış, tamamlanmış masalara ait kayıtları filtrelemek için kullanılır. Kullanıcı ödemesi alınan masalar, kapalı masalar, hesabı ödenen masalar, tamamlanan masa siparişleri gibi ifadeler kullandığında uygulanır. IsTableActive = 0 değeri masanın kapalı ve ödemesinin alınmış olduğunu gösterir.",
       "modules": ["MasterReports"],
       "related_tables": [],
       "sql": {
         "aggregation": null,
-        "filter": "WHERE IsTableActive = 1",
+        "filter": "[IsTableActive] = 0",
+        "group_by": null,
+        "select": null,
+        "join": null,
+        "having": null
+      },
+      "is_default": false
+    },
+    {
+      "id": "acik_masa_filtre",
+      "description": "Henüz ödemesi alınmamış, aktif devam eden, masada oturan müşterilere ait açık masa kayıtlarını filtrelemek için kullanılır. Açık masalar, aktif masalar, ödemesi alınmamış siparişler, hâlâ masada olan müşteriler ifadelerinde uygulanır. IsTableActive = 1 değeri masanın hâlâ aktif olduğunu gösterir.",
+      "modules": ["MasterReports"],
+      "related_tables": [],
+      "sql": {
+        "aggregation": null,
+        "filter": "[IsTableActive] = 1",
+        "group_by": null,
+        "select": null,
+        "join": null,
+        "having": null
+      },
+      "is_default": false
+    },
+    {
+      "id": "sadece_normal_satis",
+      "description": "Sadece gerçek satış işlemlerini dahil etmek için ikram, zayi (fire) ve iptal kayıtlarını dışarıda bırakır. Gerçek satışlar, standart satışlar, ikram hariç, zayi olmayan, iptal olmayan kayıtlar sorgulandığında uygulanır. DocumentDetailIsTreatWasteCancel NULL olan kayıtlar normal satıştır.",
+      "modules": ["MasterReports"],
+      "related_tables": [],
+      "sql": {
+        "aggregation": null,
+        "filter": "[DocumentDetailIsTreatWasteCancel] IS NULL",
+        "group_by": null,
+        "select": null,
+        "join": null,
+        "having": null
+      },
+      "is_default": false
+    },
+    {
+      "id": "sadece_ana_urun",
+      "description": "Menü içi yan seçenekleri ve alt ürünleri hariç tutarak sadece bağımsız ana ürünleri filtrelemek için kullanılır. Ana ürünler, menü seçeneği olmayan ürünler, bağımsız ürünler, yan ürün olmayan kayıtlar sorgulandığında uygulanır. MenuId NULL veya boş GUID olan kayıtlar ana üründür.",
+      "modules": ["MasterReports"],
+      "related_tables": [],
+      "sql": {
+        "aggregation": null,
+        "filter": "([MenuId] IS NULL OR [MenuId] = '00000000-0000-0000-0000-000000000000')",
         "group_by": null,
         "select": null,
         "join": null,
@@ -32,19 +77,20 @@
     }
   ],
   "metadata": {
-    "version": "2.1",
-    "last_updated": "2025-12-29",
-    "total_rules": 1,
+    "version": "3.0",
+    "last_updated": "2026-02-24",
+    "total_rules": 5,
     "default_rules_count": 1,
     "database_type": "MSSQL",
     "application": "Forza ERP - Master Report System",
+    "embedding_strategy": "description only - rich natural language descriptions enable strong semantic search",
     "sql_components": {
       "aggregation": "SELECT içindeki aggregate fonksiyonlar (SUM, COUNT, AVG, etc.)",
-      "filter": "WHERE koşulları",
+      "filter": "WHERE koşulları — sql_generator AND ile birleştirir",
       "group_by": "GROUP BY kolonları",
       "select": "SELECT'e eklenecek ek kolonlar",
       "join": "JOIN ifadeleri",
-      "having": "HAVING koşulları (aggregate sonrası filtre)"
+      "having": "HAVING koşulları"
     }
   }
 }
