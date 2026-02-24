@@ -26,7 +26,9 @@ from langgraph.types import interrupt
 
 from src.graphs.report_agent.subagents.text2sql.prompts import (
     QuerySchema,
+    SchemaValidationResult,
     SQL_ARCHITECT_PROMPT,
+    SCHEMA_VALIDATOR_PROMPT,
 )
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
@@ -226,6 +228,142 @@ def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
         }
 
     return sql_architect_node
+
+
+# =============================================================================
+# NODE 1.5: SCHEMA VALIDATOR (sql_architect ile PARALLEL çalışır)
+# =============================================================================
+
+def create_schema_validator_node(llm, column_metadata: Dict[str, Any]) -> Callable:
+    """
+    LLM (STRUCTURED OUTPUT): user_query → SchemaValidationResult.
+
+    sql_architect ile paralel çalışır — architect çıktısını GÖRMEZ.
+    Sadece GROUP BY, filters, limit üzerine bağımsız second-opinion üretir.
+    merge_schemas node'u iki çıktıyı birleştirir.
+    """
+    structured_llm = llm.with_structured_output(SchemaValidationResult)
+
+    async def schema_validator_node(state: dict, *, config: RunnableConfig = None) -> dict:
+        user_query         = state.get("user_query", "")
+        query_type         = state.get("query_type", "SINGLE")
+        term_hints         = state.get("term_hints") or "Özel terim eşleşmesi bulunamadı."
+        effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
+        today              = date.today()
+
+        prompt = SCHEMA_VALIDATOR_PROMPT.format(
+            user_query=user_query,
+            query_type=query_type,
+            today_date=today.isoformat(),
+            current_year=today.year,
+            current_month=today.month,
+            current_quarter=(today.month - 1) // 3 + 1,
+            column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
+            term_hints=term_hints,
+        )
+
+        logger.info(f"[SCHEMA_VALIDATOR] Validating: {user_query[:80]} (type={query_type})")
+        result: SchemaValidationResult = await structured_llm.ainvoke(prompt)
+        logger.info(
+            f"[SCHEMA_VALIDATOR] group_by={result.group_by}, "
+            f"filters={len(result.filters)}, limit={result.limit} | {result.reasoning[:80]}"
+        )
+        return {"schema_validation": result.model_dump()}
+
+    return schema_validator_node
+
+
+# =============================================================================
+# NODE 1.9: SCHEMA MERGE (fan-in: sql_architect + schema_validator)
+# =============================================================================
+
+async def schema_merge_node(state: dict) -> dict:
+    """
+    Pure Python: sql_architect + schema_validator çıktılarını birleştir.
+
+    Merge stratejisi:
+      group_by  → validator otoritedir (kullanıcının gerçek niyetine bakar).
+                  Validator boş döndürdüyse architect'inkini kullan.
+      filters   → architect + validator'ın eksik bulduklarının union'ı.
+                  Aynı column'dan sadece biri (architect öncelikli, validator ekler).
+      limit     → validator setlendiyse kazanır, yoksa architect.
+      diğerleri → architect çıktısı korunur (aggregations, order_by, select_columns).
+    """
+    arch_schema = state.get("query_schema")
+    validation  = state.get("schema_validation")
+
+    if not arch_schema:
+        logger.warning("[SCHEMA_MERGE] No query_schema from architect, skipping merge")
+        return {}
+
+    if not validation:
+        logger.warning("[SCHEMA_MERGE] No schema_validation, using architect output as-is")
+        return {}
+
+    # --- GROUP BY merge ---
+    validator_group_by = validation.get("group_by") or []
+    arch_group_by      = arch_schema.get("group_by") or []
+
+    if validator_group_by:
+        # Validator'ın listesi ana liste — architect'te olup validator'da olmayan kolonları düşür
+        merged_group_by = list(validator_group_by)
+        logger.info(
+            f"[SCHEMA_MERGE] group_by: architect={arch_group_by} → validator={merged_group_by}"
+        )
+    else:
+        # Validator boş döndü → architect'e güven
+        merged_group_by = arch_group_by
+        logger.info(f"[SCHEMA_MERGE] group_by: validator empty, keeping architect={merged_group_by}")
+
+    # --- Filters merge ---
+    arch_filters  = list(arch_schema.get("filters") or [])
+    val_filters   = validation.get("filters") or []
+
+    # Mevcut kolonları takip et (column bazlı dedup — architect öncelikli)
+    existing_cols = {f.get("column") for f in arch_filters if f.get("column")}
+
+    added = []
+    for vf in val_filters:
+        col = vf.get("column")
+        if col and col not in existing_cols:
+            arch_filters.append(vf)
+            existing_cols.add(col)
+            added.append(col)
+
+    if added:
+        logger.info(f"[SCHEMA_MERGE] filters: validator added missing columns: {added}")
+
+    # --- Deduplication: aynı condition'ı iki kez ekleme ---
+    seen_filter_keys: set = set()
+    deduped_filters = []
+    for f in arch_filters:
+        key = (f.get("column"), f.get("operator"), f.get("value"))
+        if key not in seen_filter_keys:
+            deduped_filters.append(f)
+            seen_filter_keys.add(key)
+    arch_filters = deduped_filters
+
+    # --- Limit merge ---
+    val_limit  = validation.get("limit")
+    arch_limit = arch_schema.get("limit")
+    merged_limit = val_limit if val_limit is not None else arch_limit
+
+    if val_limit is not None and val_limit != arch_limit:
+        logger.info(f"[SCHEMA_MERGE] limit: validator={val_limit} overrides architect={arch_limit}")
+
+    # --- Birleştir ---
+    merged_schema = {
+        **arch_schema,
+        "group_by": merged_group_by,
+        "filters":  arch_filters,
+        "limit":    merged_limit,
+    }
+
+    logger.info(
+        f"[SCHEMA_MERGE] Final: group_by={merged_group_by}, "
+        f"filters={len(arch_filters)}, limit={merged_limit}"
+    )
+    return {"query_schema": merged_schema}
 
 
 # =============================================================================
