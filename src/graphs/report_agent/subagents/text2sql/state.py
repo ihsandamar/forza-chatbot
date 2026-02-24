@@ -10,7 +10,7 @@ class Text2SQLState(TypedDict, total=False):
         sql_queries, results, error, active_results
 
     Internal keys (sadece bu subgraph içinde kullanılır):
-        query_schema, auto_rules, term_filters, term_hints, retry_count, sql_error
+        query_schema, schema_validation, auto_rules, term_filters, term_hints, retry_count, sql_error
     """
 
     # --- ReportState overlapping ---
@@ -24,10 +24,11 @@ class Text2SQLState(TypedDict, total=False):
     active_results: Optional[List[Dict[str, Any]]]
 
     # --- Internal ---
-    query_schema: Optional[Dict[str, Any]]       # QuerySchema.model_dump()
-    auto_rules:   Optional[List[Dict[str, Any]]] # ChromaDB'den bulunan rules — sql_generator uygular
-    term_filters: Optional[List[Dict[str, Any]]] # term_resolver → sql_generator (Python garantili WHERE)
-    term_hints:   Optional[str]                  # term_resolver → sql_architect LLM prompt (col name hints)
-    retry_count:  int                            # 0 | 1 | 2
-    sql_error:    Optional[str]                  # Son SQL hata mesajı (retry için)
+    query_schema:      Optional[Dict[str, Any]]       # QuerySchema.model_dump()
+    schema_validation: Optional[Dict[str, Any]]       # schema_validator → SchemaValidationResult.model_dump()
+    auto_rules:        Optional[List[Dict[str, Any]]] # ChromaDB'den bulunan rules — sql_generator uygular
+    term_filters:      Optional[List[Dict[str, Any]]] # term_resolver → sql_generator (Python garantili WHERE)
+    term_hints:        Optional[str]                  # term_resolver → sql_architect + schema_validator
+    retry_count:       int                            # 0 | 1 | 2
+    sql_error:         Optional[str]                  # Son SQL hata mesajı (retry için)
     # business_rules_context KALDIRILDI — LLM artık kuralları görmüyor
