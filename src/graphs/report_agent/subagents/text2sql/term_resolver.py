@@ -1,8 +1,9 @@
 """
 Term Resolver
 =============
-Kullanıcı sorgusunda Türkçe iş terimlerini tespit eder ve
-sql_architect prompt'una inject edilecek hint metni üretir.
+Kullanıcı sorgusunda Türkçe iş terimlerini tespit eder ve iki çıktı üretir:
+  1. term_filters  — SchemaFilter-uyumlu dict listesi (Python garantili, LLM yok)
+  2. hints_text    — LLM prompt'una inject edilecek kolon adı yönlendirmesi
 
 LLM kullanmaz. Deterministik, hızlı, test edilebilir.
 """
@@ -10,8 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,49 +38,76 @@ def _load_dictionary() -> List[Dict[str, Any]]:
         return []
 
 
-def resolve_terms(user_query: str) -> str:
+@dataclass
+class AmbiguousMatch:
+    """Kullanıcıya sorulması gereken belirsiz terim."""
+    term: str           # Eşleşen terim ("tarih" gibi)
+    user_query: str     # Orijinal sorgu
+    options: List[Dict[str, Any]]  # [{"column": "...", "description": "...", "filter_structured": {...}}]
+
+
+@dataclass
+class TermResolverOutput:
+    """
+    resolve_terms_structured() dönüş tipi.
+
+    term_filters: Python katmanı tarafından QuerySchema'ya garantili merge edilir.
+                  LLM'in ürettiği aynı kolondaki filtreler OVERRIDE edilir.
+
+    hints_text:   LLM prompt'una inject edilir — sadece kolon adı yönlendirmesi.
+                  filter_structured olan terimler için "Python uyguluyor" yazılır.
+
+    ambiguous:    interrupt() ile kullanıcıya sorulması gereken terimler.
+                  Her AmbiguousMatch için options listesinden seçim beklenir.
+    """
+    term_filters: List[Dict[str, Any]] = field(default_factory=list)
+    hints_text: str = "Özel terim eşleşmesi bulunamadı."
+    ambiguous: List[AmbiguousMatch] = field(default_factory=list)
+
+
+def resolve_terms_structured(user_query: str) -> TermResolverOutput:
     """
     Kullanıcı sorgusundaki Türkçe iş terimlerini tespit et.
 
-    Args:
-        user_query: Kullanıcının doğal dil sorgusu
+    Matching sırası (öncelik sırasına göre):
+      1. Exact substring match (score=100)
+      2. rapidfuzz token_set_ratio >= 70
+
+    Her eşleşen entry için:
+      - filter_structured varsa   → term_filters'a ekle (Python garantili)
+      - ambiguous_columns varsa   → ambiguous listesine ekle (interrupt gerekli)
+      - hint varsa                → hints_text'e ekle (LLM advisory)
 
     Returns:
-        Prompt'a inject edilecek hint metni.
-        Eşleşme yoksa "Özel terim eşleşmesi bulunamadı." döner.
+        TermResolverOutput
     """
     try:
         from rapidfuzz import fuzz
     except ImportError:
         logger.warning("[TERM_RESOLVER] rapidfuzz not available, skipping term resolution")
-        return "Özel terim eşleşmesi bulunamadı."
+        return TermResolverOutput()
 
     terms = _load_dictionary()
     if not terms:
-        return "Özel terim eşleşmesi bulunamadı."
+        return TermResolverOutput()
 
     normalized_query = _normalize(user_query)
-    matched: List[Dict[str, Any]] = []
-    seen_columns: set[str] = set()  # Aynı kolon için tekrar eşleşme önle
+    matched: List[Dict[str, Any]] = []       # {"entry": ..., "score": ...}
+    seen_columns: set[str] = set()           # Aynı kolonu iki kez eşleştirme
 
     for entry in terms:
-        column = entry.get("column", "")
+        column = entry.get("column") or "__ambiguous__"
         if column in seen_columns:
             continue
 
-        # Tüm aday terimler: term + aliases
         candidates = [entry["term"]] + entry.get("aliases", [])
 
         best_score = 0
         for candidate in candidates:
             norm_candidate = _normalize(candidate)
-
-            # Exact substring kontrolü (öncelikli)
             if norm_candidate in normalized_query:
                 best_score = 100
                 break
-
-            # Fuzzy match
             score = fuzz.token_set_ratio(normalized_query, norm_candidate)
             if score > best_score:
                 best_score = score
@@ -89,14 +118,47 @@ def resolve_terms(user_query: str) -> str:
             logger.debug(f"[TERM_RESOLVER] Match: '{entry['term']}' score={best_score}")
 
     if not matched:
-        return "Özel terim eşleşmesi bulunamadı."
+        logger.info("[TERM_RESOLVER] No terms matched")
+        return TermResolverOutput()
 
-    # Hint metnini oluştur
-    lines = []
+    output = TermResolverOutput()
+    hint_lines: List[str] = []
+
     for m in sorted(matched, key=lambda x: -x["score"]):
         entry = m["entry"]
-        lines.append(f'- "{entry["term"]}" → {entry["hint"]}')
+        term = entry["term"]
 
-    result = "\n".join(lines)
-    logger.info(f"[TERM_RESOLVER] {len(matched)} term(s) matched: {[m['entry']['term'] for m in matched]}")
-    return result
+        # --- Ambiguous: kullanıcıya sor ---
+        if entry.get("ambiguous_columns"):
+            output.ambiguous.append(AmbiguousMatch(
+                term=term,
+                user_query=user_query,
+                options=entry["ambiguous_columns"],
+            ))
+            hint_lines.append(f'- "{term}" → belirsiz kolon, kullanıcıya sorulacak')
+            continue
+
+        # --- filter_structured: Python garantili filtre ---
+        if entry.get("filter_structured"):
+            fs = dict(entry["filter_structured"])
+            fs.setdefault("logical_operator", "AND")
+            output.term_filters.append(fs)
+            hint_lines.append(f'- "{term}" → {entry.get("hint", "")}')
+            continue
+
+        # --- Sadece hint (aggregation / column name yönlendirmesi) ---
+        if entry.get("hint"):
+            hint_lines.append(f'- "{term}" → {entry["hint"]}')
+
+    output.hints_text = "\n".join(hint_lines) if hint_lines else "Özel terim eşleşmesi bulunamadı."
+    logger.info(
+        f"[TERM_RESOLVER] {len(matched)} match(es): "
+        f"{len(output.term_filters)} filter(s), "
+        f"{len(output.ambiguous)} ambiguous"
+    )
+    return output
+
+
+def resolve_terms(user_query: str) -> str:
+    """Backward compatibility: sadece hints_text döndür."""
+    return resolve_terms_structured(user_query).hints_text
