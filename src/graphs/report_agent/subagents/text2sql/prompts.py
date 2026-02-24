@@ -186,12 +186,12 @@ class SchemaValidationResult(BaseModel):
     Sadece GROUP BY, filters, limit üzerine bağımsız karar verir.
     merge_schemas node'u iki LLM çıktısını birleştirir.
     """
-    group_by: List[str]
+    group_by: List[str] = []
     """Kullanıcının GERÇEKTEN gruplama istediği kolonlar.
     Yalnızca açıkça belirtilenleri ekle.
     Boş liste → 'architect'e bırak' anlamına gelir."""
 
-    filters: List[SchemaFilter]
+    filters: List[SchemaFilter] = []
     """Kullanıcının belirttiği filtreler (tarihler dahil).
     Architect'in bulduklarını tekrarlamak sorun değil — merge dedup yapar."""
 
