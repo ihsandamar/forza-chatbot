@@ -107,20 +107,25 @@ Kullanıcı "şube" derse → kolon açıklamalarına bak, doğru DB kolon adın
 Hiçbir zaman "tarih", "şube", "tutar" gibi Türkçe field_hint yazma — gerçek DB adını yaz.
 
 ### KURAL 2 — Tarih Filtreleri (DateDescriptor ZORUNLU)
-Sorguda tarih ifadesi varsa ("son 3 ay", "bu yıl", "ocak 2024" gibi):
+Sorguda tarih ifadesi varsa ("son 3 ay", "bu yıl", "ocak 2024", "son 1 sene" gibi):
   date_descriptor alanını doldur — value alanını KULLANMA.
 
+ÖNEMLİ: "sene" = "yıl" (Türkçe sinonim). İkisi de aynı DateDescriptor'ı üretir.
+
 Örnekler:
-  "son 3 ay"      → {{"type":"relative","unit":"month","amount":-3}},   operator: ">="
-  "son 7 gün"     → {{"type":"relative","unit":"day","amount":-7}},     operator: ">="
-  "son 1 yıl"     → {{"type":"relative","unit":"year","amount":-1}},    operator: ">="
-  "bu yıl"        → {{"type":"current_period","period":"year"}},        operator: ">="
-  "bu ay"         → {{"type":"current_period","period":"month"}},       operator: ">="
-  "bugün"         → {{"type":"current_period","period":"day"}},         operator: ">="
-  "bu çeyrek"     → {{"type":"current_period","period":"quarter"}},     operator: ">="
-  "15 ocak"       → {{"type":"exact","value":"{current_year}-01-15"}},  operator: "="
-  "ocak 2024"  → filter 1: {{"type":"exact","value":"2024-01-01"}}, operator: ">="
-               → filter 2: {{"type":"exact","value":"2024-01-31"}}, operator: "<=", logical_operator: "AND"
+  "son 3 ay"          → {{"type":"relative","unit":"month","amount":-3}},   operator: ">="
+  "son 7 gün"         → {{"type":"relative","unit":"day","amount":-7}},     operator: ">="
+  "son 1 yıl"         → {{"type":"relative","unit":"year","amount":-1}},    operator: ">="
+  "son 1 sene"        → {{"type":"relative","unit":"year","amount":-1}},    operator: ">="
+  "son 1 senede"      → {{"type":"relative","unit":"year","amount":-1}},    operator: ">="
+  "son 2 yılda"       → {{"type":"relative","unit":"year","amount":-2}},    operator: ">="
+  "bu yıl"            → {{"type":"current_period","period":"year"}},        operator: ">="
+  "bu ay"             → {{"type":"current_period","period":"month"}},       operator: ">="
+  "bugün"             → {{"type":"current_period","period":"day"}},         operator: ">="
+  "bu çeyrek"         → {{"type":"current_period","period":"quarter"}},     operator: ">="
+  "15 ocak"           → {{"type":"exact","value":"{current_year}-01-15"}},  operator: "="
+  "ocak 2024"         → filter 1: {{"type":"exact","value":"2024-01-01"}}, operator: ">="
+                      → filter 2: {{"type":"exact","value":"2024-01-31"}}, operator: "<=", logical_operator: "AND"
 
 Tarih filtresi için value alanını KULLANMA — date_descriptor kullan.
 
@@ -138,8 +143,20 @@ DOĞRU ✅:
 
 ### KURAL 4 — RANKING Sorguları
 "Top 10 / en çok / en az / sıralama" → limit + order_by_column + en az 1 aggregation ZORUNLU.
-Örnek: "en çok satan 10 ürün" → aggregations=[SUM(Quantity)], group_by=["ProductName"],
-       order_by_column="TotalQty", order_by_direction="DESC", limit=10
+
+Limit değeri:
+  - Soruda SAYI varsa → o sayıyı kullan: "en çok satan 10 ürün" → limit=10
+  - Soruda SAYI YOK, TEKİL isim var → limit=1: "en çok satan ürün" → limit=1
+  - "en çok ... kategorisi", "en az ... şube", "bir numaralı ürün" → limit=1
+  - "top 5", "ilk 10", "en yüksek 3" → sayıyı kullan
+
+Örnekler:
+  "en çok satan 10 ürün"       → aggregations=[SUM(Quantity)], group_by=["ProductName"],
+                                  order_by_column="TotalQty", order_by_direction="DESC", limit=10
+  "en çok ciro yapan kategori" → aggregations=[SUM(RowAmount)], group_by=["CategoryName"],
+                                  order_by_column="ToplamCiro", order_by_direction="DESC", limit=1
+  "en az satan ürün"           → aggregations=[SUM(Quantity)], group_by=["ProductName"],
+                                  order_by_column="TotalQty", order_by_direction="ASC", limit=1
 
 ### KURAL 5 — Periyodik Gruplama
 "günlük satışlar"  → group_by: ["CAST(TarihKolonu AS DATE)"]
