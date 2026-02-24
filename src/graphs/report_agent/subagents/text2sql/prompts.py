@@ -172,3 +172,99 @@ Tarih kolonu adını column_metadata'dan al.
   - GROUP BY hatası → Kural 3'ü uygula
   - Syntax hatası → ilgili field'ı düzelt
 """
+
+
+# =============================================================================
+# SCHEMA VALIDATOR — Parallel second-opinion LLM
+# =============================================================================
+
+class SchemaValidationResult(BaseModel):
+    """
+    schema_validator node'unun structured output'u.
+
+    sql_architect ile PARALLEL çalışır — architect çıktısını görmez.
+    Sadece GROUP BY, filters, limit üzerine bağımsız karar verir.
+    merge_schemas node'u iki LLM çıktısını birleştirir.
+    """
+    group_by: List[str]
+    """Kullanıcının GERÇEKTEN gruplama istediği kolonlar.
+    Yalnızca açıkça belirtilenleri ekle.
+    Boş liste → 'architect'e bırak' anlamına gelir."""
+
+    filters: List[SchemaFilter]
+    """Kullanıcının belirttiği filtreler (tarihler dahil).
+    Architect'in bulduklarını tekrarlamak sorun değil — merge dedup yapar."""
+
+    limit: Optional[int] = None
+    """Kaç sonuç isteniyor. None = architect'e bırak."""
+
+    reasoning: str
+    """Kısa açıklama: hangi kararları neden aldın."""
+
+
+SCHEMA_VALIDATOR_PROMPT = """Sen bir T-SQL sorgu doğrulayıcısısın. Kullanıcı sorusunu analiz et ve SADECE şu üç boyutu belirle:
+  1. GROUP BY — kullanıcı hangi kolonlara göre gruplamak istiyor?
+  2. Filters — kullanıcının belirttiği WHERE filtreleri neler?
+  3. Limit — kaç sonuç isteniyor?
+
+## BUGÜNÜN TARİHİ
+- Tarih: {today_date}
+- Yıl: {current_year}, Ay: {current_month}, Çeyrek: {current_quarter}
+
+## KULLANICI SORUSU
+{user_query}
+
+## SORGU TİPİ
+{query_type}
+
+## VERİTABANI KOLON BİLGİLERİ
+{column_metadata}
+
+## TESPİT EDİLEN İŞ TERİMLERİ (term_resolver çıktısı)
+{term_hints}
+
+---
+
+## KURAL 1 — GROUP BY DİSİPLİNİ (EN KRİTİK)
+group_by listesine SADECE kullanıcının açıkça gruplama/listeleme istediği kolonları ekle.
+
+YANLIŞ ❌ (kullanıcı sormadı):
+  "kategorilere göre en çok ciro yapan kategori" → group_by: ["CategoryName", "TableNo", "BranchCityName"]
+
+DOĞRU ✅ (sadece ne soruldu):
+  "kategorilere göre en çok ciro yapan kategori" → group_by: ["CategoryName"]
+
+Filtre bağlamı vs. gruplama bağlamı:
+  "masaların ödemesi alınan" → TableNo GROUP BY'a EKLEME (IsTableActive=0 filtresi)
+  "masaya göre satışlar"    → TableNo GROUP BY'a EKLE ✓
+
+Belirleyici kelimeler:
+  "...e göre", "...lere göre", "...bazında", "...kırılımında" → GROUP BY
+  "...nın/nin/ların/lerin X'i" → filtre, GROUP BY değil
+
+## KURAL 2 — FİLTRELER (DateDescriptor ZORUNLU)
+Tarih ifadelerinde DateDescriptor kullan, value alanını kullanma.
+
+"sene" = "yıl" (sinonim).
+
+Örnekler:
+  "son 1 yıl" / "son 1 sene" / "son 1 senede" → {{"type":"relative","unit":"year","amount":-1}}, operator: ">="
+  "son 3 ay"   → {{"type":"relative","unit":"month","amount":-3}}, operator: ">="
+  "bu yıl"     → {{"type":"current_period","period":"year"}},     operator: ">="
+  "bu ay"      → {{"type":"current_period","period":"month"}},    operator: ">="
+
+## KURAL 3 — LİMİT
+  - Sorguda sayı varsa → o sayı: "top 10 ürün" → limit=10
+  - TEKİL isim, sayı yok → limit=1: "en çok X yapan kategori" → limit=1
+  - Belirsizse → limit=None (architect'e bırak)
+
+## KURAL 4 — IsTableActive
+  "ödemesi alınan masalar", "kapalı masalar", "ödemesi alınan" → IsTableActive=0
+  "açık masalar", "aktif masalar" → IsTableActive=1
+  (Typo tolere et: "ödmesi alınan" da aynı anlama gelir)
+
+## KURAL 5 — filters listesini SADE TUT
+  - Sadece kullanıcının açıkça belirttiği filtreleri ekle
+  - Gereksiz filtre EKLEME — merge_schemas dedup yapar, ama fazla filtre yanlış sonuç verir
+  - IsTableActive, DocumentDetailIsTreatWasteCancel gibi filtreler term_hints'te "Python tarafından uygulanmaktadır" yazıyorsa filters'a EKLEME
+"""
