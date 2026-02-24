@@ -458,8 +458,10 @@ Tablo: {table_name}
 
 **2. SELECT Clause**:
 - **ÇOK ÖNEMLİ**: GROUP BY'daki TÜM alanlar SELECT'te olmalı (grafik için zorunlu!)
+- **ÇOK ÖNEMLİ**: SELECT'teki TÜM non-aggregate alanlar GROUP BY'da olmalı (MSSQL zorunluluğu!)
 - Aggregation varsa: Aggregation + group_by alanları
 - Aggregation yoksa: "select" alanındaki kolonlar veya SELECT *
+- **KRİTİK KURAL**: SELECT'te hem aggregate (SUM, COUNT, AVG, MIN, MAX) hem de normal kolon varsa → normal kolon MUTLAKA GROUP BY'da olmalı!
 
 **3. WHERE Clause**:
 - logical_operator = "OR" → önceki filter ile OR
@@ -488,6 +490,31 @@ Tablo: {table_name}
 - Tarih filtre → CAST(DocumentDate AS DATE)
 - CTE'de ORDER BY sadece TOP ile
 - Çok adım → CTE kullan
+
+**5.5. UNION ALL CTE'LERİNDE ENTİTY KOLONU (ÇOK KRİTİK!)**:
+- Birden fazla CTE UNION ALL ile birleştirildiğinde (karşılaştırma sorguları):
+- Her CTE'de WHERE ile filtrelenen entity kolonu SELECT'e ve GROUP BY'a da eklenmeli!
+- Literal değil, tablodaki gerçek kolonu kullan: `CategoryName` (hangi kolon olursa olsun)
+- WHERE col='value' filtresi o CTE içinde tek değer garantiler, GROUP BY'a eklemek güvenlidir
+- Final UNION ALL SELECT'te de entity kolonu dahil edilmeli
+
+YANLIŞ ❌ (CategoryName kaybolur - ASLA YAPMA):
+```sql
+WITH step_1 AS (
+  SELECT YEAR(DocumentDate) AS Year, SUM(RowAmount) AS TotalSales
+  FROM t WHERE CategoryName = 'DURUMLER' GROUP BY YEAR(DocumentDate)
+)
+SELECT Year, TotalSales FROM step_1 UNION ALL ...
+```
+
+DOĞRU ✅ (CategoryName görünür - BÖYLE YAP):
+```sql
+WITH step_1 AS (
+  SELECT CategoryName, YEAR(DocumentDate) AS Year, SUM(RowAmount) AS TotalSales
+  FROM t WHERE CategoryName = 'DURUMLER' GROUP BY CategoryName, YEAR(DocumentDate)
+)
+SELECT CategoryName, Year, TotalSales FROM step_1 UNION ALL ...
+```
 
 **Çıktı**: Sadece SQL sorgusu (markdown yok)
 

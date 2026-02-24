@@ -280,6 +280,399 @@ def get_business_rules_vector_store():
     return _business_rules_vector_store
 
 
+def _fix_union_all_entity_in_select(sql: str) -> str:
+    """
+    Post-processing fix for CTE+UNION ALL comparison queries.
+
+    When the LLM generates separate CTEs per entity value (e.g., CategoryName = 'DURUMLER'
+    in step_1, CategoryName = 'ICECEKLER' in step_2) and combines them via UNION ALL,
+    the entity column (which is already in WHERE) must also appear in SELECT and GROUP BY
+    so results are identifiable after UNION ALL.
+
+    Dynamic approach: adds the actual column reference (not a literal value), so the fix
+    works regardless of what column is being compared (CategoryName, BranchName, ProductName, etc.).
+
+    Example fix:
+      CTE body:   SELECT Year, Month, SUM(x) AS Total ... WHERE CategoryName='A' GROUP BY Year, Month
+      Fixed body: SELECT CategoryName, Year, Month, SUM(x) AS Total ... WHERE CategoryName='A' GROUP BY CategoryName, Year, Month
+
+    Final UNION ALL SELECT is also updated to include the entity column.
+    """
+    # Quick bail-outs: only process CTE+UNION ALL queries
+    if not re.search(r'^\s*WITH\b', sql, re.IGNORECASE):
+        return sql
+    if 'UNION ALL' not in sql.upper():
+        return sql
+
+    # Operational/metadata columns that should NOT be treated as comparison entity columns
+    SKIP_COLS = {
+        'DOCUMENTTYPEISRETURN', 'DOCUMENTDETAILISREATWASTECANCEL',
+        'DOCUMENTDETAILISTREATWASTECANCEL', 'ISTABLEACTIVE', 'MENUID',
+        'DOCUMENTDETAILISWASTECANCEL', 'DOCUMENTDETAILISCANCELLED'
+    }
+
+    # Parse CTEs via balanced parenthesis tracking
+    with_m = re.match(r'\s*WITH\s+', sql, re.IGNORECASE)
+    if not with_m:
+        return sql
+
+    pos = with_m.end()
+    sql_len = len(sql)
+    cte_definitions = []
+
+    while pos < sql_len:
+        # Skip whitespace and commas between CTEs
+        while pos < sql_len and sql[pos] in ' \t\n\r,':
+            pos += 1
+        if pos >= sql_len:
+            break
+
+        # Try to match CTE header: name AS (
+        cte_hdr = re.match(r'(\w+)\s+AS\s*\(', sql[pos:], re.IGNORECASE)
+        if not cte_hdr:
+            break
+
+        cte_name = cte_hdr.group(1)
+        body_start = pos + cte_hdr.end()  # position after opening '('
+
+        # Find the matching closing ')' using depth tracking
+        depth = 1
+        p = body_start
+        while p < sql_len and depth > 0:
+            if sql[p] == '(':
+                depth += 1
+            elif sql[p] == ')':
+                depth -= 1
+            p += 1
+
+        body_end = p - 1  # position of closing ')'
+        cte_body = sql[body_start:body_end]
+
+        cte_definitions.append({
+            'name': cte_name,
+            'header_start': pos,
+            'after_end': p,
+            'body': cte_body,
+        })
+        pos = p
+
+    if len(cte_definitions) < 2:
+        return sql  # Need at least 2 CTEs for UNION ALL comparison
+
+    final_select_start = cte_definitions[-1]['after_end']
+    final_select = sql[final_select_start:]
+
+    # Discover entity columns: filtered by col='value' in WHERE but absent from SELECT
+    # We only track column names (not values) — the actual column from the table is used
+    entity_col_missing = {}  # col_name -> set of cte_names where it's missing
+
+    for cte_def in cte_definitions:
+        body = cte_def['body']
+
+        sel_m = re.search(r'SELECT\s+(.*?)\s+FROM\b', body, re.IGNORECASE | re.DOTALL)
+        if not sel_m:
+            continue
+        select_cols = sel_m.group(1)
+
+        where_m = re.search(
+            r'\bWHERE\b(.*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bHAVING\b)',
+            body, re.IGNORECASE | re.DOTALL
+        )
+        if not where_m:
+            where_m = re.search(r'\bWHERE\b(.*)', body, re.IGNORECASE | re.DOTALL)
+        if not where_m:
+            continue
+        where_str = where_m.group(1)
+
+        # Find column = 'value' equality filters
+        for eq_m in re.finditer(r"(\w+)\s*=\s*'[^']*'", where_str, re.IGNORECASE):
+            col = eq_m.group(1)
+            if col.upper() in SKIP_COLS:
+                continue
+            if not re.search(rf'\b{re.escape(col)}\b', select_cols, re.IGNORECASE):
+                entity_col_missing.setdefault(col, set()).add(cte_def['name'])
+
+    if not entity_col_missing:
+        return sql
+
+    # Only fix columns missing from ALL CTEs (confirms it's a true comparison pattern)
+    cols_to_fix = {
+        col for col, missing_in in entity_col_missing.items()
+        if len(missing_in) == len(cte_definitions)
+    }
+    if not cols_to_fix:
+        return sql
+
+    logger.info(f"[SQL_FIX] Dynamically adding entity columns to CTE SELECT+GROUP BY and UNION ALL: {cols_to_fix}")
+
+    # Rebuild SQL: fix each CTE body
+    result_parts = [sql[:cte_definitions[0]['header_start']]]  # "WITH "
+
+    for i, cte_def in enumerate(cte_definitions):
+        body = cte_def['body']
+
+        # 1. Add missing entity columns to SELECT (prepend, so they appear first)
+        sel_m = re.search(r'(SELECT\s+)(.*?)(\s+FROM\b)', body, re.IGNORECASE | re.DOTALL)
+        if sel_m:
+            additions = [
+                col for col in sorted(cols_to_fix)
+                if not re.search(rf'\b{re.escape(col)}\b', sel_m.group(2), re.IGNORECASE)
+            ]
+            if additions:
+                new_select_cols = ', '.join(additions) + ', ' + sel_m.group(2)
+                body = (
+                    body[:sel_m.start(1)]
+                    + sel_m.group(1) + new_select_cols + sel_m.group(3)
+                    + body[sel_m.end(3):]
+                )
+
+        # 2. Add missing entity columns to GROUP BY
+        #    WHERE col='value' means col has a single value in this CTE — safe to group by it.
+        grp_m = re.search(r'(\bGROUP\s+BY\b\s*)(.*?)(\s*(?:\bORDER\s+BY\b|\bHAVING\b|$))',
+                          body, re.IGNORECASE | re.DOTALL)
+        if grp_m:
+            grp_cols = grp_m.group(2).strip()
+            grp_additions = [
+                col for col in sorted(cols_to_fix)
+                if not re.search(rf'\b{re.escape(col)}\b', grp_cols, re.IGNORECASE)
+            ]
+            if grp_additions:
+                new_grp = ', '.join(grp_additions) + ', ' + grp_cols
+                body = (
+                    body[:grp_m.start(2)]
+                    + new_grp
+                    + body[grp_m.end(2):]
+                )
+        else:
+            # No GROUP BY at all: create one if there are aggregation functions.
+            # _fix_select_group_by_mismatch (called next) handles the general case,
+            # but we preemptively add the entity cols here so they appear first.
+            if re.search(r'\b(?:SUM|COUNT|AVG|MIN|MAX|STDEV|VAR)\s*\(', body, re.IGNORECASE):
+                grp_cols = ', '.join(sorted(cols_to_fix))
+                ord_m = re.search(r'\bORDER\s+BY\b', body, re.IGNORECASE)
+                if ord_m:
+                    body = body[:ord_m.start()].rstrip() + '\n' + f'GROUP BY {grp_cols}' + '\n' + body[ord_m.start():]
+                else:
+                    body = body.rstrip() + '\n' + f'GROUP BY {grp_cols}'
+
+        result_parts.append(f"{cte_def['name']} AS ({body})")
+        result_parts.append('\n,\n' if i < len(cte_definitions) - 1 else '\n')
+
+    # 3. Fix final UNION ALL SELECT: add entity cols to each "SELECT ... FROM step_N"
+    #    Negative lookahead (?!SELECT\b) prevents matching across UNION ALL boundaries
+    modified_final = final_select
+    for col in sorted(cols_to_fix):
+        for cte_def in cte_definitions:
+            step_name = re.escape(cte_def['name'])
+            pattern = re.compile(
+                rf'(SELECT\s+)((?:(?!SELECT\b).)*?)(\s+FROM\s+{step_name}\b)',
+                re.IGNORECASE | re.DOTALL
+            )
+
+            def _add_col(m, c=col):
+                if not re.search(rf'\b{re.escape(c)}\b', m.group(2), re.IGNORECASE):
+                    return m.group(1) + c + ', ' + m.group(2) + m.group(3)
+                return m.group(0)
+
+            modified_final = pattern.sub(_add_col, modified_final)
+
+    result_parts.append(modified_final)
+    return ''.join(result_parts)
+
+
+# ---------------------------------------------------------------------------
+# General GROUP BY / SELECT consistency fix
+# ---------------------------------------------------------------------------
+
+_HAS_AGG_RE = re.compile(
+    r'\b(SUM|COUNT|AVG|MIN|MAX|STDEV|STDDEV|VAR|VARIANCE|COUNT_BIG)\s*\(',
+    re.IGNORECASE
+)
+_IS_AGG_RE = re.compile(
+    r'^\s*(SUM|COUNT|AVG|MIN|MAX|STDEV|STDDEV|VAR|VARIANCE|COUNT_BIG)\s*\(',
+    re.IGNORECASE
+)
+
+
+def _split_select_cols(select_str: str) -> list:
+    """Split a SELECT column list on commas, respecting nested parentheses."""
+    cols, current, depth = [], [], 0
+    for ch in select_str:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            c = ''.join(current).strip()
+            if c:
+                cols.append(c)
+            current = []
+        else:
+            current.append(ch)
+    c = ''.join(current).strip()
+    if c:
+        cols.append(c)
+    return cols
+
+
+def _strip_alias(col_expr: str) -> str:
+    """Remove trailing ' AS alias' from a column expression."""
+    m = re.match(r'^(.*?)\s+AS\s+\w+\s*$', col_expr.strip(), re.IGNORECASE | re.DOTALL)
+    return m.group(1).strip() if m else col_expr.strip()
+
+
+def _needs_group_by(col_expr: str) -> bool:
+    """
+    Return True if this SELECT expression is a non-aggregate that must appear in GROUP BY.
+    Skips: string/numeric literals, NULL/TRUE/FALSE, aggregate function calls.
+    """
+    s = col_expr.strip()
+    if not s or s == '*':
+        return False
+    if s.startswith("'") or s.startswith('"'):
+        return False
+    if re.match(r'^-?\d+(\.\d+)?$', s):
+        return False
+    if s.upper() in ('NULL', 'TRUE', 'FALSE'):
+        return False
+    if _IS_AGG_RE.match(s):
+        return False
+    return True
+
+
+def _col_in_str(col: str, col_list_str: str) -> bool:
+    """
+    Check whether a column expression is already present in a GROUP BY / SELECT string.
+
+    For simple identifiers (e.g. 'CategoryName'), uses word-boundary matching.
+    For complex expressions containing non-word chars (e.g. 'YEAR(DocumentDate)'),
+    falls back to a case-insensitive substring check — avoiding broken \\b anchors
+    around parentheses.
+    """
+    if re.match(r'^\w+$', col):
+        return bool(re.search(rf'\b{re.escape(col)}\b', col_list_str, re.IGNORECASE))
+    return col.lower() in col_list_str.lower()
+
+
+def _fix_body_group_by(body: str) -> str:
+    """
+    Fix a single SQL SELECT body (CTE body or standalone query):
+    ensure every non-aggregate SELECT column is present in GROUP BY.
+
+    When aggregation functions exist in SELECT:
+    - If GROUP BY already present: add any missing non-aggregate columns to it.
+    - If GROUP BY is absent: create one with all non-aggregate SELECT columns.
+    """
+    sel_m = re.search(r'SELECT(?:\s+TOP\s+\d+)?\s+(.*?)\s+FROM\b', body, re.IGNORECASE | re.DOTALL)
+    if not sel_m:
+        return body
+
+    select_str = sel_m.group(1)
+
+    # Only act when aggregation functions are present in SELECT
+    if not _HAS_AGG_RE.search(select_str):
+        return body
+
+    # Collect non-aggregate columns that belong in GROUP BY
+    non_agg = []
+    for col in _split_select_cols(select_str):
+        base = _strip_alias(col)
+        if _needs_group_by(base):
+            non_agg.append(base)
+
+    if not non_agg:
+        return body  # All columns are aggregates — no GROUP BY needed
+
+    grp_m = re.search(
+        r'(\bGROUP\s+BY\b\s*)(.*?)(\s*(?:\bORDER\s+BY\b|\bHAVING\b|$))',
+        body, re.IGNORECASE | re.DOTALL
+    )
+
+    if grp_m:
+        existing = grp_m.group(2).strip()
+        missing = [c for c in non_agg if not _col_in_str(c, existing)]
+        if not missing:
+            return body
+        new_grp = ', '.join(missing) + ', ' + existing
+        return body[:grp_m.start(2)] + new_grp + body[grp_m.end(2):]
+    else:
+        # Create new GROUP BY clause
+        grp_clause = 'GROUP BY ' + ', '.join(non_agg)
+        ord_m = re.search(r'\bORDER\s+BY\b', body, re.IGNORECASE)
+        if ord_m:
+            return body[:ord_m.start()].rstrip() + '\n' + grp_clause + '\n' + body[ord_m.start():]
+        return body.rstrip() + '\n' + grp_clause
+
+
+def _fix_select_group_by_mismatch(sql: str) -> str:
+    """
+    General post-processing fix: ensure non-aggregate SELECT columns are in GROUP BY.
+
+    Root cause: the LLM sometimes adds a column to SELECT that participates in an
+    aggregation query but forgets to include it in GROUP BY, causing MSSQL error 8120
+    ("Column X is invalid in the select list because it is not contained in either an
+    aggregate function or the GROUP BY clause").
+
+    Handles:
+    - CTE queries  → each CTE body is fixed independently
+    - Simple queries without CTEs → the whole query is fixed
+    """
+    if re.search(r'^\s*WITH\b', sql, re.IGNORECASE):
+        # Parse CTE structure (balanced-paren approach, same as _fix_union_all_entity_in_select)
+        with_m = re.match(r'\s*WITH\s+', sql, re.IGNORECASE)
+        if not with_m:
+            return sql
+
+        pos, sql_len, cte_defs = with_m.end(), len(sql), []
+
+        while pos < sql_len:
+            while pos < sql_len and sql[pos] in ' \t\n\r,':
+                pos += 1
+            if pos >= sql_len:
+                break
+            hdr = re.match(r'(\w+)\s+AS\s*\(', sql[pos:], re.IGNORECASE)
+            if not hdr:
+                break
+            cte_name = hdr.group(1)
+            body_start = pos + hdr.end()
+            depth, p = 1, body_start
+            while p < sql_len and depth > 0:
+                if sql[p] == '(':
+                    depth += 1
+                elif sql[p] == ')':
+                    depth -= 1
+                p += 1
+            cte_defs.append({
+                'name': cte_name,
+                'header_start': pos,
+                'after_end': p,
+                'body': sql[body_start:p - 1],
+            })
+            pos = p
+
+        if not cte_defs:
+            return sql
+
+        changed = False
+        result_parts = [sql[:cte_defs[0]['header_start']]]
+        for i, cte in enumerate(cte_defs):
+            fixed = _fix_body_group_by(cte['body'])
+            if fixed != cte['body']:
+                changed = True
+                logger.info(f"[SQL_FIX] Fixed SELECT/GROUP BY mismatch in CTE '{cte['name']}'")
+            result_parts.append(f"{cte['name']} AS ({fixed})")
+            result_parts.append('\n,\n' if i < len(cte_defs) - 1 else '\n')
+
+        result_parts.append(sql[cte_defs[-1]['after_end']:])
+        return ''.join(result_parts) if changed else sql
+
+    else:
+        fixed = _fix_body_group_by(sql)
+        if fixed != sql:
+            logger.info('[SQL_FIX] Fixed SELECT/GROUP BY mismatch in query')
+        return fixed
+
+
 def _execute_sql(sql_query: str, db_connection_string: str) -> list:
     """
     Execute SQL query synchronously and return results.
@@ -1094,6 +1487,16 @@ class GenericText2SQLNodeKit:
                     # Remove 'sql' prefix if present
                     if sql_query.startswith("sql"):
                         sql_query = sql_query[3:].strip()
+
+            # Post-processing pass 1: fix CTE+UNION ALL comparison queries where
+            # entity column (CategoryName, CustomerName, etc.) is in WHERE but
+            # missing from SELECT/GROUP BY, making results unidentifiable.
+            sql_query = _fix_union_all_entity_in_select(sql_query)
+
+            # Post-processing pass 2: general fix — ensure every non-aggregate
+            # SELECT column is present in GROUP BY (MSSQL error 8120 prevention).
+            # Covers all query types, not just UNION ALL comparisons.
+            sql_query = _fix_select_group_by_mismatch(sql_query)
 
             # Store SQL query
             state["sql_queries"] = [sql_query]
