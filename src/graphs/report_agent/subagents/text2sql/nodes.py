@@ -1,12 +1,13 @@
 """
 Text2SQL Subagent Nodes (v2)
 
-7 node:
+8 node:
     create_table         - Pure Python: tablo oluştur (no-op if no query config)
-    business_rules       - Pure Python: ChromaDB semantic search → context + IDs
+    business_rules       - Pure Python: ChromaDB semantic search → auto_rules
+    term_resolver        - Pure Python + interrupt(): term_dict match → term_filters (guaranteed) + term_hints (LLM advisory)
     sql_architect        - LLM (STRUCTURED OUTPUT): user_query → QuerySchema (field mapping only)
     value_resolver       - Pure Python: fuzzy match + interrupt() if low confidence
-    sql_generator        - Pure Python: QuerySchema → T-SQL (NO LLM)
+    sql_generator        - Pure Python: QuerySchema + term_filters + auto_rules → T-SQL (NO LLM)
     sql_executor         - Pure Python: SQL çalıştır, hata → retry
     cleanup_table        - Pure Python: tabloyu drop et (no-op if no query config)
 """
@@ -30,7 +31,7 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
-from src.graphs.report_agent.subagents.text2sql.term_resolver import resolve_terms
+from src.graphs.report_agent.subagents.text2sql.term_resolver import resolve_terms_structured
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,64 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 
 
 # =============================================================================
+# NODE 3: TERM RESOLVER
+# =============================================================================
+
+def create_term_resolver_node() -> Callable:
+    """
+    Pure Python + optional interrupt():
+    user_query → term_filters (Python-guaranteed WHERE filters)
+               + term_hints (LLM advisory column name hints)
+
+    Ambiguous terms (ambiguous_columns alanı olan terimler) → interrupt() ile
+    kullanıcıya hangi kolon sorulur.
+
+    term_filters: sql_generator'da QuerySchema'ya merge edilir, LLM override edilir.
+    term_hints:   sql_architect prompt'una inject edilir (sadece kolon adı yönlendirmesi).
+    """
+
+    async def term_resolver_node(state: dict) -> dict:
+        user_query = state.get("user_query", "")
+        result = resolve_terms_structured(user_query)
+
+        term_filters = list(result.term_filters)  # kopyasını al
+
+        # --- Ambiguous terms: kullanıcıya sor ---
+        for amb in result.ambiguous:
+            option_labels = [
+                f"{opt['column']}: {opt.get('description', '')}"
+                for opt in amb.options
+            ]
+            answer = interrupt({
+                "type": "choice",
+                "question": (
+                    f'"{amb.term}" ifadesi birden fazla kolona karşılık gelebilir. '
+                    f'Hangi kolonu kastetdiniz?'
+                ),
+                "options": option_labels,
+            })
+            # Seçilen option'ı bul ve filter_structured varsa term_filters'a ekle
+            for opt in amb.options:
+                key = f"{opt['column']}: {opt.get('description', '')}"
+                if key == answer and opt.get("filter_structured"):
+                    fs = dict(opt["filter_structured"])
+                    fs.setdefault("logical_operator", "AND")
+                    term_filters.append(fs)
+                    break
+
+        logger.info(
+            f"[TERM_RESOLVER] {len(term_filters)} term_filter(s) set: "
+            f"{[f['column'] for f in term_filters]}"
+        )
+        return {
+            "term_filters": term_filters,
+            "term_hints":   result.hints_text,
+        }
+
+    return term_resolver_node
+
+
+# =============================================================================
 # NODE 1: SQL ARCHITECT
 # =============================================================================
 
@@ -138,8 +197,8 @@ def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
             if active_filters:
                 conversation_context += f"\nAktif filtreler: {json.dumps(active_filters[:3], ensure_ascii=False)}"
 
-        # Terim eşleştirme
-        term_hints = resolve_terms(user_query)
+        # Terim eşleştirme — term_resolver_node zaten state'e yazdı
+        term_hints = state.get("term_hints") or "Özel terim eşleşmesi bulunamadı."
 
         prompt = SQL_ARCHITECT_PROMPT.format(
             term_hints=term_hints,
@@ -301,7 +360,10 @@ def create_sql_generator_node(
     default_table_name: str,
 ) -> Callable:
     """
-    Pure Python: QuerySchema + state.auto_rules → T-SQL. LLM kullanmaz.
+    Pure Python: QuerySchema + state.auto_rules + state.term_filters → T-SQL. LLM kullanmaz.
+
+    term_filters: term_resolver tarafından Python-garantili üretilmiş WHERE filtreler.
+    Eğer term_filters ile LLM'in ürettiği QuerySchema'da aynı kolon varsa → term_filter WINS.
     """
 
     async def sql_generator_node(state: dict, *, config: RunnableConfig = None) -> dict:
@@ -309,9 +371,23 @@ def create_sql_generator_node(
         if not raw_schema:
             return {"error": "QuerySchema bulunamadı", "results": []}
 
-        table_name = _get_configurable(config, "table_name", default_table_name)
-        auto_rules = state.get("auto_rules") or []
-        today = date.today()
+        table_name   = _get_configurable(config, "table_name", default_table_name)
+        auto_rules   = state.get("auto_rules") or []
+        term_filters = state.get("term_filters") or []
+        today        = date.today()
+
+        # --- term_filters merge: Python garantili filtreler LLM'i override eder ---
+        if term_filters:
+            schema_filters = list(raw_schema.get("filters", []))
+            override_cols  = {tf["column"] for tf in term_filters}
+            # Aynı kolondaki LLM filterlerini kaldır
+            schema_filters = [f for f in schema_filters if f.get("column") not in override_cols]
+            # Garantili filtreleri ekle
+            schema_filters.extend(term_filters)
+            raw_schema = {**raw_schema, "filters": schema_filters}
+            logger.info(
+                f"[SQL_GENERATOR] term_filters merged: {[tf['column'] for tf in term_filters]}"
+            )
 
         try:
             sql = generate_sql(raw_schema, table_name, auto_rules, today)
