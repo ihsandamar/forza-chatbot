@@ -4,7 +4,7 @@ Text2SQL Subagent Nodes (v2)
 7 node:
     create_table         - Pure Python: tablo oluştur (no-op if no query config)
     business_rules       - Pure Python: ChromaDB semantic search → context + IDs
-    sql_architect        - LLM (TOOL-CALLING + STRUCTURED OUTPUT): user_query → QuerySchema
+    sql_architect        - LLM (STRUCTURED OUTPUT): user_query → QuerySchema (field mapping only)
     value_resolver       - Pure Python: fuzzy match + interrupt() if low confidence
     sql_generator        - Pure Python: QuerySchema → T-SQL (NO LLM)
     sql_executor         - Pure Python: SQL çalıştır, hata → retry
@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import pyodbc
-from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
@@ -31,7 +30,6 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
-from src.graphs.report_agent.subagents.text2sql.date_tool import resolve_date
 from src.graphs.report_agent.subagents.text2sql.term_resolver import resolve_terms
 
 logger = logging.getLogger(__name__)
@@ -114,25 +112,24 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 
 def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
     """
-    LLM (TOOL-CALLING + STRUCTURED OUTPUT): user_query → QuerySchema.
+    LLM (STRUCTURED OUTPUT): user_query → QuerySchema (field mapping only).
 
-    İki aşama, tek LangGraph node:
-      1. Tool-calling loop: LLM resolve_date tool'unu çağırarak tarih ifadelerini çözer
-      2. Structured output: Resolved context + term_hints ile QuerySchema üretir
+    LLM sadece field mapping yapar:
+      - Hangi kolon aggregate edilecek
+      - Hangi kolon group by
+      - Hangi filtreler (DateDescriptor ile tarihler)
+    Business rules Python (sql_generator) tarafından auto_rules'dan uygulanır.
     """
-    llm_with_tools  = llm.bind_tools([resolve_date])
-    structured_llm  = llm.with_structured_output(QuerySchema)
-    MAX_TOOL_ROUNDS = 5
+    structured_llm = llm.with_structured_output(QuerySchema)
 
     async def sql_architect_node(state: dict, *, config: RunnableConfig = None) -> dict:
-        user_query             = state.get("user_query", "")
-        query_type             = state.get("query_type", "SINGLE")
-        business_rules_context = state.get("business_rules_context") or "Uygulanacak kural bulunamadı."
-        active_sql             = state.get("active_sql")
-        active_filters         = state.get("active_filters") or []
-        sql_error              = state.get("sql_error") or "Yok"
-        effective_metadata     = _get_configurable(config, "column_metadata", column_metadata)
-        today                  = date.today()
+        user_query         = state.get("user_query", "")
+        query_type         = state.get("query_type", "SINGLE")
+        active_sql         = state.get("active_sql")
+        active_filters     = state.get("active_filters") or []
+        sql_error          = state.get("sql_error") or "Yok"
+        effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
+        today              = date.today()
 
         # Konuşma bağlamı
         conversation_context = "Yeni sorgu, önceki bağlam yok."
@@ -144,7 +141,7 @@ def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
         # Terim eşleştirme
         term_hints = resolve_terms(user_query)
 
-        tool_prompt = SQL_ARCHITECT_PROMPT.format(
+        prompt = SQL_ARCHITECT_PROMPT.format(
             term_hints=term_hints,
             user_query=user_query,
             query_type=query_type,
@@ -153,49 +150,16 @@ def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
             current_month=today.month,
             current_quarter=(today.month - 1) // 3 + 1,
             column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
-            business_rules_context=business_rules_context,
             conversation_context=conversation_context,
             sql_error=sql_error,
         )
 
-        # --- Aşama 1: Tool-calling loop (tarih ifadelerini çöz) ---
-        messages = [HumanMessage(content=tool_prompt)]
-        resolved_dates: Dict[str, str] = {}
-
-        for round_num in range(MAX_TOOL_ROUNDS):
-            response = await llm_with_tools.ainvoke(messages)
-
-            if not response.tool_calls:
-                logger.info(f"[SQL_ARCHITECT] No tool calls in round {round_num + 1}, proceeding")
-                break
-
-            messages.append(response)
-            for tc in response.tool_calls:
-                if tc.get("name") == "resolve_date":
-                    result = resolve_date.invoke(tc["args"])
-                    expression = tc["args"].get("expression", "?")
-                    resolved_dates[expression] = result
-                    logger.info(f"[SQL_ARCHITECT] Tool call: resolve_date('{expression}') → {result}")
-                    messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
-
-        # --- Aşama 2: Resolved date'leri context'e ekle, QuerySchema üret ---
-        if resolved_dates:
-            resolved_summary = "\n".join(
-                f'- "{expr}" → {sql}' for expr, sql in resolved_dates.items()
-            )
-            final_prompt = tool_prompt + f"\n\n## ÇÖZÜLMÜŞ TARİH İFADELERİ\n{resolved_summary}\n\nBu tarih ifadelerini SchemaFilter'lara uygula."
-        else:
-            final_prompt = tool_prompt
-
-        logger.info(
-            f"[SQL_ARCHITECT] Planning: {user_query[:80]} "
-            f"(type={query_type}, resolved_dates={len(resolved_dates)}, terms={term_hints[:60]})"
-        )
-        schema: QuerySchema = await structured_llm.ainvoke(final_prompt)
+        logger.info(f"[SQL_ARCHITECT] Planning: {user_query[:80]} (type={query_type})")
+        schema: QuerySchema = await structured_llm.ainvoke(prompt)
         logger.info(
             f"[SQL_ARCHITECT] Schema: filters={len(schema.filters)}, "
             f"aggs={len(schema.aggregations)}, group_by={schema.group_by}, "
-            f"limit={schema.limit}, rules={schema.applied_rule_ids}"
+            f"limit={schema.limit}"
         )
         return {
             "query_schema": schema.model_dump(),
@@ -299,24 +263,11 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
 # NODE 3: BUSINESS RULES
 # =============================================================================
 
-def _format_rule_sql_hint(sql: Dict[str, Any]) -> str:
-    """Rule SQL bileşenlerini kısa okunabilir hint'e çevirir."""
-    parts = []
-    if sql.get("aggregation"):
-        parts.append(f"AGG: {sql['aggregation'][:80]}")
-    if sql.get("filter"):
-        parts.append(f"FILTER: {sql['filter']}")
-    if sql.get("group_by"):
-        parts.append(f"GROUP_BY: {sql['group_by']}")
-    if sql.get("having"):
-        parts.append(f"HAVING: {sql['having']}")
-    return " | ".join(parts) if parts else "(SQL bileşeni yok)"
-
-
 def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callable:
     """
-    Pure Python: user_query → business_rules_context (LLM için ID + açıklama formatı).
-    ChromaDB semantic search. sql_architect bu bağlamı okur, rule ID'lerini seçer.
+    Pure Python: user_query → state.auto_rules (resolved rule dicts).
+    ChromaDB semantic search. sql_generator bu listeyi direkt uygular.
+    LLM business rules görmez.
     """
 
     async def business_rules_node(state: dict) -> dict:
@@ -333,26 +284,11 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callab
         )
 
         individual_rules = result.get("individual_rules", [])
-        if not individual_rules:
-            logger.info("[BUSINESS_RULES] No relevant rules found")
-            return {"business_rules_context": "Uygulanacak kural bulunamadı."}
-
-        # Individual rules formatı: LLM ID seçebilsin
-        parts = []
-        for rule in individual_rules:
-            rule_id  = rule.get("id", "?")
-            desc     = rule.get("description", "")
-            is_def   = rule.get("is_default", False)
-            sql_hint = _format_rule_sql_hint(rule.get("sql", {}))
-            tag      = " [VARSAYILAN — HER ZAMAN UYGULA]" if is_def else ""
-            parts.append(f"[{rule_id}]{tag}\n  Açıklama: {desc}\n  SQL: {sql_hint}")
-
-        context = "\n\n".join(parts)
         logger.info(
             f"[BUSINESS_RULES] {result['total_count']} rules "
             f"({result['default_count']} default, {result['semantic_count']} semantic)"
         )
-        return {"business_rules_context": context}
+        return {"auto_rules": individual_rules}
 
     return business_rules_node
 
