@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "description": "Türkçe iş terimi → DB kolon/değer eşleştirme sözlüğü. Tablo bağımsız.",
+  "terms": [
+    {
+      "term": "ciro",
+      "aliases": ["satış tutarı", "gelir", "revenue", "tutar", "satış", "kazanç", "hasılat"],
+      "column": "RowAmount",
+      "hint": "Satış tutarını temsil eder → SUM([RowAmount]) kullan"
+    },
+    {
+      "term": "adet",
+      "aliases": ["miktar", "quantity", "satış adedi", "satılan", "kaç tane"],
+      "column": "Quantity",
+      "hint": "Satış adedini temsil eder → SUM([Quantity]) kullan"
+    },
+    {
+      "term": "ödemesi alınan masa",
+      "aliases": ["kapalı masa", "tamamlanan masa", "biten masa", "ödeme alındı"],
+      "column": "IsTableActive",
+      "filter": "IsTableActive = 0",
+      "hint": "Ödemesi tamamlanmış masalar → WHERE [IsTableActive] = 0 filtresi ekle"
+    },
+    {
+      "term": "açık masa",
+      "aliases": ["aktif masa", "ödemesi alınmamış masa", "masada oturan"],
+      "column": "IsTableActive",
+      "filter": "IsTableActive = 1",
+      "hint": "Henüz ödeme alınmamış aktif masalar → WHERE [IsTableActive] = 1 filtresi ekle"
+    },
+    {
+      "term": "normal satış",
+      "aliases": ["standart satış", "ikram değil", "zayi değil", "iptal değil"],
+      "column": "DocumentDetailIsTreatWasteCancel",
+      "filter": "DocumentDetailIsTreatWasteCancel IS NULL",
+      "hint": "Sadece normal satışlar → WHERE [DocumentDetailIsTreatWasteCancel] IS NULL"
+    },
+    {
+      "term": "ikram",
+      "aliases": ["bedava", "ikram edilen", "ücretsiz"],
+      "column": "DocumentDetailIsTreatWasteCancel",
+      "filter": "DocumentDetailIsTreatWasteCancel = 1",
+      "hint": "İkram kayıtları → WHERE [DocumentDetailIsTreatWasteCancel] = 1"
+    },
+    {
+      "term": "iade",
+      "aliases": ["iade satış", "geri iade", "return"],
+      "column": "DocumentTypeIsReturn",
+      "filter": "DocumentTypeIsReturn = 1",
+      "hint": "İade işlemleri → WHERE [DocumentTypeIsReturn] = 1"
+    },
+    {
+      "term": "paket servis",
+      "aliases": ["paket", "delivery", "eve teslim", "online sipariş"],
+      "column": "DocumentKindName",
+      "filter": "DocumentKindName = 'Paket Servis'",
+      "hint": "Paket servis kanalı → WHERE [DocumentKindName] = 'Paket Servis'"
+    },
+    {
+      "term": "masa siparişi",
+      "aliases": ["masada yeme", "restoran", "masa satışı"],
+      "column": "DocumentKindName",
+      "filter": "DocumentKindName = 'Masa'",
+      "hint": "Masa kanalı → WHERE [DocumentKindName] = 'Masa'"
+    },
+    {
+      "term": "ana ürün",
+      "aliases": ["menü dışı", "bağımsız ürün", "seçenek değil"],
+      "column": "MenuId",
+      "filter": "MenuId IS NULL",
+      "hint": "Menü seçeneği olmayan ana ürünler → WHERE [MenuId] IS NULL"
+    },
+    {
+      "term": "indirim",
+      "aliases": ["iskonto", "indirim tutarı", "discount"],
+      "column": "DiscountAmountTotal",
+      "hint": "İndirim tutarını temsil eder → SUM([DiscountAmountTotal]) veya AVG([DiscountAmountTotal]) kullan"
+    },
+    {
+      "term": "adisyon",
+      "aliases": ["fiş", "sipariş", "belge", "document"],
+      "column": "DocumentId",
+      "hint": "Adisyon sayısı için → COUNT(DISTINCT [DocumentId]) kullan"
+    }
+  ]
+}
