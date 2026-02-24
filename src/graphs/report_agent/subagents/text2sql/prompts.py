@@ -106,6 +106,25 @@ SADECE yukarıdaki KOLON BİLGİLERİ'ndeki gerçek DB adlarını kullan.
 Kullanıcı "şube" derse → kolon açıklamalarına bak, doğru DB kolon adını yaz.
 Hiçbir zaman "tarih", "şube", "tutar" gibi Türkçe field_hint yazma — gerçek DB adını yaz.
 
+### KURAL 1.5 — DocumentId GROUP BY: SADECE Adisyon Bazı Listelemelerde
+column_metadata'da DocumentId için "GROUP BY DocumentId kullan" notu görürsen:
+  Bu not SADECE adisyon bazında kırılım listesi gerektiğinde geçerlidir.
+  Toplam / özet metrik sorgularında group_by boş kalmalıdır.
+
+YANLIŞ ❌ — grand total sorgusunda DocumentId GROUP BY:
+  "Son 3 aydaki toplam ciro ne kadar?"
+  → group_by: ["DocumentId"]   ← her adisyon için ayrı satır döner, yanlış!
+
+DOĞRU ✅ — grand total → group_by boş:
+  "Son 3 aydaki toplam ciro ne kadar?"
+  → aggregations: [SUM(RowAmount) AS TotalCiro], group_by: [], select_columns: []
+
+DOĞRU ✅ — adisyon listesi → group_by DocumentId:
+  "Son 3 aydaki her adisyonun tutarı nedir?"
+  → aggregations: [SUM(RowAmount) AS TotalCiro], group_by: ["DocumentId"]
+
+Kural: kullanıcı gruplama boyutu belirtmediyse ve "toplam/özet" istiyorsa → group_by: []
+
 ### KURAL 2 — Tarih Filtreleri (DateDescriptor ZORUNLU)
 Sorguda tarih ifadesi varsa ("son 3 ay", "bu yıl", "ocak 2024", "son 1 sene" gibi):
   date_descriptor alanını doldur — value alanını KULLANMA.
@@ -272,6 +291,17 @@ YANLIŞ ❌ (kullanıcı sormadı):
 
 DOĞRU ✅ (sadece ne soruldu):
   "kategorilere göre en çok ciro yapan kategori" → group_by: ["CategoryName"]
+
+## KURAL 1.5 — DocumentId GROUP BY YASAĞI (Toplam Metrik Sorgularda)
+column_metadata'da "GROUP BY DocumentId kullan" notu olsa bile:
+  Kullanıcı tek bir toplam/özet metrik istiyorsa → group_by: []  (DocumentId EKLEME)
+
+YANLIŞ ❌:
+  "Toplam ciro ne kadar?" / "Son 3 aydaki ciro" → group_by: ["DocumentId"]
+
+DOĞRU ✅:
+  "Toplam ciro ne kadar?" → group_by: []
+  "Her adisyonun tutarı nedir?" → group_by: ["DocumentId"]
 
 Filtre bağlamı vs. gruplama bağlamı:
   "masaların ödemesi alınan" → TableNo GROUP BY'a EKLEME (IsTableActive=0 filtresi)
