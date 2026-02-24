@@ -19,6 +19,9 @@ _SQL_FUNC_RE = re.compile(
 # Zaten tam aggregation expression'ı tespit et (SUM(...) gibi)
 _AGG_EXPR_RE = re.compile(r"^\s*(SUM|COUNT|AVG|MAX|MIN)\s*\(", re.IGNORECASE)
 
+# date_descriptor SADECE bu kolonlara uygulanır; diğer kolonlardaki date_descriptor drop edilir
+_DATE_COLUMNS: frozenset[str] = frozenset({"DocumentDate", "Date"})
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,16 +70,25 @@ def _resolve_date_filter(col_expr: str, descriptor: Dict[str, Any], operator: st
 
 def _resolve_filter(f: Dict[str, Any], today: date) -> Optional[str]:
     """Tek SchemaFilter dict'ini SQL koşul string'ine çevir. None = atla."""
-    col = _col_expr(f["column"])
+    col_name = f["column"]
+    col = _col_expr(col_name)
     op = f.get("operator", "=")
 
     # IS NULL / IS NOT NULL — değer gerektirmez
     if op in ("IS NULL", "IS NOT NULL"):
         return f"{col} {op}"
 
-    # Tarih filtresi
+    # Tarih filtresi — SADECE gerçek tarih kolonlarına uygula
+    # Örn: IsTableActive boolean bir kolon, date_descriptor almamalı
     date_desc = f.get("date_descriptor")
     if date_desc:
+        if col_name not in _DATE_COLUMNS:
+            logger.warning(
+                "[SQL_BUILDER] date_descriptor on non-date column '%s' dropped — "
+                "LLM hallucination guard; use value= instead",
+                col_name,
+            )
+            return None
         result = _resolve_date_filter(col, date_desc, op, today)
         if result:
             return result

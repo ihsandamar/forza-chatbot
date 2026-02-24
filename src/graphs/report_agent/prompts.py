@@ -11,7 +11,7 @@ class IntentClassificationResult(BaseModel):
     """Intent + query type — tek LLM çağrısı ile sınıflandırma."""
 
     intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT"]
-    query_type: Literal["SINGLE", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
+    query_type: Literal["SINGLE", "LISTING", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
     wants_visualization: bool = False           # Kullanıcı açıkça grafik/chart istedi mi?
     use_result_type: Optional[Literal["new_query", "revisualize"]] = None
@@ -69,7 +69,10 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   → use_result_type="revisualize": Aynı veriyi farklı chart/format ile göster
 
 **query_type:**
-- SINGLE: Tek bir metrik veya liste sorgusu
+- SINGLE: Tek bir metrik veya toplam (ör: "toplam ciro nedir?", "kaç adisyon açıldı?")
+- LISTING: Belirli bir boyut filtrelenip başka bir boyutun detayı listeleniyor
+  (ör: "dürümler kategorisindeki ürünler", "Ankara şubesindeki satışlar", "paket servisteki kategoriler")
+  → Bir boyut değer filtresi, diğer boyut GROUP BY
 - RANKING: Sıralama / top-N / en fazla / en az
 - COMPARISON: İki veya daha fazla grubun karşılaştırması
 - TIME_SERIES_COMPARISON: Dönemler arası karşılaştırma (ay/yıl/çeyrek)

@@ -112,6 +112,13 @@ Sorguda tarih ifadesi varsa ("son 3 ay", "bu yıl", "ocak 2024", "son 1 sene" gi
 
 ÖNEMLİ: "sene" = "yıl" (Türkçe sinonim). İkisi de aynı DateDescriptor'ı üretir.
 
+⚠️ date_descriptor SADECE gerçek tarih kolonu olan `DocumentDate`'e uygula.
+   IsTableActive, Quantity, RowAmount gibi boolean/sayısal kolonlara date_descriptor ASLA koyma.
+   Kullanıcı "son 1 yılda ödemesi alınan masalar" derse:
+     - DocumentDate → date_descriptor (tarih filtresi) ✓
+     - IsTableActive → value="0", operator="=" (boolean filtresi) ✓
+     - IsTableActive → date_descriptor KULLANMA ✗
+
 Örnekler:
   "son 3 ay"          → {{"type":"relative","unit":"month","amount":-3}},   operator: ">="
   "son 7 gün"         → {{"type":"relative","unit":"day","amount":-7}},     operator: ">="
@@ -164,6 +171,38 @@ Limit değeri:
 "yıllık satışlar"  → group_by: ["YEAR(TarihKolonu)"]
 "saatlik dağılım"  → group_by: ["CAST(TarihKolonu AS DATE)", "HourKolonu"]
 Tarih kolonu adını column_metadata'dan al.
+
+### KURAL 7 — LİSTELEME Sorguları (LISTING query_type) — KRİTİK
+"[boyut_değeri] [boyut_adı]sindeki/ndaki [detay_boyutu]ların satışları/listesi" kalıbı:
+  → [boyut_değeri] → WHERE filtresi (value_hint kullan — value_resolver çözecek)
+  → [detay_boyutu] → GROUP BY
+
+YANLIŞ ❌ — boyut değeri GROUP BY'a koyma:
+  "dürümler kategorisindeki ürünlerin satışları"
+  → group_by: ["CategoryName"]   ← YANLIŞ (CategoryName bir filtre değeri, gruplama boyutu değil)
+
+DOĞRU ✅ — boyut değeri filtre, detay GROUP BY:
+  "dürümler kategorisindeki ürünlerin satışları"
+  → filters: column=CategoryName, operator="=", value_hint="dürümler"
+  → group_by: ["ProductName"]
+  → aggregations: [SUM(RowAmount) AS TotalSales]
+
+Daha fazla örnek:
+  "Ankara şubesindeki ürünlerin ciroları"
+  → filters: column=BranchName, value_hint="Ankara"
+  → group_by: ["ProductName"]
+
+  "paket servisteki kategorilerin satış adetleri"
+  → filters: column=DocumentKindName, value_hint="paket servis"
+  → group_by: ["CategoryName"]
+
+  "dürümler kategorisindeki ürünlerin bu yıl satışları"
+  → filters: column=CategoryName, value_hint="dürümler"
+           + column=DocumentDate, date_descriptor=current_period:year
+  → group_by: ["ProductName"]
+
+ÖNEMLİ: term_hints'te bir kolon için "group_by veya select kullan" yazıyorsa bile,
+sorgudan o kolonun FİLTRE değeri olduğu anlaşılıyorsa filters'a koy, group_by'a KOYMA.
 
 ### KURAL 6 — Hata Düzeltme
 ÖNCEKİ SQL HATASI varsa:
@@ -242,10 +281,33 @@ Belirleyici kelimeler:
   "...e göre", "...lere göre", "...bazında", "...kırılımında" → GROUP BY
   "...nın/nin/ların/lerin X'i" → filtre, GROUP BY değil
 
+## KURAL 6 — LİSTELEME: Boyut Değeri Filtre, Detay Boyutu GROUP BY
+"[değer] [boyut]sindeki [detay]ların ..." kalıbında:
+  → [değer] [boyut] = WHERE filtresi
+  → [detay] = GROUP BY
+
+YANLIŞ ❌:
+  "dürümler kategorisindeki ürünlerin satışları"
+  → group_by: ["CategoryName"]   ← CategoryName değer filtresidir, GROUP BY değil
+
+DOĞRU ✅:
+  "dürümler kategorisindeki ürünlerin satışları"
+  → filters: column=CategoryName, value_hint="dürümler"  |  group_by: ["ProductName"]
+
+  "Ankara şubesindeki kategorilerin satışları"
+  → filters: column=BranchName, value_hint="Ankara"  |  group_by: ["CategoryName"]
+
+term_hints'te "group_by veya select kullan" yazıyor olsa bile,
+sorguda o kolona ait spesifik bir değer varsa ("dürümler", "Ankara" gibi) → filters'a koy.
+
 ## KURAL 2 — FİLTRELER (DateDescriptor ZORUNLU)
 Tarih ifadelerinde DateDescriptor kullan, value alanını kullanma.
 
 "sene" = "yıl" (sinonim).
+
+⚠️ date_descriptor SADECE `DocumentDate` kolonuna uygula.
+   IsTableActive boolean bir kolandır (0/1) — date_descriptor ASLA koyma.
+   "son 1 yılda ödemesi alınan masalar" → DocumentDate'e date_descriptor, IsTableActive'e value="0" ✓
 
 Örnekler:
   "son 1 yıl" / "son 1 sene" / "son 1 senede" → {{"type":"relative","unit":"year","amount":-1}}, operator: ">="
