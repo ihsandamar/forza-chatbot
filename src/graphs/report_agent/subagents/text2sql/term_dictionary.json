@@ -1,86 +1,130 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "description": "Türkçe iş terimi → DB kolon/değer eşleştirme sözlüğü. Tablo bağımsız.",
   "terms": [
     {
       "term": "ciro",
       "aliases": ["satış tutarı", "gelir", "revenue", "tutar", "satış", "kazanç", "hasılat"],
       "column": "RowAmount",
-      "hint": "Satış tutarını temsil eder → SUM([RowAmount]) kullan"
+      "hint": "Satış tutarını temsil eder → aggregations: SUM([RowAmount]) kullan"
     },
     {
       "term": "adet",
       "aliases": ["miktar", "quantity", "satış adedi", "satılan", "kaç tane"],
       "column": "Quantity",
-      "hint": "Satış adedini temsil eder → SUM([Quantity]) kullan"
+      "hint": "Satış adedini temsil eder → aggregations: SUM([Quantity]) kullan"
     },
     {
       "term": "ödemesi alınan masa",
-      "aliases": ["kapalı masa", "tamamlanan masa", "biten masa", "ödeme alındı"],
+      "aliases": ["kapalı masa", "tamamlanan masa", "biten masa", "ödeme alındı", "ödemesi alınan"],
       "column": "IsTableActive",
       "filter": "IsTableActive = 0",
-      "hint": "Ödemesi tamamlanmış masalar → WHERE [IsTableActive] = 0 filtresi ekle"
+      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "0"},
+      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "açık masa",
       "aliases": ["aktif masa", "ödemesi alınmamış masa", "masada oturan"],
       "column": "IsTableActive",
       "filter": "IsTableActive = 1",
-      "hint": "Henüz ödeme alınmamış aktif masalar → WHERE [IsTableActive] = 1 filtresi ekle"
+      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "1"},
+      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "normal satış",
       "aliases": ["standart satış", "ikram değil", "zayi değil", "iptal değil"],
       "column": "DocumentDetailIsTreatWasteCancel",
       "filter": "DocumentDetailIsTreatWasteCancel IS NULL",
-      "hint": "Sadece normal satışlar → WHERE [DocumentDetailIsTreatWasteCancel] IS NULL"
+      "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "IS NULL"},
+      "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "ikram",
       "aliases": ["bedava", "ikram edilen", "ücretsiz"],
       "column": "DocumentDetailIsTreatWasteCancel",
       "filter": "DocumentDetailIsTreatWasteCancel = 1",
-      "hint": "İkram kayıtları → WHERE [DocumentDetailIsTreatWasteCancel] = 1"
+      "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "=", "value": "1"},
+      "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "iade",
       "aliases": ["iade satış", "geri iade", "return"],
       "column": "DocumentTypeIsReturn",
       "filter": "DocumentTypeIsReturn = 1",
-      "hint": "İade işlemleri → WHERE [DocumentTypeIsReturn] = 1"
+      "filter_structured": {"column": "DocumentTypeIsReturn", "operator": "=", "value": "1"},
+      "hint": "[DocumentTypeIsReturn] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "paket servis",
       "aliases": ["paket", "delivery", "eve teslim", "online sipariş"],
       "column": "DocumentKindName",
       "filter": "DocumentKindName = 'Paket Servis'",
-      "hint": "Paket servis kanalı → WHERE [DocumentKindName] = 'Paket Servis'"
+      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Paket Servis"},
+      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "masa siparişi",
       "aliases": ["masada yeme", "restoran", "masa satışı"],
       "column": "DocumentKindName",
       "filter": "DocumentKindName = 'Masa'",
-      "hint": "Masa kanalı → WHERE [DocumentKindName] = 'Masa'"
+      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Masa"},
+      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "ana ürün",
       "aliases": ["menü dışı", "bağımsız ürün", "seçenek değil"],
       "column": "MenuId",
       "filter": "MenuId IS NULL",
-      "hint": "Menü seçeneği olmayan ana ürünler → WHERE [MenuId] IS NULL"
+      "filter_structured": {"column": "MenuId", "operator": "IS NULL"},
+      "hint": "[MenuId] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
     },
     {
       "term": "indirim",
       "aliases": ["iskonto", "indirim tutarı", "discount"],
       "column": "DiscountAmountTotal",
-      "hint": "İndirim tutarını temsil eder → SUM([DiscountAmountTotal]) veya AVG([DiscountAmountTotal]) kullan"
+      "hint": "İndirim tutarı → aggregations: SUM([DiscountAmountTotal]) veya AVG([DiscountAmountTotal]) kullan"
     },
     {
       "term": "adisyon",
       "aliases": ["fiş", "sipariş", "belge", "document"],
       "column": "DocumentId",
-      "hint": "Adisyon sayısı için → COUNT(DISTINCT [DocumentId]) kullan"
+      "hint": "Adisyon sayısı için → aggregations: COUNT(DISTINCT [DocumentId]) kullan"
+    },
+    {
+      "term": "kategori",
+      "aliases": ["kategoriler", "kategoriye göre", "kategorilere göre", "kategoride", "ürün kategorisi"],
+      "column": "CategoryName",
+      "hint": "Kategori kolonu → group_by veya select: [CategoryName] kullan"
+    },
+    {
+      "term": "ürün",
+      "aliases": ["ürünler", "ürüne göre", "ürünlere göre", "ürün adı", "menü ürünü"],
+      "column": "ProductName",
+      "hint": "Ürün kolonu → group_by veya select: [ProductName] kullan"
+    },
+    {
+      "term": "şube",
+      "aliases": ["şubeler", "şubeye göre", "şubelere göre", "şubede", "lokasyon"],
+      "column": "BranchName",
+      "hint": "Şube kolonu → group_by veya select: [BranchName] kullan"
+    },
+    {
+      "term": "kasiyer",
+      "aliases": ["kasiyerler", "kasiyere göre", "kasiyerlere göre", "kasiyer adı"],
+      "column": "CashierName",
+      "hint": "Kasiyer kolonu → group_by veya select: [CashierName] kullan"
+    },
+    {
+      "term": "masa",
+      "aliases": ["masa numarası", "masa no", "table no", "masalar"],
+      "column": "TableNo",
+      "hint": "Masa numarası kolonu → group_by veya select: [TableNo] kullan"
+    },
+    {
+      "term": "şehir",
+      "aliases": ["şehirler", "şehre göre", "şehirlere göre", "il"],
+      "column": "BranchCityName",
+      "hint": "Şehir kolonu → group_by veya select: [BranchCityName] kullan"
     }
   ]
 }
