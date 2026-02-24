@@ -519,9 +519,35 @@ class BusinessRulesVectorStore:
         default_count = sum(1 for r in unique_results if r['is_default'])
         semantic_count = len(unique_results) - default_count
 
+        # 6. Individual rules listesi (business_rules_node için — LLM ID seçer)
+        individual_rules = []
+        seen_individual_ids: set = set()
+        for r in unique_results:
+            rid = r['rule_id']
+            if rid in seen_individual_ids:
+                continue
+            seen_individual_ids.add(rid)
+            meta = r.get('metadata', {})
+            sql = {
+                "aggregation": meta.get("sql_aggregation") or None,
+                "filter":      meta.get("sql_filter") or None,
+                "group_by":    meta.get("sql_group_by") or None,
+                "select":      meta.get("sql_select") or None,
+                "join":        meta.get("sql_join") or None,
+                "having":      meta.get("sql_having") or None,
+            }
+            individual_rules.append({
+                "id":          rid,
+                "description": meta.get("description", ""),
+                "sql":         sql,
+                "is_default":  r.get("is_default", False),
+                "source":      "default" if r.get("is_default") else "semantic",
+            })
+
         return {
-            'rules': unique_results,
-            'merged_sql': merged_sql,
+            'individual_rules': individual_rules,   # LLM ID seçimi için
+            'rules': unique_results,                # Backward compat
+            'merged_sql': merged_sql,               # sql_generator için
             'default_count': default_count,
             'semantic_count': semantic_count,
             'total_count': len(unique_results)
