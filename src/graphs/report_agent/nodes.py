@@ -31,6 +31,19 @@ def create_classify_intent_node(llm) -> Callable:
         active_results = state.get("active_results") or []
         messages = state.get("messages", [])
 
+        # user_query boşsa (LangGraph Studio sadece messages gönderdiğinde)
+        # son HumanMessage'dan extract et
+        extracted_from_messages = False
+        if not user_query:
+            human_msgs = [
+                m for m in messages
+                if isinstance(m, HumanMessage) and m.content and m.content.strip()
+            ]
+            if human_msgs:
+                user_query = human_msgs[-1].content.strip()
+                extracted_from_messages = True
+                logger.info(f"[CLASSIFY] user_query extracted from messages: {user_query[:80]}")
+
         history_parts = []
         for msg in messages[-4:]:
             if isinstance(msg, HumanMessage):
@@ -67,14 +80,18 @@ def create_classify_intent_node(llm) -> Callable:
         # revisualize her zaman görselleştirme talebidir
         wants_viz = result.wants_visualization or (result.use_result_type == "revisualize")
 
-        return {
+        return_dict = {
+            "user_query": user_query,   # downstream node'lar (term_resolver, sql_architect) okur
             "intent_type": result.intent_type,
             "query_type": result.query_type,
             "intent_confidence": result.confidence,
             "wants_visualization": wants_viz,
             "use_result_type": result.use_result_type,
-            "messages": [HumanMessage(content=user_query)],
         }
+        # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
+        if not extracted_from_messages and user_query:
+            return_dict["messages"] = [HumanMessage(content=user_query)]
+        return return_dict
 
     return classify_intent_node
 
