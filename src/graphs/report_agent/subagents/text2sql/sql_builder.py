@@ -7,8 +7,17 @@ LLM kullanmaz. Deterministik ve test edilebilir.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from typing import Any, Dict, List, Optional
+
+# SQL function expression'larını tespit et — string'e quote edilmemeli
+_SQL_FUNC_RE = re.compile(
+    r"^\s*(DATEADD|CAST|GETDATE|GETUTCDATE|SYSDATETIME|YEAR|MONTH|DAY|DATEPART|DATEDIFF)\s*\(",
+    re.IGNORECASE,
+)
+# Zaten tam aggregation expression'ı tespit et (SUM(...) gibi)
+_AGG_EXPR_RE = re.compile(r"^\s*(SUM|COUNT|AVG|MAX|MIN)\s*\(", re.IGNORECASE)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +100,9 @@ def _resolve_filter(f: Dict[str, Any], today: date) -> Optional[str]:
         # value "val1 AND val2" formatında olmalı
         return f"{col} BETWEEN {value}"
     else:
+        # SQL function expression mı? (DATEADD, CAST, vb.) — quote etme
+        if _SQL_FUNC_RE.match(value):
+            return f"{col} {op} {value}"
         # Sayısal mı?
         try:
             float(value_clean.replace(",", "."))
@@ -126,7 +138,11 @@ def _build_select_parts(schema_dict: Dict[str, Any], applied_rules: List[Dict[st
             if agg_rule_modifier and func == "SUM":
                 # Business rule aggregation içeriğini kullan
                 inner = agg_rule_modifier.replace("{col}", agg["column"]).replace("{column}", agg["column"])
-                parts.append(f"{func}({inner}) AS [{alias}]")
+                # Rule modifier zaten tam aggregation expression'ı ise (SUM/COUNT/AVG...) — double-wrap etme
+                if _AGG_EXPR_RE.match(inner):
+                    parts.append(f"{inner} AS [{alias}]")
+                else:
+                    parts.append(f"{func}({inner}) AS [{alias}]")
             else:
                 parts.append(f"{func}({col_expr}) AS [{alias}]")
 
