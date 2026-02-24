@@ -111,7 +111,7 @@ Hiçbir zaman "tarih", "şube", "tutar" gibi Türkçe field_hint yazma — gerç
 ### KURAL 2 — Tarih Filtreleri (resolve_date TOOL ZORUNLU)
 Sorguda tarih ifadesi varsa ("son 3 ay", "bu yıl", "ocak 2024" gibi):
   1. resolve_date("ifade") tool'unu çağır
-  2. Tool "{col}" placeholder'lı SQL döner — {col} yerine column_metadata'dan doğru tarih kolonu adını yaz
+  2. Tool "{{col}}" placeholder'lı SQL döner — {{col}} yerine column_metadata'dan doğru tarih kolonu adını yaz
   3. OP:>= ile başlıyorsa → operator: ">=", value: DATEADD(...) kısmı
      OP:BETWEEN ile başlıyorsa → operator: "BETWEEN", value: tarih aralığı
      OP:= ile başlıyorsa → operator: "=", value: tarih
