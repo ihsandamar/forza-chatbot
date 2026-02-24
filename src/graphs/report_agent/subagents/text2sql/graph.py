@@ -1,16 +1,17 @@
 """
 Text2SQL Subagent Graph (v2)
 
-START → create_table → business_rules → sql_architect → value_resolver
-        → sql_generator → sql_executor ──────────────────────────────────┐
-                               ↑ (retry, max 2)                           │
-                               └──────────────────────────────────────────┘
-                                                                           ↓
-                                                                    cleanup_table → END
+START → create_table → business_rules → term_resolver → sql_architect → value_resolver
+        → sql_generator → sql_executor ──────────────────────────────────────────────┐
+                               ↑ (retry, max 2)                                       │
+                               └──────────────────────────────────────────────────────┘
+                                                                                       ↓
+                                                                            cleanup_table → END
 
 create_table / cleanup_table: runtime config'te query varsa çalışır, yoksa no-op.
+term_resolver: Deterministik — term_filters (Python garantili) + term_hints (LLM advisory)
 sql_architect: TEK LLM çağrısı. Retry'da sql_error bağlamıyla yeniden çağrılır.
-sql_generator: Pure Python. LLM yok.
+sql_generator: Pure Python. term_filters + auto_rules merge eder, LLM yok.
 """
 import logging
 from pathlib import Path
@@ -27,6 +28,7 @@ from src.graphs.report_agent.subagents.text2sql.nodes import (
     create_sql_architect_node,
     create_sql_executor_node,
     create_sql_generator_node,
+    create_term_resolver_node,
     create_value_resolver_node,
 )
 from src.graphs.report_agent.subagents.text2sql.state import Text2SQLState
@@ -88,6 +90,7 @@ def build_text2sql_graph(
     # --- Node factories ---
     create_table        = create_create_table_node(connection_string, table_name)
     business_rules      = create_business_rules_node(vector_store)
+    term_resolver       = create_term_resolver_node()
     sql_architect       = create_sql_architect_node(llm, column_metadata)
     value_resolver_node = create_value_resolver_node(value_resolver)
     sql_generator       = create_sql_generator_node(table_name)
@@ -99,18 +102,20 @@ def build_text2sql_graph(
 
     graph.add_node("create_table",   create_table)
     graph.add_node("business_rules", business_rules)
+    graph.add_node("term_resolver",  term_resolver)
     graph.add_node("sql_architect",  sql_architect)
     graph.add_node("value_resolver", value_resolver_node)
     graph.add_node("sql_generator",  sql_generator)
     graph.add_node("sql_executor",   sql_executor)
     graph.add_node("cleanup_table",  cleanup_table)
 
-    graph.add_edge(START,            "create_table")
-    graph.add_edge("create_table",   "business_rules")
-    graph.add_edge("business_rules", "sql_architect")
-    graph.add_edge("sql_architect",  "value_resolver")
-    graph.add_edge("value_resolver", "sql_generator")
-    graph.add_edge("sql_generator",  "sql_executor")
+    graph.add_edge(START,             "create_table")
+    graph.add_edge("create_table",    "business_rules")
+    graph.add_edge("business_rules",  "term_resolver")
+    graph.add_edge("term_resolver",   "sql_architect")
+    graph.add_edge("sql_architect",   "value_resolver")
+    graph.add_edge("value_resolver",  "sql_generator")
+    graph.add_edge("sql_generator",   "sql_executor")
     graph.add_conditional_edges(
         "sql_executor",
         _route_after_executor,
@@ -121,7 +126,7 @@ def build_text2sql_graph(
     compiled = graph.compile()
     logger.info(
         "[TEXT2SQL] Subgraph v2 built: "
-        "create_table → business_rules → sql_architect → value_resolver "
+        "create_table → business_rules → term_resolver → sql_architect → value_resolver "
         "→ sql_generator → sql_executor → cleanup_table (max 2 retry)"
     )
     return compiled
