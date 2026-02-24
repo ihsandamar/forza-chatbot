@@ -142,10 +142,24 @@ DOĞRU ✅:
 "saatlik dağılım"  → group_by: ["CAST(TarihKolonu AS DATE)", "HourKolonu"]
 Tarih kolonu adını column_metadata'dan al.
 
-### KURAL 6 — Business Rules
-KURALLAR bölümündeki her kural için ID listesini applied_rule_ids'e yaz.
-SQL bileşenlerini (WHERE koşulu, SUM ifadesi) KENDİN YAZMA — Python uygular.
-Sadece hangi rule'un uygulanacağını belirt.
+### KURAL 6 — Business Rules Seçimi (KRİTİK)
+"UYGULANACAK İŞ KURALLARI" bölümünde kurallar [id] formatında listelenmiştir.
+
+Uygulama adımları:
+  1. [VARSAYILAN — HER ZAMAN UYGULA] etiketli rule ID'lerini applied_rule_ids'e MUTLAKA ekle
+  2. Diğer rule'ların Açıklama'sını kullanıcı sorgusuyla karşılaştır
+  3. Sorguyla örtüşen her rule'un ID'sini applied_rule_ids'e ekle
+  4. SQL bileşenlerini (WHERE, SUM, GROUP BY) KENDİN YAZMA — Python uygular
+
+Örnekler:
+  Sorgu: "ödemesi alınan masaların cirosu" →
+    applied_rule_ids: ["iade_dusulmus", "kapali_masa_filtre"]
+
+  Sorgu: "toplam satış tutarı" →
+    applied_rule_ids: ["iade_dusulmus"]
+
+  Sorgu: "açık masalardaki normal satışlar" →
+    applied_rule_ids: ["iade_dusulmus", "acik_masa_filtre", "sadece_normal_satis"]
 
 ### KURAL 7 — Hata Düzeltme
 ÖNCEKİ SQL HATASI varsa:
