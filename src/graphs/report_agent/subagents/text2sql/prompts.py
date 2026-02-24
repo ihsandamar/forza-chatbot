@@ -68,6 +68,9 @@ class QuerySchema(BaseModel):
 
 SQL_ARCHITECT_PROMPT = """Sen bir T-SQL sorgu mimarısın. Kullanıcı sorusunu analiz et ve yapılandırılmış bir sorgu şeması (QuerySchema) üret.
 
+## SORGUDA TESPİT EDİLEN İŞ TERİMLERİ (Doğrudan Uygula)
+{term_hints}
+
 ## BUGÜNÜN TARİHİ
 - Tarih: {today_date}
 - Yıl: {current_year}
@@ -96,27 +99,25 @@ SQL_ARCHITECT_PROMPT = """Sen bir T-SQL sorgu mimarısın. Kullanıcı sorusunu 
 
 ## KURALLAR
 
+### KURAL 0 — Terim Eşleştirmeleri (EN YÜKSEK ÖNCELİK)
+"SORGUDA TESPİT EDİLEN İŞ TERİMLERİ" bölümündeki eşleştirmeleri MUTLAKA uygula.
+Bu bölümdeki filtreler ve kolon seçimleri kesindir — column_metadata'dan bağımsız olarak geçerlidir.
+
 ### KURAL 1 — Kolon Adları
 SADECE yukarıdaki KOLON BİLGİLERİ'ndeki gerçek DB adlarını kullan.
 Kullanıcı "şube" derse → kolon açıklamalarına bak, doğru DB kolon adını yaz.
 Hiçbir zaman "tarih", "şube", "tutar" gibi Türkçe field_hint yazma — gerçek DB adını yaz.
 
-### KURAL 2 — Tarih Filtreleri (DateDescriptor ZORUNLU)
-Tarih olan filtreler için value/value_hint DEĞİL, date_descriptor doldur.
+### KURAL 2 — Tarih Filtreleri (resolve_date TOOL ZORUNLU)
+Sorguda tarih ifadesi varsa ("son 3 ay", "bu yıl", "ocak 2024" gibi):
+  1. resolve_date("ifade") tool'unu çağır
+  2. Tool "{col}" placeholder'lı SQL döner — {col} yerine column_metadata'dan doğru tarih kolonu adını yaz
+  3. OP:>= ile başlıyorsa → operator: ">=", value: DATEADD(...) kısmı
+     OP:BETWEEN ile başlıyorsa → operator: "BETWEEN", value: tarih aralığı
+     OP:= ile başlıyorsa → operator: "=", value: tarih
+     Düz expression ise (YEAR(...)) → value alanına direkt yaz, date_descriptor kullanma
 
-Örnekler:
-  "son 3 ay"      → {{"type":"relative","unit":"month","amount":-3}},   operator: ">="
-  "son 7 gün"     → {{"type":"relative","unit":"day","amount":-7}},     operator: ">="
-  "son 1 yıl"     → {{"type":"relative","unit":"year","amount":-1}},    operator: ">="
-  "bu yıl"        → {{"type":"current_period","period":"year"}}
-  "bu ay"         → {{"type":"current_period","period":"month"}}
-  "bugün"         → {{"type":"current_period","period":"day"}}
-  "bu çeyrek"     → {{"type":"current_period","period":"quarter"}}
-  "15 ocak"       → {{"type":"exact","value":"{current_year}-01-15"}},  operator: "="
-  "ocak 2024"     → iki filter: >= {{"type":"exact","value":"2024-01-01"}}
-                              ve <= {{"type":"exact","value":"2024-01-31"}}
-
-Tarih filtresi için value alanını KULLANMA — date_descriptor kullan.
+Tarih filtresinde date_descriptor KULLANMA — tool sonucunu kullan.
 
 ### KURAL 3 — GROUP BY Zorunluluğu (KRİTİK)
 Aggregation varsa:
