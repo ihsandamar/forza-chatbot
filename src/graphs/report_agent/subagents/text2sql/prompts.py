@@ -50,16 +50,17 @@ class QuerySchema(BaseModel):
     """
     sql_architect node'unun structured output'u.
     Tüm alanlar gerçek DB kolon adları içerir — Python bu şemadan SQL üretir.
+    Business rules Python tarafından otomatik uygulanır (LLM seçmez).
     """
     description:        str
-    select_columns:     List[str]            # Aggregation yoksa gösterilecek kolonlar (boş olabilir)
+    select_columns:     List[str]
     filters:            List[SchemaFilter]
     aggregations:       List[SchemaAggregation]
-    group_by:           List[str]            # Gerçek kolon adları veya SQL expression
+    group_by:           List[str]
     order_by_column:    Optional[str] = None
     order_by_direction: Literal["ASC", "DESC"] = "DESC"
     limit:              Optional[int] = None
-    applied_rule_ids:   List[str] = []       # Business rule ID'leri — Python SQL'e ekler
+    # applied_rule_ids KALDIRILDI — Python auto_rules'dan uygular
 
 
 # =============================================================================
@@ -86,9 +87,6 @@ SQL_ARCHITECT_PROMPT = """Sen bir T-SQL sorgu mimarısın. Kullanıcı sorusunu 
 ## VERİTABANI KOLON BİLGİLERİ
 {column_metadata}
 
-## UYGULANACAK İŞ KURALLARI (ChromaDB'den seçilmiş)
-{business_rules_context}
-
 ## KONUŞMA BAĞLAMI
 {conversation_context}
 
@@ -108,16 +106,23 @@ SADECE yukarıdaki KOLON BİLGİLERİ'ndeki gerçek DB adlarını kullan.
 Kullanıcı "şube" derse → kolon açıklamalarına bak, doğru DB kolon adını yaz.
 Hiçbir zaman "tarih", "şube", "tutar" gibi Türkçe field_hint yazma — gerçek DB adını yaz.
 
-### KURAL 2 — Tarih Filtreleri (resolve_date TOOL ZORUNLU)
+### KURAL 2 — Tarih Filtreleri (DateDescriptor ZORUNLU)
 Sorguda tarih ifadesi varsa ("son 3 ay", "bu yıl", "ocak 2024" gibi):
-  1. resolve_date("ifade") tool'unu çağır
-  2. Tool "{{col}}" placeholder'lı SQL döner — {{col}} yerine column_metadata'dan doğru tarih kolonu adını yaz
-  3. OP:>= ile başlıyorsa → operator: ">=", value: DATEADD(...) kısmı
-     OP:BETWEEN ile başlıyorsa → operator: "BETWEEN", value: tarih aralığı
-     OP:= ile başlıyorsa → operator: "=", value: tarih
-     Düz expression ise (YEAR(...)) → value alanına direkt yaz, date_descriptor kullanma
+  date_descriptor alanını doldur — value alanını KULLANMA.
 
-Tarih filtresinde date_descriptor KULLANMA — tool sonucunu kullan.
+Örnekler:
+  "son 3 ay"      → {{"type":"relative","unit":"month","amount":-3}},   operator: ">="
+  "son 7 gün"     → {{"type":"relative","unit":"day","amount":-7}},     operator: ">="
+  "son 1 yıl"     → {{"type":"relative","unit":"year","amount":-1}},    operator: ">="
+  "bu yıl"        → {{"type":"current_period","period":"year"}},        operator: ">="
+  "bu ay"         → {{"type":"current_period","period":"month"}},       operator: ">="
+  "bugün"         → {{"type":"current_period","period":"day"}},         operator: ">="
+  "bu çeyrek"     → {{"type":"current_period","period":"quarter"}},     operator: ">="
+  "15 ocak"       → {{"type":"exact","value":"{current_year}-01-15"}},  operator: "="
+  "ocak 2024"  → filter 1: {{"type":"exact","value":"2024-01-01"}}, operator: ">="
+               → filter 2: {{"type":"exact","value":"2024-01-31"}}, operator: "<=", logical_operator: "AND"
+
+Tarih filtresi için value alanını KULLANMA — date_descriptor kullan.
 
 ### KURAL 3 — GROUP BY Zorunluluğu (KRİTİK)
 Aggregation varsa:
@@ -143,26 +148,7 @@ DOĞRU ✅:
 "saatlik dağılım"  → group_by: ["CAST(TarihKolonu AS DATE)", "HourKolonu"]
 Tarih kolonu adını column_metadata'dan al.
 
-### KURAL 6 — Business Rules Seçimi (KRİTİK)
-"UYGULANACAK İŞ KURALLARI" bölümünde kurallar [id] formatında listelenmiştir.
-
-Uygulama adımları:
-  1. [VARSAYILAN — HER ZAMAN UYGULA] etiketli rule ID'lerini applied_rule_ids'e MUTLAKA ekle
-  2. Diğer rule'ların Açıklama'sını kullanıcı sorgusuyla karşılaştır
-  3. Sorguyla örtüşen her rule'un ID'sini applied_rule_ids'e ekle
-  4. SQL bileşenlerini (WHERE, SUM, GROUP BY) KENDİN YAZMA — Python uygular
-
-Örnekler:
-  Sorgu: "ödemesi alınan masaların cirosu" →
-    applied_rule_ids: ["iade_dusulmus", "kapali_masa_filtre"]
-
-  Sorgu: "toplam satış tutarı" →
-    applied_rule_ids: ["iade_dusulmus"]
-
-  Sorgu: "açık masalardaki normal satışlar" →
-    applied_rule_ids: ["iade_dusulmus", "acik_masa_filtre", "sadece_normal_satis"]
-
-### KURAL 7 — Hata Düzeltme
+### KURAL 6 — Hata Düzeltme
 ÖNCEKİ SQL HATASI varsa:
   - Hata mesajını analiz et
   - Yanlış kolon adı → column_metadata'dan doğrusunu bul
