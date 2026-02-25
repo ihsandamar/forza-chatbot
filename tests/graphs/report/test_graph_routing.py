@@ -1,5 +1,4 @@
 """Tests for report agent graph routing pure functions."""
-import pytest
 
 
 def test_intent_router_new_query():
@@ -55,3 +54,13 @@ def test_after_extract_entity_router_default():
     """use_result_type yoksa text2sql."""
     from src.graphs.report_agent.graph import _after_extract_entity_router
     assert _after_extract_entity_router({}) == "text2sql"
+
+
+def test_visualization_router_wants_visualization():
+    from src.graphs.report_agent.graph import _visualization_router
+    assert _visualization_router({"wants_visualization": True}) == "visualization"
+
+
+def test_visualization_router_no_visualization():
+    from src.graphs.report_agent.graph import _visualization_router
+    assert _visualization_router({"wants_visualization": False}) == "build_response"
