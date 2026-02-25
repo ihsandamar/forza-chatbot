@@ -64,7 +64,8 @@ class VisualizationState(TypedDict, total=False):
 
     # --- ReportState overlapping ---
     results: Optional[List[Dict[str, Any]]]
-    user_query: str
+    user_query: str                       # SQL semantic query (SQL node'lar için)
+    viz_request: Optional[str]           # Görselleştirme tarzı ("pasta grafik" vb.) — sadece revisualize'da
     query_type: Optional[str]
     wants_visualization: Optional[bool]   # Kullanıcı grafik istedi mi? (ReportState'ten sync)
     visualization_output: Optional[Dict[str, Any]]

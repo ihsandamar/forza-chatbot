@@ -91,8 +91,11 @@ def create_viz_decider_node(llm) -> Callable:
         # --- LLM kararı ---
         wants_viz = state.get("wants_visualization", False)
         profile = data_profile or {}
+        # viz_request varsa ("pasta grafik" gibi) onu kullan;
+        # yoksa user_query'yi kullan (NEW_QUERY + wants_viz=True senaryosu).
+        effective_query = state.get("viz_request") or state.get("user_query", "")
         prompt = VIZ_DECIDER_PROMPT.format(
-            user_query=state.get("user_query", ""),
+            user_query=effective_query,
             query_type=state.get("query_type", "SINGLE"),
             wants_visualization=wants_viz,
             row_count=profile.get("row_count", len(results)),

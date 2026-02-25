@@ -28,6 +28,7 @@ class ReportState(TypedDict):
     error: Optional[str]
 
     # Visualization
+    viz_request: Optional[str]           # "pasta grafik" gibi görselleştirme tarzı (sadece revisualize'da)
     visualization_output: Optional[Dict[str, Any]]
 
     # Response
@@ -50,6 +51,7 @@ def create_initial_state() -> ReportState:
         sql_queries=None,
         results=None,
         error=None,
+        viz_request=None,
         visualization_output=None,
         final_response=None,
     )

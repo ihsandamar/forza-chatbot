@@ -26,23 +26,24 @@ def create_classify_intent_node(llm) -> Callable:
     structured_llm = llm.with_structured_output(IntentClassificationResult)
 
     async def classify_intent_node(state: dict) -> dict:
-        user_query = state.get("user_query", "")
         active_sql = state.get("active_sql")
         active_results = state.get("active_results") or []
         messages = state.get("messages", [])
 
-        # user_query boşsa (LangGraph Studio sadece messages gönderdiğinde)
-        # son HumanMessage'dan extract et
-        extracted_from_messages = False
-        if not user_query:
-            human_msgs = [
-                m for m in messages
-                if isinstance(m, HumanMessage) and m.content and m.content.strip()
-            ]
-            if human_msgs:
-                user_query = human_msgs[-1].content.strip()
-                extracted_from_messages = True
-                logger.info(f"[CLASSIFY] user_query extracted from messages: {user_query[:80]}")
+        # Her zaman messages'taki son HumanMessage'ı kullan (multi-turn desteği).
+        # state.get("user_query") önceki turdan kalan bayat değer olabilir.
+        human_msgs = [
+            m for m in messages
+            if isinstance(m, HumanMessage) and m.content and m.content.strip()
+        ]
+        if human_msgs:
+            user_query = human_msgs[-1].content.strip()
+            extracted_from_messages = True
+            logger.info(f"[CLASSIFY] user_query from latest message: {user_query[:80]}")
+        else:
+            # Fallback: doğrudan user_query set edilmiş (API/test senaryosu)
+            user_query = state.get("user_query", "")
+            extracted_from_messages = False
 
         history_parts = []
         for msg in messages[-4:]:
@@ -80,8 +81,12 @@ def create_classify_intent_node(llm) -> Callable:
         # revisualize her zaman görselleştirme talebidir
         wants_viz = result.wants_visualization or (result.use_result_type == "revisualize")
 
+        # revisualize'da user_query SQL semantic query'yi kirletmemesi için
+        # viz_request ayrı bir alana yazılır; diğer pathlerde None (reset).
+        is_revisualize = result.use_result_type == "revisualize"
         return_dict = {
-            "user_query": user_query,   # downstream node'lar (term_resolver, sql_architect) okur
+            "user_query": user_query,   # downstream SQL node'lar (term_resolver, sql_architect) okur
+            "viz_request": user_query if is_revisualize else None,  # viz_decider'ın özel alanı
             "intent_type": result.intent_type,
             "query_type": result.query_type,
             "intent_confidence": result.confidence,
