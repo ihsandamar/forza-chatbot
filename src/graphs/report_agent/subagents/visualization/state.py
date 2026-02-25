@@ -66,6 +66,7 @@ class VisualizationState(TypedDict, total=False):
     results: Optional[List[Dict[str, Any]]]
     user_query: str
     query_type: Optional[str]
+    wants_visualization: Optional[bool]   # Kullanıcı grafik istedi mi? (ReportState'ten sync)
     visualization_output: Optional[Dict[str, Any]]
     error: Optional[str]
 
