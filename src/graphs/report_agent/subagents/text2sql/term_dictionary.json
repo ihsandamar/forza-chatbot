@@ -125,6 +125,26 @@
       "aliases": ["şehirler", "şehre göre", "şehirlere göre", "il"],
       "column": "BranchCityName",
       "hint": "Şehir kolonu → group_by veya select: [BranchCityName] kullan"
+    },
+    {
+      "term": "ne kadar sattı",
+      "aliases": [
+        "ne kadar", "sattı", "ne kadar satıldı", "ne kadar oldu",
+        "satış miktarı nedir", "toplam satış", "satış bilgisi"
+      ],
+      "ambiguous_columns": [
+        {
+          "column": "RowAmount",
+          "description": "Satış tutarı (TL)",
+          "filter_structured": null
+        },
+        {
+          "column": "Quantity",
+          "description": "Satış miktarı (Adet)",
+          "filter_structured": null
+        }
+      ],
+      "hint": "Kullanıcı seçimine göre belirlenecek"
     }
   ]
 }
