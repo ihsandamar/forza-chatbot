@@ -14,7 +14,8 @@ class IntentClassificationResult(BaseModel):
     query_type: Literal["SINGLE", "LISTING", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
     wants_visualization: bool = False           # Kullanıcı açıkça grafik/chart istedi mi?
-    use_result_type: Optional[Literal["new_query", "revisualize"]] = None
+    use_result_type: Optional[Literal["new_query", "revisualize", "compute", "modify_context"]] = None
+    compute_operation: Optional[Literal["sum", "avg", "count", "min", "max"]] = None
     modification_action: Optional[str] = None   # "add_filter" | "remove_filter" | "change_limit" | "change_order"
     modification_target: Optional[str] = None   # "şehir", "tarih", "limit"
     modification_value: Optional[str] = None    # "Ankara", "2024-01", "50"
@@ -65,8 +66,17 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 - MODIFY_QUERY: Önceki sorguyu değiştirmek istiyor (filtre ekle/çıkar, sırala, limitı değiştir)
   → Aktif SQL olmadan ASLA MODIFY_QUERY seçme
 - USE_RESULT: Önceki SONUÇLARI kullanmak istiyor
-  → use_result_type="new_query": Sonuçtaki bir entity için yeni sorgu oluştur
+  → use_result_type="new_query": Sonuçtaki bir entity için tamamen yeni sorgu oluştur
   → use_result_type="revisualize": Aynı veriyi farklı chart/format ile göster
+  → use_result_type="compute": Sonuçlardaki sayısal kolonlar üzerinde matematiksel işlem yap (SQL gerekmez)
+    compute_operation="sum"   → "toplamı", "topla", "toplam ne kadar"
+    compute_operation="avg"   → "ortalaması", "ortalama al", "ortalama nedir"
+    compute_operation="count" → "kaç tane", "kaç satır", "sayısı"
+    compute_operation="min"   → "en düşük", "minimum", "en az"
+    compute_operation="max"   → "en yüksek", "maksimum", "en fazla"
+  → use_result_type="modify_context": Sonuçtaki entity'yi kullanarak mevcut SQL'i değiştir
+    (ör: "bu ürün için şehirlere göre kır" → entity + active_sql'e GROUP BY/filtre ekle)
+    DIKKAT: "new_query"dan farkı — entity zaten belli, sadece aktif sorgu değiştirilecek
 
 **query_type:**
 - SINGLE: Tek bir metrik veya toplam (ör: "toplam ciro nedir?", "kaç adisyon açıldı?")
