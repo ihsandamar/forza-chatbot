@@ -407,7 +407,7 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
                 # Çözülemedi → kullanıcıya sor
                 answer = interrupt({
                     "type": "input",
-                    "question": f"'{value_hint}' değeri veritabanında bulunamadı. Lütfen tam değeri girin:",
+                    "question": f"'{value_hint}' veritabanında bulunamadı. Lütfen tam adı girin:",
                 })
                 f["resolved_value"] = answer
                 resolved_any = True
@@ -417,36 +417,37 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
             candidate = result.get("resolved", "")
 
             if confidence >= 75:
+                # Yüksek güven → otomatik çöz
                 f["resolved_value"] = candidate
                 f["resolution_confidence"] = confidence
                 resolved_any = True
                 logger.info(f"[VALUE_RESOLVER] '{value_hint}' → '{candidate}' (conf={confidence})")
 
-            elif confidence >= 50:
-                # Orta güven → onay iste
-                answer = interrupt({
-                    "type": "confirmation",
-                    "question": f"'{value_hint}' için '{candidate}' mi kastetdiniz?",
-                    "options": ["Evet", "Hayır, farklı bir değer girin"],
-                })
-                if answer == "Evet":
-                    f["resolved_value"] = candidate
-                    resolved_any = True
+            else:
+                # Düşük/orta güven → kullanıcıya seçenek sun (tek interrupt)
+                if confidence >= 50:
+                    label = candidate
                 else:
+                    label = f"{candidate} (%{confidence:.0f} eşleşme)"
+
+                MANUAL_OPTION = "Başka bir değer girin"
+                answer = interrupt({
+                    "type": "choice",
+                    "question": f"'{value_hint}' için ne kullanılmalı?",
+                    "options": [label, MANUAL_OPTION],
+                })
+
+                if answer == MANUAL_OPTION or answer == 1:
+                    # Kullanıcı manuel giriş seçti → intentional ek interrupt
                     manual = interrupt({
                         "type": "input",
                         "question": f"'{value_hint}' için doğru değeri girin:",
                     })
                     f["resolved_value"] = manual
-                    resolved_any = True
+                else:
+                    # Kullanıcı öneriyi seçti (index 0 veya label metni)
+                    f["resolved_value"] = candidate
 
-            else:
-                # Düşük güven → direkt sor
-                answer = interrupt({
-                    "type": "input",
-                    "question": f"'{value_hint}' değeri bulunamadı (en yakın: '{candidate}', %{confidence:.0f}). Lütfen tam değeri girin:",
-                })
-                f["resolved_value"] = answer
                 resolved_any = True
 
         if resolved_any:
