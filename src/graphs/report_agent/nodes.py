@@ -109,7 +109,9 @@ def create_classify_intent_node(llm) -> Callable:
             "intent_confidence": result.confidence,
             "wants_visualization": wants_viz,
             "use_result_type": result.use_result_type,
+            "compute_operation": result.compute_operation,  # compute path için (avg/sum/count/min/max)
             "visualization_output": None,  # önceki tur çıktısını temizle
+            "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:
@@ -154,7 +156,9 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
 
         result: SqlModificationResult = await structured_llm.ainvoke(prompt)
         logger.info(f"[MODIFY_SQL] → {result.modified_sql[:120]}")
-        return {"sql_queries": [result.modified_sql]}
+        # pre_built_sql: sql_generator bu alanı görünce yeniden SQL üretmez,
+        # direkt bu SQL'i kullanır (CategoryName filtresi, doğru aggregation kolonları korunur).
+        return {"pre_built_sql": result.modified_sql}
 
     return modify_sql_node
 
@@ -265,7 +269,11 @@ async def build_response_node(state: dict) -> dict:
     results = state.get("results") or []
     viz = state.get("visualization_output") or {}
 
-    if error:
+    # compute_results_node kendi final_response'unu zaten ürettiyse kullan.
+    # results önceki turdan dolu olsa bile overwrite etme.
+    if state.get("use_result_type") == "compute" and state.get("final_response"):
+        response = state["final_response"]
+    elif error:
         response = f"Sorgu hatası: {error}"
     elif not results:
         response = "Bu sorgu için sonuç bulunamadı."

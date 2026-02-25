@@ -19,6 +19,7 @@ class Text2SQLState(TypedDict, total=False):
     active_sql: Optional[str]
     active_filters: Optional[List[Dict[str, Any]]]
     sql_queries: Optional[List[str]]
+    pre_built_sql: Optional[str]        # modify_sql çıktısı — sql_generator bunu görünce yeniden üretmez
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
     active_results: Optional[List[Dict[str, Any]]]

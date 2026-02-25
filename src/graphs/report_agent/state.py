@@ -25,6 +25,7 @@ class ReportState(TypedDict):
 
     # Text2SQL I/O (subgraph shared fields)
     sql_queries: Optional[List[str]]
+    pre_built_sql: Optional[str]        # modify_sql çıktısı — sql_generator bunu görünce yeniden üretmez
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
 
@@ -51,6 +52,7 @@ def create_initial_state() -> ReportState:
         active_results=None,
         active_filters=None,
         sql_queries=None,
+        pre_built_sql=None,
         results=None,
         error=None,
         viz_request=None,

@@ -532,6 +532,13 @@ def create_sql_generator_node(
     """
 
     async def sql_generator_node(state: dict, *, config: RunnableConfig = None) -> dict:
+        # MODIFY_QUERY bypass: modify_sql node zaten doğru SQL ürettiyse yeniden üretme.
+        # pre_built_sql, sql_executor'dan sonra None'a resetlenir (her turda classify_intent temizler).
+        pre_built_sql = state.get("pre_built_sql")
+        if pre_built_sql:
+            logger.info(f"[SQL_GENERATOR] pre_built_sql mevcut, SQL üretimi atlanıyor: {pre_built_sql[:120]}")
+            return {"sql_queries": [pre_built_sql], "pre_built_sql": None}
+
         raw_schema = state.get("query_schema")
         if not raw_schema:
             return {"error": "QuerySchema bulunamadı", "results": []}
