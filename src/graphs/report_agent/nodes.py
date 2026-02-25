@@ -164,6 +164,75 @@ def create_extract_entity_node(llm) -> Callable:
     return extract_entity_node
 
 
+# =============================================================================
+# COMPUTE LABELS (module-level sabit)
+# =============================================================================
+_COMPUTE_OP_LABELS = {
+    "sum":   "Toplam",
+    "avg":   "Ortalama",
+    "count": "Adet",
+    "min":   "Minimum",
+    "max":   "Maksimum",
+}
+
+
+async def compute_results_node(state: dict) -> dict:
+    """Pure Python: active_results üzerinde matematiksel işlem. LLM yok, SQL yok."""
+    results = state.get("active_results") or []
+    operation = state.get("compute_operation") or "sum"
+
+    if not results:
+        return {
+            "final_response": "Hesaplama için önceki sorgu sonuçları bulunamadı.",
+            "error": None,
+        }
+
+    # Sayısal kolonları bul (str/None dışı)
+    numeric_cols = [
+        col for col in results[0].keys()
+        if isinstance(results[0].get(col), (int, float))
+    ]
+
+    if not numeric_cols:
+        return {
+            "final_response": "Sonuçlarda sayısal kolon bulunamadı.",
+            "error": None,
+        }
+
+    lines = []
+    for col in numeric_cols:
+        values = [
+            row[col] for row in results
+            if row.get(col) is not None and isinstance(row.get(col), (int, float))
+        ]
+        if not values:
+            continue
+
+        if operation == "sum":
+            computed = sum(values)
+        elif operation == "avg":
+            computed = sum(values) / len(values)
+        elif operation == "count":
+            computed = len(values)
+        elif operation == "min":
+            computed = min(values)
+        elif operation == "max":
+            computed = max(values)
+        else:
+            computed = sum(values)
+
+        label = _COMPUTE_OP_LABELS.get(operation, operation.upper())
+        formatted = f"{computed:.2f}" if isinstance(computed, float) else str(computed)
+        lines.append(f"**{col}** → {label}: {formatted}")
+
+    response = "\n".join(lines) if lines else "Hesaplama yapılamadı."
+    logger.info(
+        f"[COMPUTE_RESULTS] op={operation}, cols={numeric_cols}, "
+        f"rows={len(results)}, result_lines={len(lines)}"
+    )
+    return {"final_response": response, "error": None}
+
+
 async def build_response_node(state: dict) -> dict:
     """Final Response Builder: pure Python, LLM yok."""
     error = state.get("error")
