@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 _db_executor = ThreadPoolExecutor(max_workers=3)
 MAX_RETRY = 2
+_MANUAL_ENTRY_OPTION = "Başka bir değer girin"
 
 
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
@@ -430,23 +431,25 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
                 else:
                     label = f"{candidate} (%{confidence:.0f} eşleşme)"
 
-                MANUAL_OPTION = "Başka bir değer girin"
                 answer = interrupt({
                     "type": "choice",
                     "question": f"'{value_hint}' için ne kullanılmalı?",
-                    "options": [label, MANUAL_OPTION],
+                    "options": [label, _MANUAL_ENTRY_OPTION],
                 })
 
-                if answer == MANUAL_OPTION or answer == 1:
+                if answer == _MANUAL_ENTRY_OPTION:
                     # Kullanıcı manuel giriş seçti → intentional ek interrupt
                     manual = interrupt({
                         "type": "input",
                         "question": f"'{value_hint}' için doğru değeri girin:",
                     })
                     f["resolved_value"] = manual
+                    f["resolution_confidence"] = 100  # Kullanıcı elle girdi
                 else:
-                    # Kullanıcı öneriyi seçti (index 0 veya label metni)
+                    # Kullanıcı öneriyi seçti
                     f["resolved_value"] = candidate
+                    f["resolution_confidence"] = confidence
+                    logger.info(f"[VALUE_RESOLVER] '{value_hint}' → '{candidate}' (user_selected, conf={confidence})")
 
                 resolved_any = True
 
