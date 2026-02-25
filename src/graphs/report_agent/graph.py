@@ -2,10 +2,12 @@
 Report Agent — Ana Graph
 
 START → classify_intent → [intent_router]
-  ├── NEW_QUERY      → text2sql → visualization → build_response → END
-  ├── MODIFY_QUERY   → modify_sql → text2sql → visualization → build_response → END
-  ├── USE_RESULT(A)  → extract_entity → text2sql → visualization → build_response → END
-  └── USE_RESULT(B)  → visualization → build_response → END
+  ├── NEW_QUERY          → text2sql → visualization → build_response → END
+  ├── MODIFY_QUERY       → modify_sql → text2sql → visualization → build_response → END
+  ├── USE_RESULT(A)      → extract_entity → text2sql → visualization → build_response → END
+  ├── USE_RESULT(B)      → visualization → build_response → END
+  ├── USE_RESULT(compute)→ compute_results → build_response → END           [YENİ]
+  └── USE_RESULT(modify) → extract_entity → modify_sql → text2sql → ...     [YENİ]
 """
 import logging
 from typing import Any, Dict
@@ -16,6 +18,7 @@ from langgraph.graph import END, START, StateGraph
 from src.graphs.report_agent.configuration import ReportAgentConfiguration
 from src.graphs.report_agent.nodes import (
     build_response_node,
+    compute_results_node,
     create_classify_intent_node,
     create_extract_entity_node,
     create_modify_sql_node,
@@ -33,8 +36,18 @@ def _intent_router(state: dict) -> str:
     if intent == "MODIFY_QUERY":
         return "modify_sql"
     if intent == "USE_RESULT":
-        return "visualization" if state.get("use_result_type") == "revisualize" else "extract_entity"
+        use_result = state.get("use_result_type")
+        if use_result == "revisualize":
+            return "visualization"
+        if use_result == "compute":
+            return "compute_results"
+        return "extract_entity"  # new_query + modify_context
     return "text2sql"  # NEW_QUERY + fallback
+
+
+def _after_extract_entity_router(state: dict) -> str:
+    """extract_entity sonrası: modify_context → modify_sql, diğerleri → text2sql."""
+    return "modify_sql" if state.get("use_result_type") == "modify_context" else "text2sql"
 
 
 def _visualization_router(state: dict) -> str:
@@ -66,6 +79,7 @@ def build_report_agent_graph(
     graph.add_node("classify_intent", create_classify_intent_node(llm))
     graph.add_node("modify_sql", create_modify_sql_node(llm, column_metadata))
     graph.add_node("extract_entity", create_extract_entity_node(llm))
+    graph.add_node("compute_results", compute_results_node)
     graph.add_node("text2sql", text2sql)
     graph.add_node("visualization", visualization)
     graph.add_node("build_response", build_response_node)
@@ -75,14 +89,23 @@ def build_report_agent_graph(
         "classify_intent",
         _intent_router,
         {
-            "text2sql": "text2sql",
-            "modify_sql": "modify_sql",
-            "extract_entity": "extract_entity",
-            "visualization": "visualization",
+            "text2sql":        "text2sql",
+            "modify_sql":      "modify_sql",
+            "extract_entity":  "extract_entity",
+            "visualization":   "visualization",
+            "compute_results": "compute_results",
         },
     )
     graph.add_edge("modify_sql", "text2sql")
-    graph.add_edge("extract_entity", "text2sql")
+    graph.add_conditional_edges(
+        "extract_entity",
+        _after_extract_entity_router,
+        {
+            "modify_sql": "modify_sql",
+            "text2sql":   "text2sql",
+        },
+    )
+    graph.add_edge("compute_results", "build_response")
     graph.add_conditional_edges(
         "text2sql",
         _visualization_router,
@@ -92,5 +115,5 @@ def build_report_agent_graph(
     graph.add_edge("build_response", END)
 
     compiled = graph.compile(checkpointer=checkpointer or MemorySaver())
-    logger.info("[REPORT_AGENT] Built: 6 nodes, max 2 LLM calls/turn")
+    logger.info("[REPORT_AGENT] Built: 7 nodes, compute=0-LLM, modify_context=2-LLM")
     return compiled
