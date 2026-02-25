@@ -143,7 +143,7 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
 
 
 def create_extract_entity_node(llm) -> Callable:
-    """Entity Extractor: USE_RESULT(new_query) → yeni user_query seed'i."""
+    """Entity Extractor: USE_RESULT(new_query/modify_context) → yeni user_query seed'i veya enriched query."""
     structured_llm = llm.with_structured_output(EntityExtractionResult)
 
     async def extract_entity_node(state: dict) -> dict:
