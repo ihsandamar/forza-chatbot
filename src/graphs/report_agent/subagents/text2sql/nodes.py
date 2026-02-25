@@ -134,6 +134,8 @@ def create_term_resolver_node() -> Callable:
         term_filters = list(result.term_filters)  # kopyasını al
 
         # --- Ambiguous terms: kullanıcıya sor ---
+        metric_choice_hints: list[str] = []  # Kullanıcı seçimlerinden oluşturulan metric hint'leri
+
         for amb in result.ambiguous:
             option_labels = [
                 f"{opt['column']}: {opt.get('description', '')}"
@@ -142,27 +144,48 @@ def create_term_resolver_node() -> Callable:
             answer = interrupt({
                 "type": "choice",
                 "question": (
-                    f'"{amb.term}" ifadesi birden fazla kolona karşılık gelebilir. '
-                    f'Hangi kolonu kastetdiniz?'
+                    f'"{amb.term}" için hangi ölçütü kastetdiniz?'
                 ),
                 "options": option_labels,
             })
-            # Seçilen option'ı bul ve filter_structured varsa term_filters'a ekle
+            # Seçilen option'ı bul
             for opt in amb.options:
                 key = f"{opt['column']}: {opt.get('description', '')}"
-                if key == answer and opt.get("filter_structured"):
-                    fs = dict(opt["filter_structured"])
-                    fs.setdefault("logical_operator", "AND")
-                    term_filters.append(fs)
+                if key == answer:
+                    if opt.get("filter_structured"):
+                        # WHERE filtresi → term_filters'a ekle (eski davranış)
+                        fs = dict(opt["filter_structured"])
+                        fs.setdefault("logical_operator", "AND")
+                        term_filters.append(fs)
+                    else:
+                        # Metric kolon seçimi → term_hints'e ekle (YENİ)
+                        chosen_col = opt["column"]
+                        metric_choice_hints.append(
+                            f'- Kullanıcı "{amb.term}" için [{chosen_col}] seçti '
+                            f'→ aggregations: SUM([{chosen_col}]) kullan, başka kolon KULLANMA'
+                        )
+                        logger.info(
+                            f"[TERM_RESOLVER] Ambiguous metric resolved: "
+                            f"'{amb.term}' → '{chosen_col}' (user choice)"
+                        )
                     break
 
+        # Metric seçimleri varsa hints'e ekle
+        hints_text = result.hints_text
+        if metric_choice_hints:
+            hints_text += (
+                "\n\n## KULLANICI METRİK KOLON SEÇİMİ (KESİNLİKLE UYGULA)\n"
+                + "\n".join(metric_choice_hints)
+                + "\n⚠️ Yukarıdaki kolon seçimi kullanıcı tarafından belirlendi — başka metric kolon kullanma!"
+            )
+
         logger.info(
-            f"[TERM_RESOLVER] {len(term_filters)} term_filter(s) set: "
-            f"{[f['column'] for f in term_filters]}"
+            f"[TERM_RESOLVER] {len(term_filters)} term_filter(s), "
+            f"{len(metric_choice_hints)} metric choice(s)"
         )
         return {
             "term_filters": term_filters,
-            "term_hints":   result.hints_text,
+            "term_hints":   hints_text,
         }
 
     return term_resolver_node
