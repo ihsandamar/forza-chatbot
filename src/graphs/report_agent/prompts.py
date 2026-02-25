@@ -99,6 +99,8 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 - 0.90+: Kesin
 - 0.70-0.90: Makul tahmin
 - 0.70 altı: Belirsiz → kullanıcıya sor
+
+⚠️ ALAN KISITLAMASI: `use_result_type` ve `compute_operation` alanları YALNIZCA intent_type="USE_RESULT" olduğunda doldurulur. MODIFY_QUERY veya NEW_QUERY için bu alanlar boş (null) bırakılır.
 """
 
 SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre değiştir.
@@ -116,7 +118,10 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 {column_metadata}
 
 ## KURALLAR
+⚠️ KESİNLİKLE: Mevcut SQL'i YENIDEN YAZMA. Sadece istenen kısmı değiştir. SELECT kolonları, FROM, tüm WHERE koşulları (değiştirilecek olanlar hariç), GROUP BY ve ORDER BY AYNEN korunur.
+
 - Sadece istenilen değişikliği yap, SQL'in geri kalanını koru
+- Tarih aralığı değişikliği: SADECE DATEADD/BETWEEN ifadesini güncelle — diğer WHERE koşulları, SELECT, GROUP BY, ORDER BY dokunulmaz
 - Yeni filtre: WHERE clause'a ekle (varsa AND ile bağla)
 - Limit değişikliği: sadece TOP N değerini güncelle
 - Sıralama değişikliği: sadece ORDER BY clause'u güncelle

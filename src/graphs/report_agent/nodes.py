@@ -17,6 +17,7 @@ from src.graphs.report_agent.prompts import (
 logger = logging.getLogger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.70
+MODIFY_AMBIGUITY_THRESHOLD = 0.85  # MODIFY_QUERY için ayrı eşik — daha yüksek güven gerekir
 
 
 def create_classify_intent_node(llm) -> Callable:
@@ -65,14 +66,30 @@ def create_classify_intent_node(llm) -> Callable:
             f"conf={result.confidence:.2f} wants_viz={result.wants_visualization}"
         )
 
-        if result.confidence < CONFIDENCE_THRESHOLD:
+        # Genel güven eşiği — tüm intent'ler için
+        needs_clarification = result.confidence < CONFIDENCE_THRESHOLD
+
+        # MODIFY_QUERY için ek kontrol: devam eden sorgu mu, yeni mi? daha yüksek güven gerekir
+        if (
+            not needs_clarification
+            and result.intent_type == "MODIFY_QUERY"
+            and active_sql
+            and result.confidence < MODIFY_AMBIGUITY_THRESHOLD
+        ):
+            needs_clarification = True
+            logger.info(
+                f"[CLASSIFY] MODIFY_QUERY ambiguity check triggered "
+                f"(conf={result.confidence:.2f} < {MODIFY_AMBIGUITY_THRESHOLD})"
+            )
+
+        if needs_clarification:
             options = ["Yeni sorgu yap"]
             if active_sql:
                 options.append("Mevcut sorguyu değiştir")
             options.append("Sonuçları farklı göster")
 
             answer = interrupt({
-                "type": "confirmation",
+                "type": "choice",
                 "question": f"'{user_query}' için ne yapmamı istiyorsunuz?",
                 "options": options,
             })
