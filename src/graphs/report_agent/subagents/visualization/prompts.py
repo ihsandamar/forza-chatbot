@@ -36,6 +36,10 @@ Kullanıcı sorusu ve veri profiline göre en uygun görselleştirme tipini beli
 ## SORGU TİPİ
 {query_type}
 
+## KULLANICI GRAFİK TALEBİ
+wants_visualization: {wants_visualization}
+⚠️ wants_visualization=True ise kullanıcı açıkça grafik istedi → needs_graph MUTLAKA True olmalı.
+
 ## VERİ PROFİLİ
 - Satır sayısı: {row_count}
 - Dimension kolonları: {dimension_columns}
@@ -47,6 +51,10 @@ Kullanıcı sorusu ve veri profiline göre en uygun görselleştirme tipini beli
 {sample_rows}
 
 ## KARAR KURALLARI
+
+### wants_visualization=True → needs_graph=True (her zaman, veri boyutundan bağımsız)
+Kullanıcı açıkça grafik talep ettiyse (wants_visualization=True veya sorguda grafik kelimesi varsa):
+  needs_graph=True ZORUNLU — veri az olsa bile, tek kolon olsa bile.
 
 ### Kullanıcı grafik türü belirtmişse MUTLAKA o türü kullan:
 - "çubuk grafik", "bar grafik" → bar_chart

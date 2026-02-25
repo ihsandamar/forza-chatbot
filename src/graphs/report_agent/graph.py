@@ -37,6 +37,11 @@ def _intent_router(state: dict) -> str:
     return "text2sql"  # NEW_QUERY + fallback
 
 
+def _visualization_router(state: dict) -> str:
+    """text2sql sonrası: grafik istendiyse visualization, istenmemişse direkt build_response."""
+    return "visualization" if state.get("wants_visualization", False) else "build_response"
+
+
 def build_report_agent_graph(
     llm,
     table_name: str,
@@ -78,7 +83,11 @@ def build_report_agent_graph(
     )
     graph.add_edge("modify_sql", "text2sql")
     graph.add_edge("extract_entity", "text2sql")
-    graph.add_edge("text2sql", "visualization")
+    graph.add_conditional_edges(
+        "text2sql",
+        _visualization_router,
+        {"visualization": "visualization", "build_response": "build_response"},
+    )
     graph.add_edge("visualization", "build_response")
     graph.add_edge("build_response", END)
 

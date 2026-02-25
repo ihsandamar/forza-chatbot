@@ -89,10 +89,12 @@ def create_viz_decider_node(llm) -> Callable:
             ).model_dump()}
 
         # --- LLM kararı ---
+        wants_viz = state.get("wants_visualization", False)
         profile = data_profile or {}
         prompt = VIZ_DECIDER_PROMPT.format(
             user_query=state.get("user_query", ""),
             query_type=state.get("query_type", "SINGLE"),
+            wants_visualization=wants_viz,
             row_count=profile.get("row_count", len(results)),
             dimension_columns=", ".join(profile.get("dimension_columns", [])) or "Yok",
             metric_columns=", ".join(profile.get("metric_columns", [])) or "Yok",
@@ -102,6 +104,25 @@ def create_viz_decider_node(llm) -> Callable:
         )
 
         decision: VizDecision = await structured_llm.ainvoke(prompt)
+
+        # Savunmacı guard: kullanıcı grafik istedi ama LLM needs_graph=False döndürdüyse zorla
+        if wants_viz and not decision.needs_graph:
+            logger.warning(
+                "[VIZ_DECIDER] wants_visualization=True but LLM returned needs_graph=False — overriding"
+            )
+            safe_chart = decision.chart_type
+            if safe_chart in ("table", "single_value", "simple_list"):
+                safe_chart = "bar_chart"  # fallback chart türü
+            decision = VizDecision(
+                needs_graph=True,
+                chart_type=safe_chart,
+                x_field=decision.x_field,
+                y_field=decision.y_field,
+                series_field=decision.series_field,
+                title=decision.title,
+                reason=decision.reason + " [needs_graph=True: user explicitly requested chart]",
+            )
+
         logger.info(
             f"[VIZ_DECIDER] → {decision.chart_type}, "
             f"needs_graph={decision.needs_graph}, "

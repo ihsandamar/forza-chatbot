@@ -87,6 +87,7 @@ def create_classify_intent_node(llm) -> Callable:
             "intent_confidence": result.confidence,
             "wants_visualization": wants_viz,
             "use_result_type": result.use_result_type,
+            "visualization_output": None,  # önceki tur çıktısını temizle
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:
