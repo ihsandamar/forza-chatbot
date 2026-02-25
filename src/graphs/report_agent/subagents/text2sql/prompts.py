@@ -186,6 +186,37 @@ Limit değeri:
   "en az satan ürün"           → aggregations=[SUM(Quantity)], group_by=["ProductName"],
                                   order_by_column="TotalQty", order_by_direction="ASC", limit=1
 
+### KURAL 4.5 — COMPARISON Sorguları (KRİTİK)
+query_type = "COMPARISON" → Karşılaştırılan TÜM varlıklar dönmeli, limit ASLA 1 koyma.
+
+**Temel karşılaştırma** — "A ve B'yi karşılaştır":
+  - limit: ZORUNLU null/None — her varlık için 1 satır olmalı
+  - WHERE: karşılaştırılan değerleri OR ile ekle (value_hint kullan)
+  - GROUP BY: SADECE karşılaştırma boyutu (CategoryName, BranchName, vb.)
+  - order_by_direction: DESC
+
+DOĞRU ✅:
+  "dürümler ve içecek kategorilerini karşılaştır"
+  → filters: [{column=CategoryName, value_hint="dürümler", logical_operator="AND"},
+               {column=CategoryName, value_hint="içecek", logical_operator="OR"}]
+  → group_by: ["CategoryName"]
+  → aggregations: [SUM(RowAmount) AS TotalSales]
+  → limit: null, order_by_column: "TotalSales", order_by_direction: "DESC"
+
+**Zaman bazlı karşılaştırma** — "A ve B'yi aylık/yıllık karşılaştır":
+  - GROUP BY: karşılaştırma boyutu + zaman boyutu (YEAR + MONTH veya YEAR)
+  - order_by_column: zaman kolonu (periyodik sıralama için)
+  - Tarih filtresi belirtildiyse uygula; belirtilmediyse bu ayı (current_period=month) kullan
+
+DOĞRU ✅:
+  "dürümler ve içecek kategorilerini aylık karşılaştır"
+  → filters: [{CategoryName="dürümler", OR}, {CategoryName="içecek"}]
+  → group_by: ["CategoryName", "YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+  → aggregations: [SUM(RowAmount) AS TotalSales]
+  → limit: null, order_by_column: "YEAR(DocumentDate)", order_by_direction: "ASC"
+
+⚠️ limit=1 ASLA KOYMA — COMPARISON'da YASAK
+
 ### KURAL 5 — Periyodik Gruplama
 "günlük satışlar"  → group_by: ["CAST(TarihKolonu AS DATE)"]
 "aylık satışlar"   → group_by: ["YEAR(TarihKolonu)", "MONTH(TarihKolonu)"]
@@ -351,6 +382,11 @@ Tarih ifadelerinde DateDescriptor kullan, value alanını kullanma.
   - Sorguda sayı varsa → o sayı: "top 10 ürün" → limit=10
   - TEKİL isim, sayı yok → limit=1: "en çok X yapan kategori" → limit=1
   - Belirsizse → limit=None (architect'e bırak)
+
+## KURAL 3.5 — COMPARISON'da limit ASLA set etme
+query_type = "COMPARISON" → limit: ZORUNLU None.
+"A ve B'yi karşılaştır" → her iki varlık dönmeli, limit=1 birini gizler.
+⚠️ COMPARISON sorgularında limit'i None bırak — istisnasız.
 
 ## KURAL 4 — IsTableActive
   "ödemesi alınan masalar", "kapalı masalar", "ödemesi alınan" → IsTableActive=0

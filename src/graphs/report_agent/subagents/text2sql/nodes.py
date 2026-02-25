@@ -30,7 +30,7 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
     SQL_ARCHITECT_PROMPT,
     SCHEMA_VALIDATOR_PROMPT,
 )
-from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql
+from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
 from src.graphs.report_agent.subagents.text2sql.term_resolver import resolve_terms_structured
@@ -547,6 +547,31 @@ def create_sql_generator_node(
         auto_rules   = state.get("auto_rules") or []
         term_filters = state.get("term_filters") or []
         today        = date.today()
+
+        # --- COMPARISON güvenlik ağı 1: limit=1 ASLA geçemez ---
+        # LLM RANKING kuralını yanlışlıkla uygulayıp limit=1 set edebilir.
+        # COMPARISON'da tüm karşılaştırılan varlıklar dönmeli — TOP 1 birini gizler.
+        if state.get("query_type") == "COMPARISON" and raw_schema.get("limit") == 1:
+            raw_schema = {**raw_schema, "limit": None}
+            logger.warning("[SQL_GENERATOR] COMPARISON query: limit=1 LLM hatası düzeltildi → None")
+
+        # --- COMPARISON güvenlik ağı 2: tarih filtresi yoksa bu ayı ekle ---
+        # Kullanıcı tarih belirtmeden "A ve B'yi karşılaştır" dediğinde default = bu ay.
+        if state.get("query_type") == "COMPARISON":
+            existing_filters = raw_schema.get("filters", [])
+            has_date_filter = any(
+                f.get("date_descriptor") or f.get("column") in _DATE_COLUMNS
+                for f in existing_filters
+            )
+            if not has_date_filter:
+                this_month_filter = {
+                    "column": "DocumentDate",
+                    "operator": ">=",
+                    "date_descriptor": {"type": "current_period", "period": "month"},
+                    "logical_operator": "AND",
+                }
+                raw_schema = {**raw_schema, "filters": list(existing_filters) + [this_month_filter]}
+                logger.info("[SQL_GENERATOR] COMPARISON: tarih filtresi yok → bu ay eklendi")
 
         # --- term_filters merge: Python garantili filtreler LLM'i override eder ---
         if term_filters:
