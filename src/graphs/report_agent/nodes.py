@@ -159,6 +159,14 @@ def create_extract_entity_node(llm) -> Callable:
 
         result: EntityExtractionResult = await structured_llm.ainvoke(prompt)
         logger.info(f"[EXTRACT_ENTITY] {result.entity_name} ({result.entity_type})")
+
+        if state.get("use_result_type") == "modify_context":
+            # modify_sql_node'a gidecek: entity adını orijinal sorguya inject et
+            original_query = state.get("user_query", "")
+            enriched = f"{result.entity_name} için: {original_query}"
+            logger.info(f"[EXTRACT_ENTITY] modify_context → enriched query: {enriched[:80]}")
+            return {"user_query": enriched}
+
         return {"user_query": result.new_query_seed}
 
     return extract_entity_node
