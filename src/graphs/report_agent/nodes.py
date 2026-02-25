@@ -191,6 +191,7 @@ async def compute_results_node(state: dict) -> dict:
     numeric_cols = [
         col for col in results[0].keys()
         if isinstance(results[0].get(col), (int, float))
+        and not isinstance(results[0].get(col), bool)
     ]
 
     if not numeric_cols:
@@ -222,7 +223,7 @@ async def compute_results_node(state: dict) -> dict:
             computed = sum(values)
 
         label = _COMPUTE_OP_LABELS.get(operation, operation.upper())
-        formatted = f"{computed:.2f}" if isinstance(computed, float) else str(computed)
+        formatted = f"{computed:.2f}" if isinstance(computed, float) else f"{computed:,}"
         lines.append(f"**{col}** → {label}: {formatted}")
 
     response = "\n".join(lines) if lines else "Hesaplama yapılamadı."
