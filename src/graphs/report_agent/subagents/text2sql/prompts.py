@@ -72,6 +72,8 @@ SQL_ARCHITECT_PROMPT = """Sen bir T-SQL sorgu mimarısın. Kullanıcı sorusunu 
 ## SORGUDA TESPİT EDİLEN İŞ TERİMLERİ (Doğrudan Uygula)
 {term_hints}
 
+KURAL: "KULLANICI METRİK KOLON SEÇİMİ" bölümü term_hints içinde yer alıyorsa, o bölümdeki kolon ZORUNLU OLARAK tüm aggregations'larda kullanılmalıdır. Başka metric kolon seçme.
+
 ## BUGÜNÜN TARİHİ
 - Tarih: {today_date}
 - Yıl: {current_year}
