@@ -93,7 +93,7 @@ def build_text2sql_graph(
 
     # --- Node factories ---
     create_table        = create_create_table_node(connection_string, table_name)
-    business_rules      = create_business_rules_node(vector_store)
+    business_rules      = create_business_rules_node(vector_store, llm=llm)
     term_resolver       = create_term_resolver_node()
     sql_architect       = create_sql_architect_node(llm, column_metadata)
     schema_validator    = create_schema_validator_node(llm, column_metadata)

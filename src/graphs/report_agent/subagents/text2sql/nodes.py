@@ -27,8 +27,10 @@ from langgraph.types import interrupt
 from src.graphs.report_agent.subagents.text2sql.prompts import (
     QuerySchema,
     SchemaValidationResult,
+    BusinessRulesValidationResult,
     SQL_ARCHITECT_PROMPT,
     SCHEMA_VALIDATOR_PROMPT,
+    BUSINESS_RULES_VALIDATOR_PROMPT,
 )
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
@@ -358,10 +360,12 @@ async def schema_merge_node(state: dict) -> dict:
         logger.info(f"[SCHEMA_MERGE] filters: validator added missing columns: {added}")
 
     # --- Deduplication: aynı condition'ı iki kez ekleme ---
+    # value_hint dahil edilir — COMPARISON sorgularında aynı kolon farklı
+    # value_hint ile iki ayrı filtre olabilir (örn: dürümler OR içecek).
     seen_filter_keys: set = set()
     deduped_filters = []
     for f in arch_filters:
-        key = (f.get("column"), f.get("operator"), f.get("value"))
+        key = (f.get("column"), f.get("operator"), f.get("value"), f.get("value_hint"))
         if key not in seen_filter_keys:
             deduped_filters.append(f)
             seen_filter_keys.add(key)
@@ -487,12 +491,30 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
 # NODE 3: BUSINESS RULES
 # =============================================================================
 
-def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callable:
+def create_business_rules_node(vector_store: BusinessRulesVectorStore, llm=None) -> Callable:
     """
     Pure Python: user_query → state.auto_rules (resolved rule dicts).
-    ChromaDB semantic search. sql_generator bu listeyi direkt uygular.
-    LLM business rules görmez.
+    ChromaDB semantic search. llm sağlanırsa non-default aday kurallar
+    LLM validation'dan geçirilir — çelişen kurallar filtrelenir.
+
+    llm=None → backward compat, tüm kurallar direkt döner.
     """
+    # _validator: async callable (prompt: str) → BusinessRulesValidationResult
+    # Hem LangChain Runnable (.ainvoke) hem de test AsyncMock ile uyumlu.
+    _validator: Optional[Callable] = None
+    if llm is not None:
+        _chain = llm.with_structured_output(BusinessRulesValidationResult)
+
+        async def _validator(prompt_str: str) -> BusinessRulesValidationResult:
+            # AsyncMock (test): _chain(prompt_str) coroutine döndürür → await ile çözülür.
+            # LangChain Runnable (prod): doğrudan çağrı TypeError fırlatır → .ainvoke fallback.
+            try:
+                maybe_coro = _chain(prompt_str)
+                if asyncio.iscoroutine(maybe_coro):
+                    return await maybe_coro
+                return maybe_coro  # tip: sync sonuç (nadiren)
+            except TypeError:
+                return await _chain.ainvoke(prompt_str)
 
     async def business_rules_node(state: dict) -> dict:
         user_query = state.get("user_query", "")
@@ -508,9 +530,38 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore) -> Callab
         )
 
         individual_rules = result.get("individual_rules", [])
+
+        # --- LLM validation: default kurallar her zaman, aday kurallar LLM filtreler ---
+        if _validator:
+            default_rules    = [r for r in individual_rules if r.get("is_default", False)]
+            candidate_rules  = [r for r in individual_rules if not r.get("is_default", False)]
+
+            if candidate_rules:
+                candidate_descriptions = "\n".join([
+                    f"- ID: \"{r['id']}\"\n  Açıklama: {r['description']}"
+                    for r in candidate_rules
+                ])
+                prompt = BUSINESS_RULES_VALIDATOR_PROMPT.format(
+                    user_query=user_query,
+                    candidate_rules=candidate_descriptions,
+                )
+                validation: BusinessRulesValidationResult = await _validator(prompt)
+                confirmed_ids        = set(validation.applicable_rule_ids)
+                confirmed_candidates = [r for r in candidate_rules if r["id"] in confirmed_ids]
+
+                logger.info(
+                    f"[BUSINESS_RULES] LLM validation: "
+                    f"{len(candidate_rules)} candidates → {len(confirmed_candidates)} confirmed "
+                    f"({list(confirmed_ids) or 'none'}). Reasoning: {validation.reasoning[:80]}"
+                )
+                individual_rules = default_rules + confirmed_candidates
+            else:
+                individual_rules = default_rules
+
         logger.info(
             f"[BUSINESS_RULES] {result['total_count']} rules "
             f"({result['default_count']} default, {result['semantic_count']} semantic)"
+            f" → {len(individual_rules)} final"
         )
         return {"auto_rules": individual_rules}
 

@@ -4,6 +4,26 @@ from pydantic import BaseModel
 
 
 # =============================================================================
+# PYDANTIC MODELS — business_rules_node LLM validation
+# =============================================================================
+
+class BusinessRulesValidationResult(BaseModel):
+    """
+    business_rules_node LLM validation için structured output.
+    Vector store'dan gelen aday (non-default) kurallardan hangilerinin
+    bu sorgu için gerçekten geçerli olduğuna karar verir.
+    """
+    applicable_rule_ids: List[str]
+    """
+    Kullanıcı sorgusuna açıkça uyan kural ID'leri.
+    Emin olmadığın veya uymayan kuralları EKLEME.
+    İki çelişen kural varsa (ör: kapali_masa + acik_masa) ve kullanıcı açıklamamışsa İKİSİ DE EKLEME.
+    """
+    reasoning: str
+    """Kısa açıklama: hangi kuralları neden kabul/reddettim."""
+
+
+# =============================================================================
 # PYDANTIC MODELS — sql_architect node'unun structured output'u
 # =============================================================================
 
@@ -418,4 +438,38 @@ query_type = "COMPARISON" → limit: ZORUNLU None.
   - Sadece kullanıcının açıkça belirttiği filtreleri ekle
   - Gereksiz filtre EKLEME — merge_schemas dedup yapar, ama fazla filtre yanlış sonuç verir
   - IsTableActive, DocumentDetailIsTreatWasteCancel gibi filtreler term_hints'te "Python tarafından uygulanmaktadır" yazıyorsa filters'a EKLEME
+"""
+
+
+# =============================================================================
+# BUSINESS RULES VALIDATOR PROMPT
+# =============================================================================
+
+BUSINESS_RULES_VALIDATOR_PROMPT = """Kullanıcı sorgusunu analiz et. Aşağıdaki ADAY İŞ KURALLARI'ndan hangilerinin bu sorgu için GERÇEKTEN geçerli olduğuna karar ver.
+
+## KULLANICI SORUSU
+{user_query}
+
+## ADAY İŞ KURALLARI (Bunlar vector search'ten geldi — hepsi uygulanmayabilir)
+{candidate_rules}
+
+---
+
+## KARAR KRİTERLERİ
+
+**Kural GEÇERLİDİR eğer:**
+- Kullanıcı o kuralın konusunu (açık masa, kapalı masa, normal satış, ikram, vb.) AÇIKÇA belirtmişse
+- Örnek: "kapalı masaların cirosu" → kapali_masa_filtre GEÇERLİ
+- Örnek: "sadece normal satışlar" → sadece_normal_satis GEÇERLİ
+
+**Kural GEÇERSİZDİR eğer:**
+- Kullanıcı o kuralın konusundan HİÇ bahsetmemişse
+- Örnek: "carilere göre ciro" → kullanıcı masa durumu belirtmedi → kapali_masa_filtre/acik_masa_filtre GEÇERSİZ
+
+**ÇAKIŞMA KURALI (KRİTİK):**
+- Aynı kolona çelişen iki kural (ör: IsTableActive=0 VE IsTableActive=1) ASLA ikisi birden uygulanmaz
+- Kullanıcı hangisini istediğini açıkça belirtmemişse → İKİSİ DE applicable_rule_ids'e EKLEME
+
+applicable_rule_ids'e sadece gerçekten geçerli olan kural ID'lerini yaz.
+Emin olmadığında → listeye EKLEME (eksik kural, çelişen kuraldan iyidir).
 """
