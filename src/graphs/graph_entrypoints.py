@@ -9,6 +9,7 @@ from src.graphs.routing.graph import RoutingGraph
 from src.graphs.supervisor.graph import create_supervisor_graph
 from src.graphs.report.graph import build_report_graph
 from src.graphs.report_agent.graph import build_report_agent_graph
+from src.graphs.report_v2.graph import build_report_v2_graph
 from src.models.llm import LLM
 from src.services.config_loader import ConfigLoader
 
@@ -189,4 +190,38 @@ def report_agent_graph():
         connection_string=config.database.uri,
         business_rules_path=business_rules_path,
         chroma_persist_dir=chroma_persist_dir,
+    )
+
+
+def report_v2_graph():
+    """
+    Create and return the report v2 graph.
+
+    Network architecture with complete state separation:
+    4 independent sub-agents (ClassifyAgent, SQLAgent, AnalysisAgent, ResponseAgent),
+    each with their own TypedDict state. LangGraph native parallelism for
+    detect_references || validate_entities and extract_insights || decide_viz.
+    """
+    config = _get_config()
+    llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
+
+    text2sql_config = GenericSQLAssistantConfiguration(
+        report_name="",
+        description="",
+        table_name="MasterReportDocumentTable",
+        query="",
+        column_metadata={},
+        business_rules=[]
+    )
+
+    text2sql_graph_instance = GenericText2SQLGraph(llm=llm, config=text2sql_config)
+    text2sql_node_kit = text2sql_graph_instance.node_kit
+
+    visualization = build_visualization_graph(llm=llm)
+
+    return build_report_v2_graph(
+        node_kit=text2sql_node_kit,
+        llm=llm,
+        visualization_graph=visualization,
+        config_schema=GenericSQLAssistantConfiguration,
     )
