@@ -85,7 +85,15 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   → Bir boyut değer filtresi, diğer boyut GROUP BY
 - RANKING: Sıralama / top-N / en fazla / en az
 - COMPARISON: İki veya daha fazla grubun karşılaştırması
-- TIME_SERIES_COMPARISON: Dönemler arası karşılaştırma (ay/yıl/çeyrek)
+- TIME_SERIES_COMPARISON: SADECE dönemler ARASI karşılaştırma (periyodik kırılım veya iki dönem farkı)
+  ✅ "bu yılı geçen yılla karşılaştır" → TIME_SERIES_COMPARISON
+  ✅ "aylık satış trendi göster" → TIME_SERIES_COMPARISON (çok ay kırılımı)
+  ✅ "her ay ne kadar satıldı" → TIME_SERIES_COMPARISON (periyodik kırılım)
+  ❌ "son 1 yılda carilere göre ciro" → LISTING (tek dönem filtresi + boyut kırılımı)
+  ❌ "geçen ay şubelere göre satışlar" → LISTING (tek dönem filtresi + boyut kırılımı)
+  ❌ "bu yılın en çok satan ürünleri" → RANKING
+  Kural: "son X [dönem]de [boyut]a göre" kalıbı = tek dönem filtresi + boyut = LISTING veya RANKING
+         Sorgu aylık/yıllık KIRILIM istiyorsa (GROUP BY YEAR + MONTH) = TIME_SERIES_COMPARISON
 
 **wants_visualization:**
 - True: Kullanıcı açıkça grafik/görsel talep ediyor

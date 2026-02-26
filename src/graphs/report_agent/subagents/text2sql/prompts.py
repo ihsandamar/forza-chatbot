@@ -103,9 +103,19 @@ KURAL: "KULLANICI METRİK KOLON SEÇİMİ" bölümü term_hints içinde yer alı
 "SORGUDA TESPİT EDİLEN İŞ TERİMLERİ" bölümündeki eşleştirmeleri MUTLAKA uygula.
 Bu bölümdeki filtreler ve kolon seçimleri kesindir — column_metadata'dan bağımsız olarak geçerlidir.
 
-### KURAL 1 — Kolon Adları
+### KURAL 1 — Kolon Adları + Boyut Eşleştirme
 SADECE yukarıdaki KOLON BİLGİLERİ'ndeki gerçek DB adlarını kullan.
-Kullanıcı "şube" derse → kolon açıklamalarına bak, doğru DB kolon adını yaz.
+
+"...lere/e göre" boyut → DB kolon eşleştirme rehberi (group_by için):
+  "carilere göre" / "müşterilere göre" / "cari bazında" → [CustomerName]
+  "şubelere göre" / "şube bazında"                      → [BranchName]
+  "şehirlere göre" / "il bazında"                       → [BranchCityName]
+  "kategorilere göre" / "kategori bazında"               → [CategoryName]
+  "ürünlere göre" / "ürün bazında"                       → [ProductName]
+  "kasiyerlere göre" / "kasiyer bazında"                 → [CashierName]
+  "masalara göre" / "masa bazında"                       → [TableNo]
+
+⚠️ "cari" = müşteri = CustomerName. Asla BranchCityName veya BranchName seçme.
 Hiçbir zaman "tarih", "şube", "tutar" gibi Türkçe field_hint yazma — gerçek DB adını yaz.
 
 ### KURAL 1.5 — DocumentId GROUP BY: SADECE Adisyon Bazı Listelemelerde
@@ -197,8 +207,8 @@ query_type = "COMPARISON" → Karşılaştırılan TÜM varlıklar dönmeli, lim
 
 DOĞRU ✅:
   "dürümler ve içecek kategorilerini karşılaştır"
-  → filters: [{column=CategoryName, value_hint="dürümler", logical_operator="AND"},
-               {column=CategoryName, value_hint="içecek", logical_operator="OR"}]
+  → filters: [{{column=CategoryName, value_hint="dürümler", logical_operator="AND"}},
+               {{column=CategoryName, value_hint="içecek", logical_operator="OR"}}]
   → group_by: ["CategoryName"]
   → aggregations: [SUM(RowAmount) AS TotalSales]
   → limit: null, order_by_column: "TotalSales", order_by_direction: "DESC"
@@ -210,7 +220,7 @@ DOĞRU ✅:
 
 DOĞRU ✅:
   "dürümler ve içecek kategorilerini aylık karşılaştır"
-  → filters: [{CategoryName="dürümler", OR}, {CategoryName="içecek"}]
+  → filters: [{{CategoryName="dürümler", OR}}, {{CategoryName="içecek"}}]
   → group_by: ["CategoryName", "YEAR(DocumentDate)", "MONTH(DocumentDate)"]
   → aggregations: [SUM(RowAmount) AS TotalSales]
   → limit: null, order_by_column: "YEAR(DocumentDate)", order_by_direction: "ASC"
@@ -324,6 +334,17 @@ YANLIŞ ❌ (kullanıcı sormadı):
 
 DOĞRU ✅ (sadece ne soruldu):
   "kategorilere göre en çok ciro yapan kategori" → group_by: ["CategoryName"]
+
+"...lere/e göre" boyut → DB kolon eşleştirme (group_by için):
+  "carilere göre" / "müşterilere göre"  → [CustomerName]
+  "şubelere göre"                        → [BranchName]
+  "şehirlere göre"                       → [BranchCityName]
+  "kategorilere göre"                    → [CategoryName]
+  "ürünlere göre"                        → [ProductName]
+  "kasiyerlere göre"                     → [CashierName]
+  "masalara göre"                        → [TableNo]
+
+⚠️ "cari" = müşteri = CustomerName. Asla BranchCityName seçme.
 
 ## KURAL 1.5 — DocumentId GROUP BY YASAĞI (Toplam Metrik Sorgularda)
 column_metadata'da "GROUP BY DocumentId kullan" notu olsa bile:
