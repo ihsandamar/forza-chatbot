@@ -92,7 +92,8 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   ❌ "son 1 yılda carilere göre ciro" → LISTING (tek dönem filtresi + boyut kırılımı)
   ❌ "geçen ay şubelere göre satışlar" → LISTING (tek dönem filtresi + boyut kırılımı)
   ❌ "bu yılın en çok satan ürünleri" → RANKING
-  Kural: "son X [dönem]de [boyut]a göre" kalıbı = tek dönem filtresi + boyut = LISTING veya RANKING
+  Kural: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY = LISTING
+         (sıralama/top-N istiyorsa RANKING, tarih+boyut kırılımı istiyorsa LISTING)
          Sorgu aylık/yıllık KIRILIM istiyorsa (GROUP BY YEAR + MONTH) = TIME_SERIES_COMPARISON
 
 **wants_visualization:**

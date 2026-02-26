@@ -116,7 +116,7 @@ SADECE yukarıdaki KOLON BİLGİLERİ'ndeki gerçek DB adlarını kullan.
   "masalara göre" / "masa bazında"                       → [TableNo]
 
 ⚠️ "cari" = müşteri = CustomerName. Asla BranchCityName veya BranchName seçme.
-Hiçbir zaman "tarih", "şube", "tutar" gibi Türkçe field_hint yazma — gerçek DB adını yaz.
+Kolon DEĞER yazarken asla Türkçe kullanma: value_hint/resolved_value alanlarda "tarih", "tutar" gibi Türkçe yazma — gerçek DB değerlerini yaz.
 
 ### KURAL 1.5 — DocumentId GROUP BY: SADECE Adisyon Bazı Listelemelerde
 column_metadata'da DocumentId için "GROUP BY DocumentId kullan" notu görürsen:
@@ -336,13 +336,13 @@ DOĞRU ✅ (sadece ne soruldu):
   "kategorilere göre en çok ciro yapan kategori" → group_by: ["CategoryName"]
 
 "...lere/e göre" boyut → DB kolon eşleştirme (group_by için):
-  "carilere göre" / "müşterilere göre"  → [CustomerName]
-  "şubelere göre"                        → [BranchName]
-  "şehirlere göre"                       → [BranchCityName]
-  "kategorilere göre"                    → [CategoryName]
-  "ürünlere göre"                        → [ProductName]
-  "kasiyerlere göre"                     → [CashierName]
-  "masalara göre"                        → [TableNo]
+  "carilere göre" / "müşterilere göre" / "cari bazında" → [CustomerName]
+  "şubelere göre" / "şube bazında"                      → [BranchName]
+  "şehirlere göre" / "il bazında"                       → [BranchCityName]
+  "kategorilere göre" / "kategori bazında"               → [CategoryName]
+  "ürünlere göre" / "ürün bazında"                       → [ProductName]
+  "kasiyerlere göre" / "kasiyer bazında"                 → [CashierName]
+  "masalara göre" / "masa bazında"                       → [TableNo]
 
 ⚠️ "cari" = müşteri = CustomerName. Asla BranchCityName seçme.
 
