@@ -145,6 +145,16 @@
         }
       ],
       "hint": "Kullanıcı seçimine göre belirlenecek"
+    },
+    {
+      "term": "cari",
+      "aliases": [
+        "cariler", "cariye göre", "carilere göre", "caride",
+        "müşteri", "müşteriler", "müşteriye göre", "müşterilere göre",
+        "müşteri adı", "müşteri bazında", "cari bazında"
+      ],
+      "column": "CustomerName",
+      "hint": "Cari/müşteri kolonu → group_by veya select: [CustomerName] kullan"
     }
   ]
 }
