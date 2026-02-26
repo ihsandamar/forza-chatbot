@@ -45,7 +45,8 @@ async def test_llm_validation_filters_conflicting_masa_rules():
         applicable_rule_ids=[],
         reasoning="Kullanıcı açıkça masa durumu belirtmemiş, filtre uygulanmaz.",
     )
-    mock_structured_llm = AsyncMock(return_value=mock_validation)
+    mock_structured_llm = MagicMock()
+    mock_structured_llm.ainvoke = AsyncMock(return_value=mock_validation)
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value = mock_structured_llm
 
@@ -96,7 +97,8 @@ async def test_llm_validation_keeps_explicitly_mentioned_rule():
         applicable_rule_ids=["kapali_masa_filtre"],
         reasoning="Kullanıcı 'kapalı masalar' dedi → kapali_masa_filtre geçerli.",
     )
-    mock_structured_llm = AsyncMock(return_value=mock_validation)
+    mock_structured_llm = MagicMock()
+    mock_structured_llm.ainvoke = AsyncMock(return_value=mock_validation)
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value = mock_structured_llm
 

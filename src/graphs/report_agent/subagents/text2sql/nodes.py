@@ -3,7 +3,8 @@ Text2SQL Subagent Nodes (v2)
 
 8 node:
     create_table         - Pure Python: tablo oluştur (no-op if no query config)
-    business_rules       - Pure Python: ChromaDB semantic search → auto_rules
+    business_rules       - Pure Python + optional LLM: ChromaDB semantic search → auto_rules
+                           (llm sağlanırsa non-default aday kurallar LLM ile validate edilir)
     term_resolver        - Pure Python + interrupt(): term_dict match → term_filters (guaranteed) + term_hints (LLM advisory)
     sql_architect        - LLM (STRUCTURED OUTPUT): user_query → QuerySchema (field mapping only)
     value_resolver       - Pure Python: fuzzy match + interrupt() if low confidence
@@ -493,28 +494,13 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
 
 def create_business_rules_node(vector_store: BusinessRulesVectorStore, llm=None) -> Callable:
     """
-    Pure Python: user_query → state.auto_rules (resolved rule dicts).
+    Pure Python + optional LLM: user_query → state.auto_rules (resolved rule dicts).
     ChromaDB semantic search. llm sağlanırsa non-default aday kurallar
     LLM validation'dan geçirilir — çelişen kurallar filtrelenir.
 
     llm=None → backward compat, tüm kurallar direkt döner.
     """
-    # _validator: async callable (prompt: str) → BusinessRulesValidationResult
-    # Hem LangChain Runnable (.ainvoke) hem de test AsyncMock ile uyumlu.
-    _validator: Optional[Callable] = None
-    if llm is not None:
-        _chain = llm.with_structured_output(BusinessRulesValidationResult)
-
-        async def _validator(prompt_str: str) -> BusinessRulesValidationResult:
-            # AsyncMock (test): _chain(prompt_str) coroutine döndürür → await ile çözülür.
-            # LangChain Runnable (prod): doğrudan çağrı TypeError fırlatır → .ainvoke fallback.
-            try:
-                maybe_coro = _chain(prompt_str)
-                if asyncio.iscoroutine(maybe_coro):
-                    return await maybe_coro
-                return maybe_coro  # tip: sync sonuç (nadiren)
-            except TypeError:
-                return await _chain.ainvoke(prompt_str)
+    structured_llm = llm.with_structured_output(BusinessRulesValidationResult) if llm else None
 
     async def business_rules_node(state: dict) -> dict:
         user_query = state.get("user_query", "")
@@ -532,7 +518,7 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore, llm=None)
         individual_rules = result.get("individual_rules", [])
 
         # --- LLM validation: default kurallar her zaman, aday kurallar LLM filtreler ---
-        if _validator:
+        if structured_llm:
             default_rules    = [r for r in individual_rules if r.get("is_default", False)]
             candidate_rules  = [r for r in individual_rules if not r.get("is_default", False)]
 
@@ -545,7 +531,7 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore, llm=None)
                     user_query=user_query,
                     candidate_rules=candidate_descriptions,
                 )
-                validation: BusinessRulesValidationResult = await _validator(prompt)
+                validation: BusinessRulesValidationResult = await structured_llm.ainvoke(prompt)
                 confirmed_ids        = set(validation.applicable_rule_ids)
                 confirmed_candidates = [r for r in candidate_rules if r["id"] in confirmed_ids]
 
