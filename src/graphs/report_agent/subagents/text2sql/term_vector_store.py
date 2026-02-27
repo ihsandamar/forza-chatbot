@@ -35,6 +35,7 @@ _DEFAULT_COLLECTION = "term_dictionary"
 _DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _DEFAULT_SIMILARITY_THRESHOLD = 0.75
 _TOP_K = 15
+_TR_CHARS = r"a-zA-ZçğıöşüÇĞİÖŞÜ"  # Turkish word-boundary character class
 
 
 # =============================================================================
@@ -140,6 +141,7 @@ class TermVectorStore:
 
         self._collection = None
         self._terms_data: List[Dict[str, Any]] = []
+        self._keyword_patterns: Dict[str, re.Pattern] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -163,6 +165,17 @@ class TermVectorStore:
         )
 
         self._terms_data = self._load_dict()
+
+        # Pre-compile word-boundary regex patterns for keyword pre-resolution
+        self._keyword_patterns = {
+            alias.lower(): re.compile(
+                rf"(?<![{_TR_CHARS}]){re.escape(alias.lower())}(?![{_TR_CHARS}])"
+            )
+            for entry in self._terms_data
+            if not entry.get("filter_structured") and not entry.get("ambiguous_columns")
+            for alias in [entry["term"]] + entry.get("aliases", [])
+        }
+
         if not self._terms_data:
             logger.error(f"[TERM_VECTOR_STORE] Dict empty or unreadable: {self.dict_path}")
             return
@@ -257,10 +270,8 @@ class TermVectorStore:
 
             aliases_to_check = [entry["term"]] + entry.get("aliases", [])
             for alias in aliases_to_check:
-                alias_lower = alias.lower()
-                _TR_CHARS = "a-zA-ZçğıöşüÇĞİÖŞÜ"
-                pattern = rf"(?<![{_TR_CHARS}]){re.escape(alias_lower)}(?![{_TR_CHARS}])"
-                if re.search(pattern, query_lower):
+                pat = self._keyword_patterns.get(alias.lower())
+                if pat and pat.search(query_lower):
                     if column not in pre_resolved:  # ilk eşleşen kazanır
                         pre_resolved[column] = TermCandidate(
                             term_id=entry["id"],
