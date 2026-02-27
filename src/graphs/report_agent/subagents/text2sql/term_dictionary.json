@@ -1,137 +1,46 @@
 {
-  "version": "1.1",
+  "version": "2.0",
   "description": "Türkçe iş terimi → DB kolon/değer eşleştirme sözlüğü. Tablo bağımsız.",
   "terms": [
     {
+      "id": "metric_revenue",
+      "category": "metric",
       "term": "ciro",
       "aliases": ["satış tutarı", "gelir", "revenue", "tutar", "satış", "kazanç", "hasılat"],
       "column": "RowAmount",
-      "hint": "Satış tutarını temsil eder → aggregations: SUM([RowAmount]) kullan"
+      "specificity": 1.0,
+      "hint": "Satış tutarını temsil eder → aggregations: SUM([RowAmount]) kullan",
+      "embedding_text": "Ciro, gelir, hasılat, satış tutarı, para birimi cinsinden satış değeri, toplam tutar"
     },
     {
+      "id": "metric_quantity",
+      "category": "metric",
       "term": "adet",
       "aliases": ["miktar", "quantity", "satış adedi", "satılan", "kaç tane"],
       "column": "Quantity",
-      "hint": "Satış adedini temsil eder → aggregations: SUM([Quantity]) kullan"
+      "specificity": 1.0,
+      "hint": "Satış adedini temsil eder → aggregations: SUM([Quantity]) kullan",
+      "embedding_text": "Satış adedi, miktar, kaç tane, adet, satılan ürün sayısı"
     },
     {
-      "term": "ödemesi alınan masa",
-      "aliases": ["kapalı masa", "tamamlanan masa", "biten masa", "ödeme alındı", "ödemesi alınan"],
-      "column": "IsTableActive",
-      "filter": "IsTableActive = 0",
-      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "0"},
-      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
-      "term": "açık masa",
-      "aliases": ["aktif masa", "ödemesi alınmamış masa", "masada oturan"],
-      "column": "IsTableActive",
-      "filter": "IsTableActive = 1",
-      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "1"},
-      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
-      "term": "normal satış",
-      "aliases": ["standart satış", "ikram değil", "zayi değil", "iptal değil"],
-      "column": "DocumentDetailIsTreatWasteCancel",
-      "filter": "DocumentDetailIsTreatWasteCancel IS NULL",
-      "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "IS NULL"},
-      "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
-      "term": "ikram",
-      "aliases": ["bedava", "ikram edilen", "ücretsiz"],
-      "column": "DocumentDetailIsTreatWasteCancel",
-      "filter": "DocumentDetailIsTreatWasteCancel = 1",
-      "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "=", "value": "1"},
-      "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
-      "term": "iade",
-      "aliases": ["iade satış", "geri iade", "return"],
-      "column": "DocumentTypeIsReturn",
-      "filter": "DocumentTypeIsReturn = 1",
-      "filter_structured": {"column": "DocumentTypeIsReturn", "operator": "=", "value": "1"},
-      "hint": "[DocumentTypeIsReturn] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
-      "term": "paket servis",
-      "aliases": ["paket", "delivery", "eve teslim", "online sipariş"],
-      "column": "DocumentKindName",
-      "filter": "DocumentKindName = 'Paket Servis'",
-      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Paket Servis"},
-      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
-      "term": "masa siparişi",
-      "aliases": ["masada yeme", "restoran", "masa satışı"],
-      "column": "DocumentKindName",
-      "filter": "DocumentKindName = 'Masa'",
-      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Masa"},
-      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
-      "term": "ana ürün",
-      "aliases": ["menü dışı", "bağımsız ürün", "seçenek değil"],
-      "column": "MenuId",
-      "filter": "MenuId IS NULL",
-      "filter_structured": {"column": "MenuId", "operator": "IS NULL"},
-      "hint": "[MenuId] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME"
-    },
-    {
+      "id": "metric_discount",
+      "category": "metric",
       "term": "indirim",
       "aliases": ["iskonto", "indirim tutarı", "discount"],
       "column": "DiscountAmountTotal",
-      "hint": "İndirim tutarı → aggregations: SUM([DiscountAmountTotal]) veya AVG([DiscountAmountTotal]) kullan"
+      "specificity": 1.0,
+      "hint": "İndirim tutarı → aggregations: SUM([DiscountAmountTotal]) veya AVG([DiscountAmountTotal]) kullan",
+      "embedding_text": "İndirim tutarı, iskonto miktarı, discount, uygulanan indirim"
     },
     {
-      "term": "adisyon",
-      "aliases": ["fiş", "sipariş", "belge", "document"],
-      "column": "DocumentId",
-      "hint": "Adisyon sayısı için → aggregations: COUNT(DISTINCT [DocumentId]) kullan"
-    },
-    {
-      "term": "kategori",
-      "aliases": ["kategoriler", "kategoriye göre", "kategorilere göre", "kategoride", "ürün kategorisi"],
-      "column": "CategoryName",
-      "hint": "Kategori kolonu → group_by veya select: [CategoryName] kullan"
-    },
-    {
-      "term": "ürün",
-      "aliases": ["ürünler", "ürüne göre", "ürünlere göre", "ürün adı", "menü ürünü"],
-      "column": "ProductName",
-      "hint": "Ürün kolonu → group_by veya select: [ProductName] kullan"
-    },
-    {
-      "term": "şube",
-      "aliases": ["şubeler", "şubeye göre", "şubelere göre", "şubede", "lokasyon"],
-      "column": "BranchName",
-      "hint": "Şube kolonu → group_by veya select: [BranchName] kullan"
-    },
-    {
-      "term": "kasiyer",
-      "aliases": ["kasiyerler", "kasiyere göre", "kasiyerlere göre", "kasiyer adı"],
-      "column": "CashierName",
-      "hint": "Kasiyer kolonu → group_by veya select: [CashierName] kullan"
-    },
-    {
-      "term": "masa",
-      "aliases": ["masa numarası", "masa no", "table no", "masalar"],
-      "column": "TableNo",
-      "hint": "Masa numarası kolonu → group_by veya select: [TableNo] kullan"
-    },
-    {
-      "term": "şehir",
-      "aliases": ["şehirler", "şehre göre", "şehirlere göre", "il"],
-      "column": "BranchCityName",
-      "hint": "Şehir kolonu → group_by veya select: [BranchCityName] kullan"
-    },
-    {
+      "id": "metric_ambiguous_how_much",
+      "category": "metric",
       "term": "ne kadar sattı",
       "aliases": [
         "ne kadar", "sattı", "ne kadar satıldı", "ne kadar oldu",
         "satış miktarı nedir", "toplam satış", "satış bilgisi"
       ],
+      "specificity": 0.2,
       "ambiguous_columns": [
         {
           "column": "RowAmount",
@@ -144,9 +53,82 @@
           "filter_structured": null
         }
       ],
-      "hint": "Kullanıcı seçimine göre belirlenecek"
+      "hint": "Kullanıcı seçimine göre belirlenecek",
+      "embedding_text": "Satış miktarı veya tutarı belirsiz soru, ne kadar, hangi ölçüt"
     },
     {
+      "id": "dim_document",
+      "category": "dimension",
+      "term": "adisyon",
+      "aliases": ["fiş", "sipariş", "belge", "document"],
+      "column": "DocumentId",
+      "specificity": 1.0,
+      "hint": "Adisyon sayısı için → aggregations: COUNT(DISTINCT [DocumentId]) kullan",
+      "embedding_text": "Adisyon, fiş, sipariş belgesi, belge sayısı, document count"
+    },
+    {
+      "id": "dim_category",
+      "category": "dimension",
+      "term": "kategori",
+      "aliases": ["kategoriler", "kategoriye göre", "kategorilere göre", "kategoride", "ürün kategorisi"],
+      "column": "CategoryName",
+      "specificity": 1.0,
+      "hint": "Kategori kolonu → group_by veya select: [CategoryName] kullan",
+      "embedding_text": "Kategori, ürün grubu, ürün kategorisi, hangi kategoride"
+    },
+    {
+      "id": "dim_product",
+      "category": "dimension",
+      "term": "ürün",
+      "aliases": ["ürünler", "ürüne göre", "ürünlere göre", "ürün adı", "menü ürünü"],
+      "column": "ProductName",
+      "specificity": 0.8,
+      "hint": "Ürün kolonu → group_by veya select: [ProductName] kullan",
+      "embedding_text": "Ürün adı, menü ürünü, yemek, hangi ürün"
+    },
+    {
+      "id": "dim_branch",
+      "category": "dimension",
+      "term": "şube",
+      "aliases": ["şubeler", "şubeye göre", "şubelere göre", "şubede", "lokasyon"],
+      "column": "BranchName",
+      "specificity": 1.0,
+      "hint": "Şube kolonu → group_by veya select: [BranchName] kullan",
+      "embedding_text": "Şube, lokasyon, restoran şubesi, hangi şubede"
+    },
+    {
+      "id": "dim_cashier",
+      "category": "dimension",
+      "term": "kasiyer",
+      "aliases": ["kasiyerler", "kasiyere göre", "kasiyerlere göre", "kasiyer adı"],
+      "column": "CashierName",
+      "specificity": 1.0,
+      "hint": "Kasiyer kolonu → group_by veya select: [CashierName] kullan",
+      "embedding_text": "Kasiyer adı, ödeme alan, kasiyere göre"
+    },
+    {
+      "id": "dim_table",
+      "category": "dimension",
+      "term": "masa",
+      "aliases": ["masa numarası", "masa no", "table no", "masalar"],
+      "column": "TableNo",
+      "specificity": 0.7,
+      "hint": "Masa numarası kolonu → group_by veya select: [TableNo] kullan",
+      "embedding_text": "Masa numarası, hangi masada, table no"
+    },
+    {
+      "id": "dim_city",
+      "category": "dimension",
+      "term": "şehir",
+      "aliases": ["şehirler", "şehre göre", "şehirlere göre", "il"],
+      "column": "BranchCityName",
+      "specificity": 1.0,
+      "hint": "Şehir kolonu → group_by veya select: [BranchCityName] kullan",
+      "embedding_text": "Şehir, il, bulunduğu şehir, hangi ilde"
+    },
+    {
+      "id": "dim_customer",
+      "category": "dimension",
       "term": "cari",
       "aliases": [
         "cariler", "cariye göre", "carilere göre", "caride",
@@ -154,7 +136,97 @@
         "müşteri adı", "müşteri bazında", "cari bazında", "cari hesap"
       ],
       "column": "CustomerName",
-      "hint": "Cari/müşteri kolonu → group_by veya select: [CustomerName] kullan"
+      "specificity": 1.0,
+      "hint": "Cari/müşteri kolonu → group_by veya select: [CustomerName] kullan",
+      "embedding_text": "Müşteri, cari hesap, müşteri adı, cari bazında, alıcı"
+    },
+    {
+      "id": "filter_closed_table",
+      "category": "status",
+      "term": "ödemesi alınan masa",
+      "aliases": ["kapalı masa", "tamamlanan masa", "biten masa", "ödeme alındı", "ödemesi alınan"],
+      "column": "IsTableActive",
+      "specificity": 1.0,
+      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "0"},
+      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "Kapalı masa, ödemesi tamamlanan, biten masa, ödeme alınan"
+    },
+    {
+      "id": "filter_open_table",
+      "category": "status",
+      "term": "açık masa",
+      "aliases": ["aktif masa", "ödemesi alınmamış masa", "masada oturan"],
+      "column": "IsTableActive",
+      "specificity": 1.0,
+      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "1"},
+      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "Açık masa, aktif masa, hâlâ masada olan, ödeme alınmamış"
+    },
+    {
+      "id": "filter_normal_sale",
+      "category": "status",
+      "term": "normal satış",
+      "aliases": ["standart satış", "ikram değil", "zayi değil", "iptal değil"],
+      "column": "DocumentDetailIsTreatWasteCancel",
+      "specificity": 0.9,
+      "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "IS NULL"},
+      "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "Normal satış, standart satış, ikram değil, zayi değil, iptal değil"
+    },
+    {
+      "id": "filter_treat",
+      "category": "status",
+      "term": "ikram",
+      "aliases": ["bedava", "ikram edilen", "ücretsiz"],
+      "column": "DocumentDetailIsTreatWasteCancel",
+      "specificity": 1.0,
+      "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "=", "value": "1"},
+      "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "İkram edilen ürün, bedava verilen, ücretsiz ürün, complimentary"
+    },
+    {
+      "id": "filter_return",
+      "category": "status",
+      "term": "iade",
+      "aliases": ["iade satış", "geri iade", "return"],
+      "column": "DocumentTypeIsReturn",
+      "specificity": 1.0,
+      "filter_structured": {"column": "DocumentTypeIsReturn", "operator": "=", "value": "1"},
+      "hint": "[DocumentTypeIsReturn] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "İade edilen ürün, geri iade, return, iade satışı"
+    },
+    {
+      "id": "filter_delivery",
+      "category": "filter",
+      "term": "paket servis",
+      "aliases": ["paket", "delivery", "eve teslim", "online sipariş"],
+      "column": "DocumentKindName",
+      "specificity": 1.0,
+      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Paket Servis"},
+      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "Paket servis siparişi, delivery, eve teslim, online sipariş, takeaway"
+    },
+    {
+      "id": "filter_dine_in",
+      "category": "filter",
+      "term": "masa siparişi",
+      "aliases": ["masada yeme", "restoran", "masa satışı"],
+      "column": "DocumentKindName",
+      "specificity": 1.0,
+      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Masa"},
+      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "Masada yeme, restoran siparişi, dine in, masa satışı"
+    },
+    {
+      "id": "filter_main_product",
+      "category": "filter",
+      "term": "ana ürün",
+      "aliases": ["menü dışı", "bağımsız ürün", "seçenek değil"],
+      "column": "MenuId",
+      "specificity": 0.9,
+      "filter_structured": {"column": "MenuId", "operator": "IS NULL"},
+      "hint": "[MenuId] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "Ana ürün, menü dışı ürün, bağımsız ürün, menü seçeneği değil"
     }
   ]
 }
