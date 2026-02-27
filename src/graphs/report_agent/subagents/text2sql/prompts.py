@@ -140,8 +140,6 @@ SQL_ARCHITECT_PROMPT = """Sen bir T-SQL sorgu mimarısın. Kullanıcı sorusunu 
 ## SORGUDA TESPİT EDİLEN İŞ TERİMLERİ (Doğrudan Uygula)
 {term_hints}
 
-KURAL: "KULLANICI METRİK KOLON SEÇİMİ" bölümü term_hints içinde yer alıyorsa, o bölümdeki kolon ZORUNLU OLARAK tüm aggregations'larda kullanılmalıdır. Başka metric kolon seçme.
-
 ## BUGÜNÜN TARİHİ
 - Tarih: {today_date}
 - Yıl: {current_year}
@@ -492,7 +490,7 @@ query_type = "COMPARISON" → limit: ZORUNLU None.
 ## KURAL 5 — filters listesini SADE TUT
   - Sadece kullanıcının açıkça belirttiği filtreleri ekle
   - Gereksiz filtre EKLEME — merge_schemas dedup yapar, ama fazla filtre yanlış sonuç verir
-  - IsTableActive, DocumentDetailIsTreatWasteCancel gibi filtreler term_hints'te "Python tarafından uygulanmaktadır" yazıyorsa filters'a EKLEME
+  - term_hints'te "PYTHON-YÖNETİMLİ FİLTRELER" bölümünde listelenen kolonları filters'a EKLEME — KURAL 5.5'e bak
 
 ## KURAL 5.5 — Python-Managed Filtreler (KRİTİK)
 term_hints'teki "PYTHON-YÖNETİMLİ FİLTRELER" bölümündeki kolonları
