@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -256,7 +257,10 @@ class TermVectorStore:
 
             aliases_to_check = [entry["term"]] + entry.get("aliases", [])
             for alias in aliases_to_check:
-                if alias.lower() in query_lower:
+                alias_lower = alias.lower()
+                _TR_CHARS = "a-zA-ZçğıöşüÇĞİÖŞÜ"
+                pattern = rf"(?<![{_TR_CHARS}]){re.escape(alias_lower)}(?![{_TR_CHARS}])"
+                if re.search(pattern, query_lower):
                     if column not in pre_resolved:  # ilk eşleşen kazanır
                         pre_resolved[column] = TermCandidate(
                             term_id=entry["id"],
