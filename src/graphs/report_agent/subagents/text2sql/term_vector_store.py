@@ -53,11 +53,13 @@ class TermResolverOutput:
     """
     TermVectorStore.resolve() dönüş tipi.
 
-    term_filters : Python katmanı tarafından QuerySchema'ya merge edilir.
-    hints_text   : LLM prompt'una inject edilir.
-    ambiguous    : interrupt() ile kullanıcıya sorulacak terimler.
+    term_filters            : Python katmanı tarafından sql_generator'a merge edilir.
+    candidate_filter_terms  : term_validator_node için — term_id + metadata ile zenginleştirilmiş.
+    hints_text              : LLM prompt'una inject edilir.
+    ambiguous               : interrupt() ile kullanıcıya sorulacak terimler.
     """
     term_filters: List[Dict[str, Any]] = field(default_factory=list)
+    candidate_filter_terms: List[Dict[str, Any]] = field(default_factory=list)  # NEW
     hints_text: str = "Özel terim eşleşmesi bulunamadı."
     ambiguous: List[AmbiguousMatch] = field(default_factory=list)
 
@@ -271,15 +273,20 @@ class TermVectorStore:
 
         1. Sort by similarity * specificity (desc) — spesifik term'ler önce işlenir
         2. Unambiguous term → resolved_columns'a ekle
+           - filter_structured varsa → term_filters + candidate_filter_terms (filter_hint_lines)
+           - yoksa → column_hint_lines (LLM hint)
         3. Ambiguous term → tüm / kısmen resolved_columns'da mı?
              Tümü veya kısmen → SUPPRESS
              Hiçbiri          → interrupt listesine ekle
+        4. hints_text iki bölümlü: PYTHON-YÖNETİMLİ FİLTRELER + KOLON İPUÇLARI
         """
         sorted_candidates = sorted(candidates, key=lambda c: c.sort_key, reverse=True)
 
         resolved_columns: Dict[str, TermCandidate] = {}  # column → winning candidate
         term_filters: List[Dict[str, Any]] = []
-        hint_lines: List[str] = []
+        candidate_filter_terms: List[Dict[str, Any]] = []
+        filter_hint_lines: List[str] = []    # Python-managed filter hints
+        column_hint_lines: List[str] = []    # Metric/dimension hints for LLM
         ambiguous: List[AmbiguousMatch] = []
 
         for candidate in sorted_candidates:
@@ -288,11 +295,31 @@ class TermVectorStore:
             if not candidate.is_ambiguous and candidate.column:
                 if candidate.column not in resolved_columns:
                     resolved_columns[candidate.column] = candidate
-                    hint_lines.append(f'- "{candidate.term}" [{candidate.column}] → {candidate.hint}')
+
                     if candidate.filter_structured:
+                        # Filter term → Python manages WHERE, LLM should NOT add
                         fs = dict(candidate.filter_structured)
                         fs.setdefault("logical_operator", "AND")
                         term_filters.append(fs)
+                        candidate_filter_terms.append({
+                            "term_id": candidate.term_id,
+                            "term": candidate.term,
+                            "column": candidate.column,
+                            "filter_structured": candidate.filter_structured,
+                            "hint": candidate.hint,
+                        })
+                        col_val = (
+                            f"{candidate.filter_structured.get('column')} "
+                            f"{candidate.filter_structured.get('operator')} "
+                            f"{candidate.filter_structured.get('value', '')}".strip()
+                        )
+                        filter_hint_lines.append(f"- {col_val}  ({candidate.term})")
+                    else:
+                        # Dimension/metric term → LLM guidance only
+                        column_hint_lines.append(
+                            f'- "{candidate.term}" [{candidate.column}] → {candidate.hint}'
+                        )
+
                     logger.debug(
                         f"[TERM_VECTOR_STORE] Resolved: '{candidate.term}' → "
                         f"'{candidate.column}' (sim={candidate.similarity:.2f}, "
@@ -310,7 +337,7 @@ class TermVectorStore:
                     # SUPPRESS: at least one ambiguous column is already resolved
                     for col in already_resolved:
                         winner = resolved_columns[col]
-                        hint_lines.append(
+                        column_hint_lines.append(
                             f'- "{candidate.term}" → "{winner.term}" terimi ile '
                             f'[{col}] olarak çözüldü (interrupt suppressed)'
                         )
@@ -325,22 +352,47 @@ class TermVectorStore:
                         user_query=user_query,
                         options=candidate.ambiguous_columns,
                     ))
-                    hint_lines.append(f'- "{candidate.term}" → belirsiz kolon, kullanıcıya sorulacak')
+                    column_hint_lines.append(
+                        f'- "{candidate.term}" → belirsiz kolon, kullanıcıya sorulacak'
+                    )
                     logger.info(
                         f"[TERM_VECTOR_STORE] AMBIGUOUS: '{candidate.term}' → "
                         f"interrupt required ({amb_cols})"
                     )
 
-        hints_text = "\n".join(hint_lines) if hint_lines else "Özel terim eşleşmesi bulunamadı."
+        # --- Build two-section hints_text ---
+        hints_sections: List[str] = []
+
+        if filter_hint_lines:
+            hints_sections.append(
+                "## PYTHON-YÖNETİMLİ FİLTRELER "
+                "(sen filters'a EKLEME — Python garantili uygular)\n"
+                + "\n".join(filter_hint_lines)
+            )
+
+        if column_hint_lines:
+            hints_sections.append(
+                "## KOLON İPUÇLARI "
+                "(LLM için rehber — aggregations/group_by kararlarında kullan)\n"
+                + "\n".join(column_hint_lines)
+            )
+
+        hints_text = (
+            "\n\n".join(hints_sections)
+            if hints_sections
+            else "Özel terim eşleşmesi bulunamadı."
+        )
 
         logger.info(
             f"[TERM_VECTOR_STORE] resolve() done: "
             f"{len(term_filters)} filter(s), "
-            f"{len([l for l in hint_lines if 'belirsiz' not in l])} hint(s), "
+            f"{len(candidate_filter_terms)} filter_candidate(s), "
+            f"{len(column_hint_lines)} hint(s), "
             f"{len(ambiguous)} interrupt(s)"
         )
         return TermResolverOutput(
             term_filters=term_filters,
+            candidate_filter_terms=candidate_filter_terms,
             hints_text=hints_text,
             ambiguous=ambiguous,
         )
