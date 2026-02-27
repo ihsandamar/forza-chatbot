@@ -25,3 +25,8 @@ class ReportAgentConfiguration(BaseModel):
         default_factory=dict,
         description="Kolon metaverileri — {kolon_adı: açıklama} formatında",
     )
+
+    business_rules_path: str = Field(
+        default="./src/graphs/generic_text2sql/business_rules.json",
+        description="Business rules JSON dosya yolu. LangGraph Studio'dan runtime'da override edilebilir.",
+    )
