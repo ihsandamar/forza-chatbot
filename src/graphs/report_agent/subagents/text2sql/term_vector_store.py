@@ -166,6 +166,10 @@ class TermVectorStore:
 
         self._terms_data = self._load_dict()
 
+        if not self._terms_data:
+            logger.error(f"[TERM_VECTOR_STORE] Dict empty or unreadable: {self.dict_path}")
+            return
+
         # Pre-compile word-boundary regex patterns for keyword pre-resolution
         self._keyword_patterns = {
             alias.lower(): re.compile(
@@ -175,10 +179,6 @@ class TermVectorStore:
             if not entry.get("filter_structured") and not entry.get("ambiguous_columns")
             for alias in [entry["term"]] + entry.get("aliases", [])
         }
-
-        if not self._terms_data:
-            logger.error(f"[TERM_VECTOR_STORE] Dict empty or unreadable: {self.dict_path}")
-            return
 
         if self._collection.count() == 0:
             logger.info("[TERM_VECTOR_STORE] Collection empty, building index...")
