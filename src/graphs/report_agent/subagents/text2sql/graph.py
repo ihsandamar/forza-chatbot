@@ -1,19 +1,18 @@
 """
-Text2SQL Subagent Graph (v2.1)
+Text2SQL Subagent Graph (v2.2)
 
 START → create_table → business_rules → term_resolver
         ├── sql_architect (LLM)    ──┐
-        └── schema_validator (LLM) ──┴→ schema_merge → value_resolver
+        ├── schema_validator (LLM) ──┼→ schema_merge → value_resolver
+        └── term_validator (LLM)   ──┘
         → sql_generator → sql_executor ──────────────────────────────┐
                                ↑ (retry, max 2)                      │
                                └─────────────────────────────────────┘
                                                                       ↓
                                                           cleanup_table → END
 
-term_resolver: Deterministik — term_filters (Python garantili) + term_hints (LLM advisory)
-sql_architect + schema_validator: Paralel LLM çağrıları. asyncio ile eş zamanlı çalışır.
-schema_merge: Pure Python fan-in — iki LLM çıktısını birleştirir.
-sql_generator: Pure Python. term_filters + auto_rules merge eder, LLM yok.
+term_validator: Parallel LLM gate — filter adaylarını onaylar/reddeder.
+sql_generator: validated_term_filters okur. LLM yok.
 """
 import logging
 from pathlib import Path
@@ -33,6 +32,7 @@ from src.graphs.report_agent.subagents.text2sql.nodes import (
     create_sql_executor_node,
     create_sql_generator_node,
     create_term_resolver_node,
+    create_term_validator_node,   # ADD
     create_value_resolver_node,
     schema_merge_node,
 )
@@ -73,7 +73,7 @@ def build_text2sql_graph(
         business_rules_path: business_rules.json dosya yolu
         chroma_persist_dir:  ChromaDB persist klasörü
     """
-    logger.info(f"[TEXT2SQL] Building subgraph v2.1 for table: {table_name}")
+    logger.info(f"[TEXT2SQL] Building subgraph v2.2 for table: {table_name}")
 
     # --- Servis başlatma ---
     value_resolver = ValueResolverService(
@@ -102,6 +102,7 @@ def build_text2sql_graph(
     term_vector_store.initialize()
 
     term_resolver       = create_term_resolver_node(term_vector_store)
+    term_validator      = create_term_validator_node(llm)
     sql_architect       = create_sql_architect_node(llm, column_metadata)
     schema_validator    = create_schema_validator_node(llm, column_metadata)
     value_resolver_node = create_value_resolver_node(value_resolver)
@@ -115,6 +116,7 @@ def build_text2sql_graph(
     graph.add_node("create_table",      create_table)
     graph.add_node("business_rules",    business_rules)
     graph.add_node("term_resolver",     term_resolver)
+    graph.add_node("term_validator",    term_validator)
     graph.add_node("sql_architect",     sql_architect)
     graph.add_node("schema_validator",  schema_validator)
     graph.add_node("schema_merge",      schema_merge_node)
@@ -127,13 +129,15 @@ def build_text2sql_graph(
     graph.add_edge("create_table",      "business_rules")
     graph.add_edge("business_rules",    "term_resolver")
 
-    # Fan-out: term_resolver → sql_architect + schema_validator (paralel)
+    # Fan-out: term_resolver → sql_architect + schema_validator + term_validator (paralel)
     graph.add_edge("term_resolver",     "sql_architect")
     graph.add_edge("term_resolver",     "schema_validator")
+    graph.add_edge("term_resolver",     "term_validator")
 
-    # Fan-in: her ikisi tamamlandığında → schema_merge
+    # Fan-in: üçü tamamlandığında → schema_merge
     graph.add_edge("sql_architect",     "schema_merge")
     graph.add_edge("schema_validator",  "schema_merge")
+    graph.add_edge("term_validator",    "schema_merge")
 
     graph.add_edge("schema_merge",      "value_resolver")
     graph.add_edge("value_resolver",    "sql_generator")
@@ -147,9 +151,9 @@ def build_text2sql_graph(
 
     compiled = graph.compile()
     logger.info(
-        "[TEXT2SQL] Subgraph v2.1 built: "
+        "[TEXT2SQL] Subgraph v2.2 built: "
         "create_table → business_rules → term_resolver "
-        "→ [sql_architect ∥ schema_validator] → schema_merge "
+        "→ [sql_architect ∥ schema_validator ∥ term_validator] → schema_merge "
         "→ value_resolver → sql_generator → sql_executor → cleanup_table (max 2 retry)"
     )
     return compiled

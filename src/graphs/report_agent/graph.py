@@ -64,12 +64,17 @@ def build_report_agent_graph(
     chroma_persist_dir: str,
     checkpointer=None,
 ):
+    # business_rules_path artık ReportAgentConfiguration.business_rules_path default'u ile
+    # Studio'dan override edilebilir.
+    default_br_path = ReportAgentConfiguration.model_fields["business_rules_path"].default
+    effective_business_rules_path = business_rules_path or default_br_path
+
     text2sql = build_text2sql_graph(
         llm,
         table_name,
         column_metadata,
         connection_string,
-        business_rules_path,
+        effective_business_rules_path,
         chroma_persist_dir,
     )
     visualization = build_visualization_graph(llm)
