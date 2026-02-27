@@ -901,6 +901,13 @@ ZAMAN GRANULARİTY + AGGREGATION → ZORUNLU group_by VE select!
 ✅ DOĞRU: filters: [{"column": "CategoryName", "operator": "IN", "values": ["A", "B"]}]
 Kural: "CategoryName = 'A' AND CategoryName = 'B'" her zaman yanlış → IN('A','B') kullan!
 
+**TIME_SERIES_COMPARISON için semantik alanlar (QuerySchema):**
+query_type="TIME_SERIES_COMPARISON" olduğunda bu alanları doldur — Python GROUP BY'ı deterministik inşa eder:
+  time_granularity: "hourly" | "daily" | "weekly" | "monthly" | "yearly"
+  comparison_dimension: karşılaştırılan entity'nin DB kolon adı (ProductName, BranchName vb.)
+  → "dürümler kategorisindeki ürünleri günlük karşılaştır" → time_granularity="daily", comparison_dimension="ProductName"
+  → "son 1 yılda aylık satış trendi" → time_granularity="monthly", comparison_dimension=null
+
 **ÖRNEK - YANLIŞ VE DOĞRU:**
 
 ❌ YANLIŞ: "günlük ortalama" → aggregation: AVG, group_by: [] (TOPLAM DÖNER!)
