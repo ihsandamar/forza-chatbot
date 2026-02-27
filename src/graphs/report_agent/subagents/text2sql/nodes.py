@@ -29,9 +29,11 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
     QuerySchema,
     SchemaValidationResult,
     BusinessRulesValidationResult,
+    TermValidationResult,
     SQL_ARCHITECT_PROMPT,
     SCHEMA_VALIDATOR_PROMPT,
     BUSINESS_RULES_VALIDATOR_PROMPT,
+    TERM_VALIDATOR_PROMPT,
 )
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
@@ -179,11 +181,92 @@ def create_term_resolver_node(term_vector_store: TermVectorStore) -> Callable:
             f"{len(metric_choice_hints)} metric choice(s)"
         )
         return {
-            "term_filters": term_filters,
-            "term_hints":   hints_text,
+            "term_filters":           term_filters,
+            "candidate_filter_terms": result.candidate_filter_terms,
+            "term_hints":             hints_text,
         }
 
     return term_resolver_node
+
+
+# =============================================================================
+# NODE 3.5: TERM VALIDATOR (term_resolver ile PARALLEL çalışır)
+# =============================================================================
+
+def create_term_validator_node(llm) -> Callable:
+    """
+    Parallel LLM gate: TermVectorStore'un ürettiği filter adaylarını doğrular.
+
+    BusinessRulesValidationResult ile aynı pattern:
+      - candidate_filter_terms'i state'ten okur (term_resolver üretir)
+      - LLM her terimin kullanıcı tarafından gerçekten kastetilip kastetilmediğine karar verir
+      - Onaylananlar → validated_term_filters (sql_generator bunu okur)
+      - Reddedilenler → validated_term_filters'a GİRMEZ
+
+    term_resolver, sql_architect, schema_validator ile PARALLEL çalışır.
+    Latency: 0 — schema_merge zaten üç node'u bekler.
+    """
+    structured_llm = llm.with_structured_output(TermValidationResult)
+
+    def _format_candidate_filters(candidate_filter_terms: list) -> str:
+        """term_validator prompt için okunabilir format."""
+        if not candidate_filter_terms:
+            return "Aday filtre terimi yok."
+        lines = []
+        for cft in candidate_filter_terms:
+            fs = cft.get("filter_structured") or {}
+            col = fs.get("column", "?")
+            op = fs.get("operator", "=")
+            val = fs.get("value", "") or ""
+            where_desc = f"{col} {op} {val}".strip()
+            lines.append(
+                f"  - ID: {cft['term_id']}\n"
+                f"    Terim: \"{cft['term']}\"\n"
+                f"    Eklenecek WHERE: {where_desc}"
+            )
+        return "\n".join(lines)
+
+    async def term_validator_node(state: dict) -> dict:
+        user_query = state.get("user_query", "")
+        candidate_filter_terms = state.get("candidate_filter_terms") or []
+
+        # Aday yoksa → doğrulama atla, boş liste döndür
+        if not candidate_filter_terms:
+            logger.info("[TERM_VALIDATOR] No filter candidates, skipping validation")
+            return {"validated_term_filters": []}
+
+        candidate_filters_text = _format_candidate_filters(candidate_filter_terms)
+        prompt = TERM_VALIDATOR_PROMPT.format(
+            user_query=user_query,
+            candidate_filters=candidate_filters_text,
+        )
+
+        logger.info(
+            f"[TERM_VALIDATOR] Validating {len(candidate_filter_terms)} filter candidate(s) "
+            f"for: {user_query[:80]}"
+        )
+
+        try:
+            result: TermValidationResult = await structured_llm.ainvoke(prompt)
+        except Exception as e:
+            logger.error(f"[TERM_VALIDATOR] LLM error: {e} — returning empty validated_term_filters")
+            return {"validated_term_filters": []}
+
+        approved_ids = set(result.approved_filter_ids)
+        validated_term_filters = [
+            {**cft["filter_structured"], "logical_operator": "AND"}
+            for cft in candidate_filter_terms
+            if cft.get("term_id") in approved_ids and cft.get("filter_structured")
+        ]
+
+        logger.info(
+            f"[TERM_VALIDATOR] {len(candidate_filter_terms)} candidates → "
+            f"{len(validated_term_filters)} approved | approved_ids={result.approved_filter_ids} | "
+            f"reasoning: {result.reasoning[:100]}"
+        )
+        return {"validated_term_filters": validated_term_filters}
+
+    return term_validator_node
 
 
 # =============================================================================
@@ -574,7 +657,15 @@ def create_sql_generator_node(
 
         table_name   = _get_configurable(config, "table_name", default_table_name)
         auto_rules   = state.get("auto_rules") or []
-        term_filters = state.get("term_filters") or []
+        validated_term_filters = state.get("validated_term_filters")
+        # validated_term_filters is None when term_validator hasn't run (e.g., crashed).
+        # Fall back to [] — not to raw term_filters — to avoid false positive WHERE filters.
+        term_filters = validated_term_filters if validated_term_filters is not None else []
+        if validated_term_filters is None:
+            logger.warning(
+                "[SQL_GENERATOR] validated_term_filters is None — term_validator may not have run. "
+                "Using empty list (LLM handles filters via prompts)."
+            )
         today        = date.today()
 
         # --- COMPARISON güvenlik ağı 1: limit=1 ASLA geçemez ---
@@ -612,7 +703,7 @@ def create_sql_generator_node(
             schema_filters.extend(term_filters)
             raw_schema = {**raw_schema, "filters": schema_filters}
             logger.info(
-                f"[SQL_GENERATOR] term_filters merged: {[tf['column'] for tf in term_filters]}"
+                f"[SQL_GENERATOR] validated_term_filters merged: {[tf['column'] for tf in term_filters]}"
             )
 
         try:
