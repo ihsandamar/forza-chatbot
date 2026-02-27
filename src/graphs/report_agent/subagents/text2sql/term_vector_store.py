@@ -207,13 +207,76 @@ class TermVectorStore:
         """
         Kullanıcı sorgusundaki terimleri semantik olarak tespit et.
         Conflict resolution algoritmasını uygula.
+
+        Pipeline:
+          1. keyword_pre_resolve  — threshold'dan bağımsız alias match (unambiguous non-filter)
+          2. semantic_search      — ChromaDB cosine similarity (threshold=0.75)
+          3. conflict_resolution  — pre_resolved ile beslenmiş suppress zinciri
         """
+        keyword_pre_resolved = self._keyword_pre_resolve(user_query)
         candidates = self._semantic_search(user_query)
-        return self._apply_conflict_resolution(candidates, user_query)
+        return self._apply_conflict_resolution(candidates, user_query, keyword_pre_resolved)
 
     def rebuild_index(self) -> None:
         """Index'i sıfırdan oluştur (dict güncellenince çağır)."""
         self.initialize(force_recreate=True)
+
+    # ------------------------------------------------------------------
+    # Internal: keyword pre-resolution
+    # ------------------------------------------------------------------
+
+    def _keyword_pre_resolve(self, user_query: str) -> Dict[str, "TermCandidate"]:
+        """
+        Threshold'dan bağımsız keyword/alias match ile unambiguous non-filter
+        term'leri önceden çözer.
+
+        Dahil: metric + dimension term'ler (filter_structured=None, ambiguous_columns=[])
+        Hariç: filter term'ler (filter_structured var) → semantic + term_validator LLM gate yeter
+        Hariç: ambiguous term'ler (ambiguous_columns var) → zaten belirsiz
+
+        Returns: {column: TermCandidate} — resolved_columns için başlangıç değeri
+        """
+        if not self._terms_data:
+            return {}
+
+        query_lower = user_query.lower()
+        pre_resolved: Dict[str, TermCandidate] = {}
+
+        for entry in self._terms_data:
+            # filter term'leri atla — semantic + LLM validator yeterli
+            if entry.get("filter_structured"):
+                continue
+            # ambiguous term'leri atla — zaten belirsiz, pre-resolve edilemez
+            if entry.get("ambiguous_columns"):
+                continue
+
+            column = entry.get("column", "")
+            if not column:
+                continue
+
+            aliases_to_check = [entry["term"]] + entry.get("aliases", [])
+            for alias in aliases_to_check:
+                if alias.lower() in query_lower:
+                    if column not in pre_resolved:  # ilk eşleşen kazanır
+                        pre_resolved[column] = TermCandidate(
+                            term_id=entry["id"],
+                            category=entry.get("category", ""),
+                            term=entry["term"],
+                            column=column,
+                            specificity=float(entry.get("specificity", 1.0)),
+                            hint=entry.get("hint", ""),
+                            filter_structured=None,
+                            ambiguous_columns=[],
+                            similarity=1.0,  # keyword match = mükemmel eşleşme
+                        )
+                    break  # ilk alias eşleşti, sonraki entry'ye geç
+
+        if pre_resolved:
+            logger.info(
+                f"[TERM_VECTOR_STORE] Keyword pre-resolve: {len(pre_resolved)} column(s) → "
+                + str({col: cand.term for col, cand in pre_resolved.items()})
+            )
+        return pre_resolved
 
     # ------------------------------------------------------------------
     # Internal: search
@@ -267,10 +330,12 @@ class TermVectorStore:
         self,
         candidates: List[TermCandidate],
         user_query: str,
+        keyword_pre_resolved: Optional[Dict[str, "TermCandidate"]] = None,
     ) -> TermResolverOutput:
         """
         Conflict resolution algoritması:
 
+        0. keyword_pre_resolved ile resolved_columns önceden doldurulur
         1. Sort by similarity * specificity (desc) — spesifik term'ler önce işlenir
         2. Unambiguous term → resolved_columns'a ekle
            - filter_structured varsa → term_filters + candidate_filter_terms (filter_hint_lines)
@@ -282,11 +347,16 @@ class TermVectorStore:
         """
         sorted_candidates = sorted(candidates, key=lambda c: c.sort_key, reverse=True)
 
-        resolved_columns: Dict[str, TermCandidate] = {}  # column → winning candidate
+        # Keyword pre-resolved term'lerle başla — suppress zinciri için önceden beslenmiş
+        resolved_columns: Dict[str, TermCandidate] = dict(keyword_pre_resolved or {})
         term_filters: List[Dict[str, Any]] = []
         candidate_filter_terms: List[Dict[str, Any]] = []
         filter_hint_lines: List[str] = []    # Python-managed filter hints
-        column_hint_lines: List[str] = []    # Metric/dimension hints for LLM
+        # Pre-resolved keyword term'lerinin hint'lerini KOLON İPUÇLARI'na ekle
+        column_hint_lines: List[str] = [
+            f'- "{cand.term}" (keyword) [{col}] → {cand.hint}'
+            for col, cand in resolved_columns.items()
+        ]
         ambiguous: List[AmbiguousMatch] = []
 
         for candidate in sorted_candidates:
