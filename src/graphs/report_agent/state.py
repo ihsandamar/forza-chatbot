@@ -57,6 +57,8 @@ def create_initial_state() -> ReportState:
         pre_built_sql=None,
         results=None,
         error=None,
+        candidate_filter_terms=None,
+        validated_term_filters=None,
         viz_request=None,
         visualization_output=None,
         final_response=None,
