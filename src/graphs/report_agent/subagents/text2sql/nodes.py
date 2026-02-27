@@ -220,7 +220,7 @@ def create_term_validator_node(llm) -> Callable:
             val = fs.get("value", "") or ""
             where_desc = f"{col} {op} {val}".strip()
             lines.append(
-                f"  - ID: {cft['term_id']}\n"
+                f"  - ID: {cft.get('term_id', '?')}\n"
                 f"    Terim: \"{cft['term']}\"\n"
                 f"    Eklenecek WHERE: {where_desc}"
             )
