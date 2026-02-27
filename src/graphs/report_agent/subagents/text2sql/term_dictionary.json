@@ -1,6 +1,6 @@
 {
-  "version": "2.0",
-  "description": "Türkçe iş terimi → DB kolon/değer eşleştirme sözlüğü. Tablo bağımsız.",
+  "version": "2.1",
+  "description": "Türkçe iş terimi → DB kolon/değer eşleştirme sözlüğü. Tablo bağımsız. Filter terms: sadece filter_return + filter_treat (diğer filter'lar BusinessRulesVectorStore veya LLM+value_resolver sorumluluğundadır).",
   "terms": [
     {
       "id": "metric_revenue",
@@ -141,37 +141,15 @@
       "embedding_text": "Müşteri, cari hesap, müşteri adı, cari bazında, alıcı"
     },
     {
-      "id": "filter_closed_table",
+      "id": "filter_return",
       "category": "status",
-      "term": "ödemesi alınan masa",
-      "aliases": ["kapalı masa", "tamamlanan masa", "biten masa", "ödeme alındı", "ödemesi alınan"],
-      "column": "IsTableActive",
+      "term": "iade",
+      "aliases": ["iade satış", "geri iade", "return"],
+      "column": "DocumentTypeIsReturn",
       "specificity": 1.0,
-      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "0"},
-      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "Kapalı masa, ödemesi tamamlanan, biten masa, ödeme alınan"
-    },
-    {
-      "id": "filter_open_table",
-      "category": "status",
-      "term": "açık masa",
-      "aliases": ["aktif masa", "ödemesi alınmamış masa", "masada oturan"],
-      "column": "IsTableActive",
-      "specificity": 1.0,
-      "filter_structured": {"column": "IsTableActive", "operator": "=", "value": "1"},
-      "hint": "[IsTableActive] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "Açık masa, aktif masa, hâlâ masada olan, ödeme alınmamış"
-    },
-    {
-      "id": "filter_normal_sale",
-      "category": "status",
-      "term": "normal satış",
-      "aliases": ["standart satış", "ikram değil", "zayi değil", "iptal değil"],
-      "column": "DocumentDetailIsTreatWasteCancel",
-      "specificity": 0.9,
-      "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "IS NULL"},
-      "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "Normal satış, standart satış, ikram değil, zayi değil, iptal değil"
+      "filter_structured": {"column": "DocumentTypeIsReturn", "operator": "=", "value": "1"},
+      "hint": "[DocumentTypeIsReturn] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
+      "embedding_text": "Sadece iade edilen satışlar, geri iade işlemleri, return only, iade satışı filtresi"
     },
     {
       "id": "filter_treat",
@@ -182,51 +160,7 @@
       "specificity": 1.0,
       "filter_structured": {"column": "DocumentDetailIsTreatWasteCancel", "operator": "=", "value": "1"},
       "hint": "[DocumentDetailIsTreatWasteCancel] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "İkram edilen ürün, bedava verilen, ücretsiz ürün, complimentary"
-    },
-    {
-      "id": "filter_return",
-      "category": "status",
-      "term": "iade",
-      "aliases": ["iade satış", "geri iade", "return"],
-      "column": "DocumentTypeIsReturn",
-      "specificity": 1.0,
-      "filter_structured": {"column": "DocumentTypeIsReturn", "operator": "=", "value": "1"},
-      "hint": "[DocumentTypeIsReturn] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "İade edilen ürün, geri iade, return, iade satışı"
-    },
-    {
-      "id": "filter_delivery",
-      "category": "filter",
-      "term": "paket servis",
-      "aliases": ["paket", "delivery", "eve teslim", "online sipariş"],
-      "column": "DocumentKindName",
-      "specificity": 1.0,
-      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Paket Servis"},
-      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "Paket servis siparişi, delivery, eve teslim, online sipariş, takeaway"
-    },
-    {
-      "id": "filter_dine_in",
-      "category": "filter",
-      "term": "masa siparişi",
-      "aliases": ["masada yeme", "restoran", "masa satışı"],
-      "column": "DocumentKindName",
-      "specificity": 1.0,
-      "filter_structured": {"column": "DocumentKindName", "operator": "=", "value": "Masa"},
-      "hint": "[DocumentKindName] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "Masada yeme, restoran siparişi, dine in, masa satışı"
-    },
-    {
-      "id": "filter_main_product",
-      "category": "filter",
-      "term": "ana ürün",
-      "aliases": ["menü dışı", "bağımsız ürün", "seçenek değil"],
-      "column": "MenuId",
-      "specificity": 0.9,
-      "filter_structured": {"column": "MenuId", "operator": "IS NULL"},
-      "hint": "[MenuId] filtresi Python tarafından uygulanmaktadır — sen filters'a EKLEME",
-      "embedding_text": "Ana ürün, menü dışı ürün, bağımsız ürün, menü seçeneği değil"
+      "embedding_text": "İkram edilen ürün, bedava verilen, ücretsiz ürün, complimentary only, sadece ikram"
     }
   ]
 }

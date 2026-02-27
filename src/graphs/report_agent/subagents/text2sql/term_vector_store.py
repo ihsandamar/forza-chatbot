@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_COLLECTION = "term_dictionary"
 _DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-_DEFAULT_SIMILARITY_THRESHOLD = 0.60
+_DEFAULT_SIMILARITY_THRESHOLD = 0.75
 _TOP_K = 15
 
 
