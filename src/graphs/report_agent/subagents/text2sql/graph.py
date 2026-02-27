@@ -22,6 +22,7 @@ from typing import Any, Dict
 from langgraph.graph import END, START, StateGraph
 
 from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
+from src.graphs.report_agent.subagents.text2sql.term_vector_store import TermVectorStore
 from src.graphs.report_agent.subagents.text2sql.nodes import (
     MAX_RETRY,
     create_business_rules_node,
@@ -94,7 +95,13 @@ def build_text2sql_graph(
     # --- Node factories ---
     create_table        = create_create_table_node(connection_string, table_name)
     business_rules      = create_business_rules_node(vector_store, llm=llm)
-    term_resolver       = create_term_resolver_node()
+    term_vector_store = TermVectorStore(
+        dict_path=Path(__file__).parent / "term_dictionary.json",
+        persist_directory=chroma_persist_dir,
+    )
+    term_vector_store.initialize()
+
+    term_resolver       = create_term_resolver_node(term_vector_store)
     sql_architect       = create_sql_architect_node(llm, column_metadata)
     schema_validator    = create_schema_validator_node(llm, column_metadata)
     value_resolver_node = create_value_resolver_node(value_resolver)
