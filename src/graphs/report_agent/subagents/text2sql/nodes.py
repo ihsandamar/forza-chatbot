@@ -751,42 +751,82 @@ def create_sql_generator_node(
                         f"aggregation alias'ta değil → kaldırıldı (auto ORDER BY devreye girer)"
                     )
 
-        # --- TIME_SERIES_COMPARISON güvenlik ağı: GROUP BY'da zaman granülaritesi olmalı ---
-        # LLM granülariteyi (haftalık, günlük vb.) group_by'a eklemezse Python düzeltir.
+        # --- TIME_SERIES_COMPARISON güvenlik ağı: semantik alanlardan GROUP BY inşa et ---
+        # Önce QuerySchema.time_granularity + comparison_dimension kullan (Option A).
+        # LLM alanları boş bıraktıysa kullanıcı query'sinden keyword matching ile tespit (Option B).
         if state.get("query_type") == "TIME_SERIES_COMPARISON":
-            _ts_group_by = raw_schema.get("group_by", [])
-            _time_inds = ("YEAR(", "MONTH(", "CAST(", "DATEPART(", "HOUR")
-            _has_time = any(
-                any(_ind in _col.upper() for _ind in _time_inds)
-                for _col in _ts_group_by
-            )
-            if not _has_time:
-                _q = (state.get("user_query") or "").lower()
-                if any(_k in _q for _k in ("saatlik", "her saat", "saat saat", "saate göre", "saat bazında")):
-                    _t_cols = ["CAST(DocumentDate AS DATE)", "Hour"]
-                elif any(_k in _q for _k in ("haftalık", "her hafta", "hafta hafta", "haftalara göre", "hafta bazında")):
-                    _t_cols = ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]
-                elif any(_k in _q for _k in ("aylık", "her ay", "ay ay", "aylara göre", "ay bazında")):
-                    _t_cols = ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
-                elif any(_k in _q for _k in ("yıllık", "her yıl", "yıl yıl", "yıllara göre", "yıl bazında")):
-                    _t_cols = ["YEAR(DocumentDate)"]
-                elif any(_k in _q for _k in ("günlük", "her gün", "gün gün", "günlere göre", "gün bazında")):
-                    _t_cols = ["CAST(DocumentDate AS DATE)"]
-                else:
-                    _t_cols = []
-                if _t_cols:
-                    # Ham DocumentDate/Date kolonlarını çıkar — CAST(DocumentDate AS DATE)
-                    # zaten onların yerine geçiyor; ikisi birden GROUP BY'da olursa
-                    # her satır ayrı grup olur (per-transaction grouping hatası).
-                    _raw_date_cols = {"DocumentDate", "Date"}
-                    _ts_group_by_clean = [
-                        _col for _col in _ts_group_by if _col not in _raw_date_cols
-                    ]
-                    raw_schema = {**raw_schema, "group_by": _t_cols + _ts_group_by_clean}
-                    logger.warning(
-                        f"[SQL_GENERATOR] TIME_SERIES: zaman granülaritesi eksik → eklendi: {_t_cols}, "
-                        f"ham tarih kolonları çıkarıldı: {[c for c in _ts_group_by if c in _raw_date_cols]}"
-                    )
+            # Zaman granülaritesi → SQL ifadeleri tablosu
+            _TIME_GRAN_MAP: dict = {
+                "hourly":  ["CAST(DocumentDate AS DATE)", "Hour"],
+                "daily":   ["CAST(DocumentDate AS DATE)"],
+                "weekly":  ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"],
+                "monthly": ["YEAR(DocumentDate)", "MONTH(DocumentDate)"],
+                "yearly":  ["YEAR(DocumentDate)"],
+            }
+            # Entity keyword root → DB kolon adı (Türkçe kök eşleştirme — fallback için)
+            _ENTITY_ROOTS: dict = {
+                "ürün":     "ProductName",
+                "şube":     "BranchName",
+                "kategori": "CategoryName",
+                "müşteri":  "CustomerName",
+                "cari":     "CustomerName",
+                "kasiyer":  "CashierName",
+                "şehir":    "BranchCityName",
+                "kanal":    "DocumentKindName",
+                "kurye":    "DeliveryUserName",
+                "masa":     "TableNo",
+            }
+
+            # --- Option A: Semantik alanlardan değerleri al ---
+            _time_gran = raw_schema.get("time_granularity")
+            _comp_dim  = raw_schema.get("comparison_dimension")
+
+            # --- Option B fallback: LLM alanları boş bıraktıysa query'den tespit ---
+            _q_lower = (state.get("user_query") or "").lower()
+
+            if not _time_gran:
+                if any(_k in _q_lower for _k in ("saatlik", "her saat", "saat saat", "saat bazında")):
+                    _time_gran = "hourly"
+                elif any(_k in _q_lower for _k in ("haftalık", "her hafta", "hafta hafta", "hafta bazında")):
+                    _time_gran = "weekly"
+                elif any(_k in _q_lower for _k in ("aylık", "her ay", "ay ay", "ay bazında")):
+                    _time_gran = "monthly"
+                elif any(_k in _q_lower for _k in ("yıllık", "her yıl", "yıl yıl", "yıl bazında")):
+                    _time_gran = "yearly"
+                elif any(_k in _q_lower for _k in ("günlük", "her gün", "gün gün", "gün bazında")):
+                    _time_gran = "daily"
+                if _time_gran:
+                    logger.warning(f"[SQL_GENERATOR] TIME_SERIES: time_granularity keyword fallback: {_time_gran}")
+
+            if not _comp_dim:
+                for _root, _col in _ENTITY_ROOTS.items():
+                    if _root in _q_lower:
+                        _comp_dim = _col
+                        logger.warning(f"[SQL_GENERATOR] TIME_SERIES: comparison_dimension keyword fallback: {_root}→{_col}")
+                        break
+
+            # --- GROUP BY inşası ---
+            if _time_gran or _comp_dim:
+                _t_cols    = _TIME_GRAN_MAP.get(_time_gran, []) if _time_gran else []
+                _raw_dates = {"DocumentDate", "Date"}
+                # Mevcut group_by'dan ham tarih kolonlarını çıkar
+                _existing  = [_c for _c in raw_schema.get("group_by", []) if _c not in _raw_dates]
+                _time_set  = set(_t_cols)
+                # entity: mevcut group_by'da zaten varsa çift ekleme
+                _has_comp  = _comp_dim and _comp_dim in _existing
+                _new_group_by: list = []
+                if _comp_dim and not _has_comp:
+                    _new_group_by.append(_comp_dim)
+                _new_group_by.extend(_t_cols)
+                # Mevcut group_by'dan zaman ifadeleri + entity dışındaki kolonları koru
+                for _c in _existing:
+                    if _c not in _time_set and _c != _comp_dim:
+                        _new_group_by.append(_c)
+                raw_schema = {**raw_schema, "group_by": _new_group_by}
+                logger.info(
+                    f"[SQL_GENERATOR] TIME_SERIES group_by inşa edildi: "
+                    f"entity={_comp_dim}, gran={_time_gran}, result={_new_group_by}"
+                )
 
         # --- term_filters merge: Python garantili filtreler LLM'i override eder ---
         if term_filters:
