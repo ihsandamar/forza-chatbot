@@ -36,7 +36,7 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
-from src.graphs.report_agent.subagents.text2sql.term_resolver import resolve_terms_structured
+from src.graphs.report_agent.subagents.text2sql.term_vector_store import TermVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -117,27 +117,25 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 # NODE 3: TERM RESOLVER
 # =============================================================================
 
-def create_term_resolver_node() -> Callable:
+def create_term_resolver_node(term_vector_store: TermVectorStore) -> Callable:
     """
-    Pure Python + optional interrupt():
+    Semantic term resolution + optional interrupt():
     user_query → term_filters (Python-guaranteed WHERE filters)
-               + term_hints (LLM advisory column name hints)
+               + term_hints  (LLM advisory column name hints)
 
-    Ambiguous terms (ambiguous_columns alanı olan terimler) → interrupt() ile
-    kullanıcıya hangi kolon sorulur.
+    Conflict resolution: unambiguous high-specificity terms suppress ambiguous
+    interrupts for the same column (e.g., 'ciro' suppresses 'ne kadar sattı').
 
     term_filters: sql_generator'da QuerySchema'ya merge edilir, LLM override edilir.
-    term_hints:   sql_architect prompt'una inject edilir (sadece kolon adı yönlendirmesi).
+    term_hints:   sql_architect prompt'una inject edilir.
     """
 
     async def term_resolver_node(state: dict) -> dict:
         user_query = state.get("user_query", "")
-        result = resolve_terms_structured(user_query)
+        result = term_vector_store.resolve(user_query)
 
-        term_filters = list(result.term_filters)  # kopyasını al
-
-        # --- Ambiguous terms: kullanıcıya sor ---
-        metric_choice_hints: list[str] = []  # Kullanıcı seçimlerinden oluşturulan metric hint'leri
+        term_filters = list(result.term_filters)
+        metric_choice_hints: list[str] = []
 
         for amb in result.ambiguous:
             option_labels = [
@@ -146,22 +144,17 @@ def create_term_resolver_node() -> Callable:
             ]
             answer = interrupt({
                 "type": "choice",
-                "question": (
-                    f'"{amb.term}" için hangi ölçütü kastetdiniz?'
-                ),
+                "question": f'"{amb.term}" için hangi ölçütü kastetdiniz?',
                 "options": option_labels,
             })
-            # Seçilen option'ı bul
             for opt in amb.options:
                 key = f"{opt['column']}: {opt.get('description', '')}"
                 if key == answer:
                     if opt.get("filter_structured"):
-                        # WHERE filtresi → term_filters'a ekle (eski davranış)
                         fs = dict(opt["filter_structured"])
                         fs.setdefault("logical_operator", "AND")
                         term_filters.append(fs)
                     else:
-                        # Metric kolon seçimi → term_hints'e ekle (YENİ)
                         chosen_col = opt["column"]
                         metric_choice_hints.append(
                             f'- Kullanıcı "{amb.term}" için [{chosen_col}] seçti '
@@ -173,7 +166,6 @@ def create_term_resolver_node() -> Callable:
                         )
                     break
 
-        # Metric seçimleri varsa hints'e ekle
         hints_text = result.hints_text
         if metric_choice_hints:
             hints_text += (
