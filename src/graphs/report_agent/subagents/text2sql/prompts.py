@@ -93,10 +93,12 @@ class QuerySchema(BaseModel):
     select_columns:     List[str]
     filters:            List[SchemaFilter]
     aggregations:       List[SchemaAggregation]
-    group_by:           List[str]
-    order_by_column:    Optional[str] = None
-    order_by_direction: Literal["ASC", "DESC"] = "DESC"
-    limit:              Optional[int] = None
+    group_by:             List[str]
+    time_granularity:     Optional[Literal["hourly", "daily", "weekly", "monthly", "yearly"]] = None
+    comparison_dimension: Optional[str] = None   # DB kolon adı: "ProductName", "BranchName" vb.
+    order_by_column:      Optional[str] = None
+    order_by_direction:   Literal["ASC", "DESC"] = "DESC"
+    limit:                Optional[int] = None
     # applied_rule_ids KALDIRILDI — Python auto_rules'dan uygular
 
 
@@ -314,6 +316,48 @@ DOĞRU ✅:
   DOĞRUSU: OR ile ekle VEYA operator="IN", values=["A", "B"] kullan
 
 ⚠️ limit=1 ASLA KOYMA — COMPARISON'da YASAK
+
+### KURAL 4.8 — TIME_SERIES_COMPARISON: Semantik Alan Dolumu (KRİTİK)
+query_type = "TIME_SERIES_COMPARISON" olduğunda MUTLAKA doldur:
+
+**time_granularity** — Zaman granülaritesi (sadece bu değerlerden biri):
+  "saatlik", "saat saat", "her saat"  → "hourly"
+  "günlük", "her gün", "gün bazında" → "daily"
+  "haftalık", "her hafta"             → "weekly"
+  "aylık", "her ay", "ay bazında"    → "monthly"
+  "yıllık", "her yıl", "yıl bazında" → "yearly"
+
+**comparison_dimension** — Karşılaştırılan entity'nin DB kolon adı:
+  "ürünleri", "ürünlere göre", "ürün bazında"         → "ProductName"
+  "şubeleri", "şubelere göre", "şube bazında"          → "BranchName"
+  "kategorileri", "kategorilere göre"                   → "CategoryName"
+  "müşterileri", "carileri", "müşterilere göre"        → "CustomerName"
+  "kasiyerleri", "kasiyerlere göre"                    → "CashierName"
+  "şehirleri", "şehirlere göre", "şehir bazında"      → "BranchCityName"
+  "kanalları", "kanallar bazında", "satış kanallarını" → "DocumentKindName"
+  Eğer sadece zaman kırılımı istiyorsa (entity yok)   → null
+
+**group_by** — Python bu alanları kullanarak inşa eder, SEN BOŞ BIRAKIP BIRAKMAMAN FARK ETMEZ.
+  Ancak doldurursan Python ile çelişme: zaman ifadeleri Python ekler, ham DocumentDate KOYMA.
+
+ÖRNEK ✅:
+  "dürümler kategorisindeki ürünleri günlük ciro olarak karşılaştır"
+  → time_granularity: "daily"
+  → comparison_dimension: "ProductName"
+  → filters: [CategoryName = "dürümler"]
+  → group_by: []  veya ["ProductName", "CAST(DocumentDate AS DATE)"]
+
+ÖRNEK ✅:
+  "son 1 yılda aylık satış trendi"
+  → time_granularity: "monthly"
+  → comparison_dimension: null  (entity yok, sadece zaman kırılımı)
+  → group_by: []  veya ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+
+ÖRNEK ✅:
+  "Ankara şubesindeki kategorileri haftalık karşılaştır"
+  → time_granularity: "weekly"
+  → comparison_dimension: "CategoryName"
+  → filters: [BranchName = "Ankara"]
 
 ### KURAL 5 — Periyodik Gruplama
 "günlük satışlar"   → group_by: ["CAST(DocumentDate AS DATE)"]
