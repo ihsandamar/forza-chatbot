@@ -160,6 +160,9 @@ class TermVectorStore:
         )
 
         self._terms_data = self._load_dict()
+        if not self._terms_data:
+            logger.error(f"[TERM_VECTOR_STORE] Dict empty or unreadable: {self.dict_path}")
+            return
 
         if self._collection.count() == 0:
             logger.info("[TERM_VECTOR_STORE] Collection empty, building index...")
