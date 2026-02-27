@@ -32,7 +32,7 @@ from src.graphs.report_agent.subagents.text2sql.nodes import (
     create_sql_executor_node,
     create_sql_generator_node,
     create_term_resolver_node,
-    create_term_validator_node,   # ADD
+    create_term_validator_node,
     create_value_resolver_node,
     schema_merge_node,
 )

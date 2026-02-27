@@ -376,7 +376,7 @@ def create_schema_validator_node(llm, column_metadata: Dict[str, Any]) -> Callab
 
 
 # =============================================================================
-# NODE 1.9: SCHEMA MERGE (fan-in: sql_architect + schema_validator)
+# NODE 1.9: SCHEMA MERGE (fan-in: sql_architect + schema_validator + term_validator)
 # =============================================================================
 
 async def schema_merge_node(state: dict) -> dict:
