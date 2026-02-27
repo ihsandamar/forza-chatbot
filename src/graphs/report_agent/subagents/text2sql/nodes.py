@@ -693,6 +693,93 @@ def create_sql_generator_node(
                 raw_schema = {**raw_schema, "filters": list(existing_filters) + [this_month_filter]}
                 logger.info("[SQL_GENERATOR] COMPARISON: tarih filtresi yok → bu ay eklendi")
 
+        # --- Genel güvenlik ağı: aynı kolondaki AND = filtreleri → IN ---
+        # "CategoryName = 'A' AND CategoryName = 'B'" imkansız koşul — IN('A','B')'e çevir.
+        _filters = list(raw_schema.get("filters", []))
+        _col_eq_groups: dict = {}
+        for _f in _filters:
+            if (
+                _f.get("operator") == "="
+                and (_f.get("logical_operator") or "AND").upper() == "AND"
+                and not _f.get("date_descriptor")
+            ):
+                _c = _f.get("column", "")
+                if _c:
+                    _col_eq_groups.setdefault(_c, []).append(_f)
+        if any(len(_g) > 1 for _g in _col_eq_groups.values()):
+            _merged_cols: set = set()
+            _new_filters: list = []
+            for _f in _filters:
+                _c = _f.get("column", "")
+                _group = _col_eq_groups.get(_c, [])
+                if len(_group) > 1 and _c not in _merged_cols:
+                    _vals = [
+                        _fi.get("resolved_value") or _fi.get("value", "")
+                        for _fi in _group
+                        if _fi.get("resolved_value") or _fi.get("value")
+                    ]
+                    if _vals:
+                        _mf = {**_group[0], "operator": "IN", "values": _vals}
+                        _mf.pop("value", None)
+                        _mf.pop("resolved_value", None)
+                        _new_filters.append(_mf)
+                        _merged_cols.add(_c)
+                        logger.info(
+                            f"[SQL_GENERATOR] Aynı kolon AND = filtreleri IN'e çevrildi: {_c} IN {_vals}"
+                        )
+                elif _c in _merged_cols and len(_group) > 1:
+                    pass  # zaten birleştirildi, atla
+                else:
+                    _new_filters.append(_f)
+            raw_schema = {**raw_schema, "filters": _new_filters}
+
+        # --- Aggregation güvenlik ağı: order_by_column GROUP BY veya alias'ta yoksa kaldır ---
+        # GROUP BY sorgusunda ORDER BY kolonu GROUP BY veya aggregation alias'ında olmalı.
+        if raw_schema.get("aggregations"):
+            _order_col = raw_schema.get("order_by_column")
+            if _order_col:
+                _group_by_cols = raw_schema.get("group_by", [])
+                _agg_aliases = {_a.get("alias", "") for _a in raw_schema["aggregations"]}
+                _in_group_by = any(
+                    _order_col.upper() == _gc.upper() or _order_col.upper() in _gc.upper()
+                    for _gc in _group_by_cols
+                )
+                if not _in_group_by and _order_col not in _agg_aliases:
+                    raw_schema = {**raw_schema, "order_by_column": None}
+                    logger.warning(
+                        f"[SQL_GENERATOR] order_by_column '{_order_col}' GROUP BY veya "
+                        f"aggregation alias'ta değil → kaldırıldı (auto ORDER BY devreye girer)"
+                    )
+
+        # --- TIME_SERIES_COMPARISON güvenlik ağı: GROUP BY'da zaman granülaritesi olmalı ---
+        # LLM granülariteyi (haftalık, günlük vb.) group_by'a eklemezse Python düzeltir.
+        if state.get("query_type") == "TIME_SERIES_COMPARISON":
+            _ts_group_by = raw_schema.get("group_by", [])
+            _time_inds = ("YEAR(", "MONTH(", "CAST(", "DATEPART(", "HOUR")
+            _has_time = any(
+                any(_ind in _col.upper() for _ind in _time_inds)
+                for _col in _ts_group_by
+            )
+            if not _has_time:
+                _q = (state.get("user_query") or "").lower()
+                if any(_k in _q for _k in ("saatlik", "her saat", "saat saat", "saate göre", "saat bazında")):
+                    _t_cols = ["CAST(DocumentDate AS DATE)", "Hour"]
+                elif any(_k in _q for _k in ("haftalık", "her hafta", "hafta hafta", "haftalara göre", "hafta bazında")):
+                    _t_cols = ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]
+                elif any(_k in _q for _k in ("aylık", "her ay", "ay ay", "aylara göre", "ay bazında")):
+                    _t_cols = ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+                elif any(_k in _q for _k in ("yıllık", "her yıl", "yıl yıl", "yıllara göre", "yıl bazında")):
+                    _t_cols = ["YEAR(DocumentDate)"]
+                elif any(_k in _q for _k in ("günlük", "her gün", "gün gün", "günlere göre", "gün bazında")):
+                    _t_cols = ["CAST(DocumentDate AS DATE)"]
+                else:
+                    _t_cols = []
+                if _t_cols:
+                    raw_schema = {**raw_schema, "group_by": _t_cols + _ts_group_by}
+                    logger.warning(
+                        f"[SQL_GENERATOR] TIME_SERIES: zaman granülaritesi eksik → eklendi: {_t_cols}"
+                    )
+
         # --- term_filters merge: Python garantili filtreler LLM'i override eder ---
         if term_filters:
             schema_filters = list(raw_schema.get("filters", []))

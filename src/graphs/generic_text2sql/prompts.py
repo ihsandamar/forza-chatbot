@@ -863,6 +863,13 @@ ZAMAN GRANULARİTY + AGGREGATION → ZORUNLU group_by VE select!
   → select: ["CAST(DocumentDate AS DATE)"]  # ← MUTLAKA ekle!
   → order_by: null (GROUP BY alanları otomatik kullanılır)
 
+- "haftalık", "her hafta", "hafta hafta", "haftalara göre", "hafta bazında", "haftaya göre"
+  → group_by: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]  # ← İKİSİ BİRDEN!
+  → select: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]    # ← İKİSİ BİRDEN!
+  → order_by: null (GROUP BY alanları otomatik kullanılır)
+  * NOT: Birden fazla yıl olabilir, hem yıl hem hafta numarası gerekli
+  * SQL'de: ORDER BY YEAR(DocumentDate), DATEPART(WEEK, DocumentDate) olacak
+
 - "aylık", "her ay", "ay ay", "aylara göre", "ay bazında", "aylar bazında", "aylık bazda"
   → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]  # ← İKİSİ BİRDEN!
   → select: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]    # ← İKİSİ BİRDEN!
@@ -885,6 +892,15 @@ ZAMAN GRANULARİTY + AGGREGATION → ZORUNLU group_by VE select!
 → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)", "CategoryName"]  # ÜÇÜ BİRDEN!
 → select: ["YEAR(DocumentDate)", "MONTH(DocumentDate)", "CategoryName"]    # ÜÇÜ BİRDEN!
 
+"X ve Y'nin haftalık satışları" veya "Bu iki kategoriyi haftalık bazda karşılaştır"
+→ group_by: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)", "CategoryName"]  # ÜÇÜ BİRDEN!
+→ select: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)", "CategoryName"]    # ÜÇÜ BİRDEN!
+
+⚠️ ÇOKLU DEĞERLİ FİLTRE KURALI: Aynı kolon için birden fazla değer → IN kullan, AND değil!
+❌ YANLIŞ: filters: [{"column": "CategoryName", "value": "A"}, {"column": "CategoryName", "value": "B"}]
+✅ DOĞRU: filters: [{"column": "CategoryName", "operator": "IN", "values": ["A", "B"]}]
+Kural: "CategoryName = 'A' AND CategoryName = 'B'" her zaman yanlış → IN('A','B') kullan!
+
 **ÖRNEK - YANLIŞ VE DOĞRU:**
 
 ❌ YANLIŞ: "günlük ortalama" → aggregation: AVG, group_by: [] (TOPLAM DÖNER!)
@@ -892,6 +908,9 @@ ZAMAN GRANULARİTY + AGGREGATION → ZORUNLU group_by VE select!
 
 ❌ YANLIŞ: "aylık satışlar" → aggregation: SUM, group_by: [] (TOPLAM DÖNER!)
 ✅ DOĞRU: "aylık satışlar" → aggregation: SUM, group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"] (HER AY AYRI!)
+
+❌ YANLIŞ: "haftalık satışlar" → aggregation: SUM, group_by: [] (TOPLAM DÖNER!)
+✅ DOĞRU: "haftalık satışlar" → aggregation: SUM, group_by: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"] (HER HAFTA AYRI!)
 
 ### 5. MANTIKSAL OPERATÖRLER
 

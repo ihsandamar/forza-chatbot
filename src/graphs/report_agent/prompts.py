@@ -84,17 +84,22 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   (ör: "dürümler kategorisindeki ürünler", "Ankara şubesindeki satışlar", "paket servisteki kategoriler")
   → Bir boyut değer filtresi, diğer boyut GROUP BY
 - RANKING: Sıralama / top-N / en fazla / en az
-- COMPARISON: İki veya daha fazla grubun karşılaştırması
-- TIME_SERIES_COMPARISON: SADECE dönemler ARASI karşılaştırma (periyodik kırılım veya iki dönem farkı)
+- COMPARISON: İki veya daha fazla grubun karşılaştırması — SADECE zaman granülaritesi (haftalık/aylık/günlük vb.) YOKSA
+  ✅ "dürümler ve içecek kategorilerini karşılaştır" → COMPARISON (zaman kırılımı yok)
+  ✅ "Ankara ve İstanbul şubelerini karşılaştır" → COMPARISON
+  ❌ "dürümler ve içecek kategorilerini haftalık karşılaştır" → TIME_SERIES_COMPARISON (zaman granülaritesi var!)
+- TIME_SERIES_COMPARISON: Dönemsel kırılım veya zaman granülaritesi olan karşılaştırma
   ✅ "bu yılı geçen yılla karşılaştır" → TIME_SERIES_COMPARISON
   ✅ "aylık satış trendi göster" → TIME_SERIES_COMPARISON (çok ay kırılımı)
   ✅ "her ay ne kadar satıldı" → TIME_SERIES_COMPARISON (periyodik kırılım)
+  ✅ "dürümler ve hammade kategorilerini haftalık karşılaştır" → TIME_SERIES_COMPARISON (entity + haftalık = dönemsel kırılım!)
+  ✅ "A ve B'yi aylık/günlük/saatlik/yıllık bazda karşılaştır" → TIME_SERIES_COMPARISON (entity + zaman granülaritesi)
   ❌ "son 1 yılda carilere göre ciro" → LISTING (tek dönem filtresi + boyut kırılımı)
   ❌ "geçen ay şubelere göre satışlar" → LISTING (tek dönem filtresi + boyut kırılımı)
   ❌ "bu yılın en çok satan ürünleri" → RANKING
-  Kural: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY = LISTING
-         (sıralama/top-N istiyorsa RANKING, tarih+boyut kırılımı istiyorsa LISTING)
-         Sorgu aylık/yıllık KIRILIM istiyorsa (GROUP BY YEAR + MONTH) = TIME_SERIES_COMPARISON
+  KURAL 1: Sorgu aylık/yıllık/haftalık/günlük/saatlik KIRILIM istiyorsa → TIME_SERIES_COMPARISON
+  KURAL 2: "X ve Y'yi [periyot] bazda karşılaştır" kalıbı → zaman granülaritesi + entity = TIME_SERIES_COMPARISON
+  KURAL 3: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY = LISTING
 
 **wants_visualization:**
 - True: Kullanıcı açıkça grafik/görsel talep ediyor

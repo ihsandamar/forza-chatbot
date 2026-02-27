@@ -63,9 +63,11 @@ class SchemaFilter(BaseModel):
     column:           str       # Gerçek DB kolon adı (column_metadata'dan)
     operator:         Literal[
         "=", ">", "<", ">=", "<=", "!=",
-        "LIKE", "IS NULL", "IS NOT NULL", "BETWEEN"
+        "LIKE", "IS NULL", "IS NOT NULL", "BETWEEN",
+        "IN", "NOT IN"
     ]
-    value:            Optional[str] = None           # String/sayı değer
+    value:            Optional[str] = None           # String/sayı değer (tekli)
+    values:           Optional[List[str]] = None     # IN/NOT IN için değer listesi
     date_descriptor:  Optional[DateDescriptor] = None  # Tarih filtresi ise bunu doldur
     value_hint:       Optional[str] = None           # Orijinal kullanıcı değeri (fuzzy için)
     logical_operator: Literal["AND", "OR"] = "AND"
@@ -286,10 +288,11 @@ DOĞRU ✅:
   → aggregations: [SUM(RowAmount) AS TotalSales]
   → limit: null, order_by_column: "TotalSales", order_by_direction: "DESC"
 
-**Zaman bazlı karşılaştırma** — "A ve B'yi aylık/yıllık karşılaştır":
-  - GROUP BY: karşılaştırma boyutu + zaman boyutu (YEAR + MONTH veya YEAR)
-  - order_by_column: zaman kolonu (periyodik sıralama için)
+**Zaman bazlı karşılaştırma** — "A ve B'yi aylık/haftalık/yıllık karşılaştır":
+  - GROUP BY: karşılaştırma boyutu + zaman boyutu (MUTLAKA İKİSİ BİRDEN!)
+  - order_by_column: zaman kolonu (periyodik sıralama için — GROUP BY'da olmalı!)
   - Tarih filtresi belirtildiyse uygula; belirtilmediyse bu ayı (current_period=month) kullan
+  - filters: karşılaştırılan değerler için OR kullan (AND değil — AND imkansız koşul üretir!)
 
 DOĞRU ✅:
   "dürümler ve içecek kategorilerini aylık karşılaştır"
@@ -298,14 +301,28 @@ DOĞRU ✅:
   → aggregations: [SUM(RowAmount) AS TotalSales]
   → limit: null, order_by_column: "YEAR(DocumentDate)", order_by_direction: "ASC"
 
+DOĞRU ✅:
+  "dürümler ve içecek kategorilerini haftalık karşılaştır"
+  → filters: [{{CategoryName="dürümler", OR}}, {{CategoryName="içecek"}}]
+  → group_by: ["CategoryName", "YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]
+  → aggregations: [SUM(RowAmount) AS TotalSales]
+  → limit: null, order_by_column: "YEAR(DocumentDate)", order_by_direction: "ASC"
+
+⚠️ KRİTİK HATA — ASLA YAPMA:
+  "A ve B kategorisini karşılaştır"
+  → filters: [{{CategoryName="A", AND}}, {{CategoryName="B", AND}}]  ← YANLIŞ! İmkansız koşul!
+  DOĞRUSU: OR ile ekle VEYA operator="IN", values=["A", "B"] kullan
+
 ⚠️ limit=1 ASLA KOYMA — COMPARISON'da YASAK
 
 ### KURAL 5 — Periyodik Gruplama
-"günlük satışlar"  → group_by: ["CAST(TarihKolonu AS DATE)"]
-"aylık satışlar"   → group_by: ["YEAR(TarihKolonu)", "MONTH(TarihKolonu)"]
-"yıllık satışlar"  → group_by: ["YEAR(TarihKolonu)"]
-"saatlik dağılım"  → group_by: ["CAST(TarihKolonu AS DATE)", "HourKolonu"]
+"günlük satışlar"   → group_by: ["CAST(DocumentDate AS DATE)"]
+"haftalık satışlar" → group_by: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]  # İKİSİ BİRDEN!
+"aylık satışlar"    → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+"yıllık satışlar"   → group_by: ["YEAR(DocumentDate)"]
+"saatlik dağılım"   → group_by: ["CAST(DocumentDate AS DATE)", "Hour"]
 Tarih kolonu adını column_metadata'dan al.
+⚠️ order_by_column MUTLAKA group_by'da olan bir kolon olmalı — GROUP BY'da olmayan kolona ORDER BY KOYMAK YASAK!
 
 ### KURAL 7 — LİSTELEME Sorguları (LISTING query_type) — KRİTİK
 "[boyut_değeri] [boyut_adı]sindeki/ndaki [detay_boyutu]ların satışları/listesi" kalıbı:

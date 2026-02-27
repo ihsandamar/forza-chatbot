@@ -78,6 +78,18 @@ def _resolve_filter(f: Dict[str, Any], today: date) -> Optional[str]:
     if op in ("IS NULL", "IS NOT NULL"):
         return f"{col} {op}"
 
+    # IN / NOT IN — values list (preferred) veya pre-formatted value string
+    if op in ("IN", "NOT IN"):
+        values_list = f.get("values", [])
+        if values_list:
+            escaped = [str(v).replace("'", "''") for v in values_list]
+            formatted = ", ".join(f"'{v}'" for v in escaped)
+            return f"{col} {op} ({formatted})"
+        val = f.get("resolved_value") or f.get("value")
+        if val:
+            return f"{col} {op} {val}"
+        return None
+
     # Tarih filtresi — SADECE gerçek tarih kolonlarına uygula
     # Örn: IsTableActive boolean bir kolon, date_descriptor almamalı
     date_desc = f.get("date_descriptor")
