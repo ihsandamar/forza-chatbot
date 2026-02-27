@@ -23,6 +23,21 @@ class BusinessRulesValidationResult(BaseModel):
     """Kısa açıklama: hangi kuralları neden kabul/reddettim."""
 
 
+class TermValidationResult(BaseModel):
+    """
+    term_validator_node LLM validation için structured output.
+    TermVectorStore'dan gelen aday filter term'lerin hangilerinin
+    kullanıcı tarafından gerçekten kastetildiğine karar verir.
+    """
+    approved_filter_ids: List[str]
+    """
+    Kullanıcının AÇIKÇA kastettiği filter term ID'leri.
+    Emin olmadığın → EKLEME. False positive sonuçsuz sorgu demek.
+    """
+    reasoning: str
+    """Kısa açıklama: hangi terimleri neden kabul/reddettim."""
+
+
 # =============================================================================
 # PYDANTIC MODELS — sql_architect node'unun structured output'u
 # =============================================================================
@@ -84,6 +99,39 @@ class QuerySchema(BaseModel):
 
 
 # =============================================================================
+# TERM VALIDATOR PROMPT — Parallel LLM gate for filter term validation
+# =============================================================================
+
+TERM_VALIDATOR_PROMPT = """Sen bir filtre terimi doğrulayıcısısın. Kullanıcı sorgusunu analiz et ve ADAY FİLTRE TERİMLERİ'nden hangilerinin kullanıcı tarafından AÇIKÇA kastetildiğini belirle.
+
+## KULLANICI SORUSU
+{user_query}
+
+## ADAY FİLTRE TERİMLERİ (TermVectorStore semantic eşleşmesi)
+{candidate_filters}
+
+---
+
+## KARAR KRİTERLERİ
+
+**Filtre ONAYLANIR eğer:**
+- Kullanıcı o kavramı sorguda AÇIKÇA belirtmişse
+- Örnek: "sadece iade satışları göster" → filter_return ONAY ✓
+- Örnek: "ikram edilen ürünler ne kadar?" → filter_treat ONAY ✓
+- Örnek: "iade hariç ciro" → filter_return ONAY ✓ (iade açıkça geçiyor)
+
+**Filtre REDDEDİLİR eğer:**
+- Kullanıcı o kavramı hiç belirtmemişse — yalnızca semantik benzerlik var
+- Örnek: "ödemesi alınan masalarda ciro" → filter_return RED ✗ ("iade" kelimesi geçmiyor)
+- Örnek: "hangi ürün en çok sattı" → filter_treat RED ✗ ("ikram" geçmiyor)
+- Örnek: "son 1 yılda satışlar" → filter_return RED ✗ (genel satış sorusu)
+
+approved_filter_ids'e sadece kullanıcının gerçekten kastettiği ID'leri yaz.
+Emin olmadığında → listeye EKLEME (false positive sonuçsuz sorgu demek).
+"""
+
+
+# =============================================================================
 # PROMPT
 # =============================================================================
 
@@ -120,8 +168,15 @@ KURAL: "KULLANICI METRİK KOLON SEÇİMİ" bölümü term_hints içinde yer alı
 ## KURALLAR
 
 ### KURAL 0 — Terim Eşleştirmeleri (EN YÜKSEK ÖNCELİK)
-"SORGUDA TESPİT EDİLEN İŞ TERİMLERİ" bölümündeki eşleştirmeleri MUTLAKA uygula.
-Bu bölümdeki filtreler ve kolon seçimleri kesindir — column_metadata'dan bağımsız olarak geçerlidir.
+term_hints iki bölümden oluşabilir:
+
+**"PYTHON-YÖNETİMLİ FİLTRELER" bölümü (varsa):**
+Bu kolonları filters'a ASLA EKLEME. Python garantili olarak WHERE'e eklenecek.
+Sen tekrar eklersen çelişki yaratırsın.
+
+**"KOLON İPUÇLARI" bölümü (varsa):**
+Bu eşleştirmeleri MUTLAKA aggregations ve group_by kararlarında kullan.
+"KULLANICI METRİK KOLON SEÇİMİ" varsa o kolon ZORUNLU OLARAK tüm aggregations'larda kullanılmalıdır.
 
 ### KURAL 1 — Kolon Adları + Boyut Eşleştirme
 SADECE yukarıdaki KOLON BİLGİLERİ'ndeki gerçek DB adlarını kullan.
@@ -438,6 +493,18 @@ query_type = "COMPARISON" → limit: ZORUNLU None.
   - Sadece kullanıcının açıkça belirttiği filtreleri ekle
   - Gereksiz filtre EKLEME — merge_schemas dedup yapar, ama fazla filtre yanlış sonuç verir
   - IsTableActive, DocumentDetailIsTreatWasteCancel gibi filtreler term_hints'te "Python tarafından uygulanmaktadır" yazıyorsa filters'a EKLEME
+
+## KURAL 5.5 — Python-Managed Filtreler (KRİTİK)
+term_hints'teki "PYTHON-YÖNETİMLİ FİLTRELER" bölümündeki kolonları
+filters listene ASLA ekleme. Python zaten uygulayacak — sen ekleyince çelişki yaratır.
+
+YANLIŞ ❌:
+  term_hints: "PYTHON-YÖNETİMLİ FİLTRELER: DocumentTypeIsReturn = 1 (iade)"
+  → filters: [{{column: DocumentTypeIsReturn, value: 1}}]   ← Python zaten ekliyor!
+
+DOĞRU ✅:
+  term_hints: "PYTHON-YÖNETİMLİ FİLTRELER: DocumentTypeIsReturn = 1 (iade)"
+  → o kolonu filters listene EKLEME — Python hallediyor.
 """
 
 
