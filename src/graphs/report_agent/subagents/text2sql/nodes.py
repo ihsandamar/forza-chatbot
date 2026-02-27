@@ -775,9 +775,17 @@ def create_sql_generator_node(
                 else:
                     _t_cols = []
                 if _t_cols:
-                    raw_schema = {**raw_schema, "group_by": _t_cols + _ts_group_by}
+                    # Ham DocumentDate/Date kolonlarını çıkar — CAST(DocumentDate AS DATE)
+                    # zaten onların yerine geçiyor; ikisi birden GROUP BY'da olursa
+                    # her satır ayrı grup olur (per-transaction grouping hatası).
+                    _raw_date_cols = {"DocumentDate", "Date"}
+                    _ts_group_by_clean = [
+                        _col for _col in _ts_group_by if _col not in _raw_date_cols
+                    ]
+                    raw_schema = {**raw_schema, "group_by": _t_cols + _ts_group_by_clean}
                     logger.warning(
-                        f"[SQL_GENERATOR] TIME_SERIES: zaman granülaritesi eksik → eklendi: {_t_cols}"
+                        f"[SQL_GENERATOR] TIME_SERIES: zaman granülaritesi eksik → eklendi: {_t_cols}, "
+                        f"ham tarih kolonları çıkarıldı: {[c for c in _ts_group_by if c in _raw_date_cols]}"
                     )
 
         # --- term_filters merge: Python garantili filtreler LLM'i override eder ---

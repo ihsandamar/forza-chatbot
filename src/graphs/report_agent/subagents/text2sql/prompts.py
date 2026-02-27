@@ -323,6 +323,35 @@ DOĞRU ✅:
 "saatlik dağılım"   → group_by: ["CAST(DocumentDate AS DATE)", "Hour"]
 Tarih kolonu adını column_metadata'dan al.
 ⚠️ order_by_column MUTLAKA group_by'da olan bir kolon olmalı — GROUP BY'da olmayan kolona ORDER BY KOYMAK YASAK!
+⚠️ group_by'a ham DocumentDate (datetime) ASLA KOYMA — zaman granülaritesi varsa SADECE ifadeyi kullan:
+   YANLIŞ ❌: group_by: ["CAST(DocumentDate AS DATE)", "DocumentDate"]  ← datetime çift sayar!
+   DOĞRU ✅:  group_by: ["CAST(DocumentDate AS DATE)"]                  ← sadece DATE ifadesi
+
+### KURAL 5.5 — Entity + Zaman Kombinasyonu (TIME_SERIES_COMPARISON ile entity kırılımı)
+"X kategorisindeki/şubesindeki [entity]leri [periyot] bazında karşılaştır" kalıbı:
+  - X → WHERE filtresi (value_hint kullan — filtre değeri, GROUP BY değil!)
+  - [entity] → GROUP BY (karşılaştırma boyutu: ProductName, BranchName, vb.)
+  - [periyot] → GROUP BY (zaman boyutu: CAST/YEAR+MONTH/vb.)
+  - İKİSİ BİRDEN GROUP BY'da olmak ZORUNDA!
+
+DOĞRU ✅:
+  "dürümler kategorisindeki ürünleri günlük ciro olarak karşılaştır"
+  → filters: [{{column=CategoryName, value_hint="dürümler"}}]
+  → group_by: ["ProductName", "CAST(DocumentDate AS DATE)"]   ← entity + zaman
+  → aggregations: [SUM(RowAmount) AS ToplamCiro]
+  → order_by_column: "CAST(DocumentDate AS DATE)", order_by_direction: "ASC"
+
+DOĞRU ✅:
+  "Ankara şubesindeki kategorileri aylık karşılaştır"
+  → filters: [{{column=BranchName, value_hint="Ankara"}}]
+  → group_by: ["CategoryName", "YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+  → aggregations: [SUM(RowAmount) AS ToplamCiro]
+  → order_by_column: "YEAR(DocumentDate)", order_by_direction: "ASC"
+
+YANLIŞ ❌ — entity boyutunu unutma:
+  "dürümler kategorisindeki ürünleri günlük karşılaştır"
+  → group_by: ["CAST(DocumentDate AS DATE)"]   ← ProductName eksik!
+  → group_by: ["CAST(DocumentDate AS DATE)", "DocumentDate"]  ← ham datetime çift sayar!
 
 ### KURAL 7 — LİSTELEME Sorguları (LISTING query_type) — KRİTİK
 "[boyut_değeri] [boyut_adı]sindeki/ndaki [detay_boyutu]ların satışları/listesi" kalıbı:
