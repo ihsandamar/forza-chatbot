@@ -412,5 +412,32 @@ class TestResponseGenerator:
 # RUN TESTS
 # =============================================================================
 
+def test_sql_modification_result_has_modification_hints():
+    """SqlModificationResult şeması modification_hints alanını içermeli."""
+    from src.graphs.report_agent.prompts import SqlModificationResult, ModificationHint
+
+    result = SqlModificationResult(
+        modified_sql="SELECT * FROM T WHERE [CategoryName] = 'DURUMLER'",
+        explanation="Kategori filtresi eklendi",
+        modification_hints=[
+            ModificationHint(column="CategoryName", embedded_value="dürümler")
+        ],
+    )
+    assert len(result.modification_hints) == 1
+    assert result.modification_hints[0].column == "CategoryName"
+    assert result.modification_hints[0].embedded_value == "dürümler"
+
+
+def test_sql_modification_result_hints_default_empty():
+    """modification_hints default boş liste olmalı (geriye dönük uyumluluk)."""
+    from src.graphs.report_agent.prompts import SqlModificationResult
+
+    result = SqlModificationResult(
+        modified_sql="SELECT * FROM T",
+        explanation="test",
+    )
+    assert result.modification_hints == []
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

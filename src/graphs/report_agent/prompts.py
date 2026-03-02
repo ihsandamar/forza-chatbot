@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -28,11 +28,19 @@ class IntentClassificationResult(BaseModel):
         return v
 
 
+class ModificationHint(BaseModel):
+    """modify_sql_node'un SQL'e gömdüğü bir filtre değerini tanımlar."""
+
+    column: str          # DB kolon adı (örn: "CategoryName")
+    embedded_value: str  # SQL'e yazılan birebir string (örn: "dürümler")
+
+
 class SqlModificationResult(BaseModel):
     """MODIFY_QUERY — mevcut SQL üzerine delta uygular."""
 
     modified_sql: str
     explanation: str
+    modification_hints: List[ModificationHint] = []
 
 
 class EntityExtractionResult(BaseModel):
@@ -141,6 +149,17 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 - Sıralama değişikliği: sadece ORDER BY clause'u güncelle
 - Geçerli T-SQL (SQL Server) üret, syntax hatası olmasın
 - explanation alanında ne değiştirdiğini kısaca açıkla
+
+## MODIFICATION_HINTS
+Kullanıcının yazdığı ve SQL'e literal olarak gömdüğün her STRING FİLTRE DEĞERİ için bir hint ver:
+- column: hangi DB kolonunu kullandığın (örn: "CategoryName")
+- embedded_value: SQL'e yazdığın BİREBİR string — büyük/küçük harf dahil (örn: "dürümler")
+
+ÖNEMLİ KURALLAR:
+- Sadece kullanıcı inputundan gelen STRING değerleri için hint ver
+- Tarih ifadeleri (DATEADD, BETWEEN, '2024-01-01'), sayısal değerler (TOP 10) için hint VERME
+- Kolon adları için hint VERME — sadece WHERE koşulundaki değerler
+- Zaten çözülmüş değerler (active_filters içindeki resolved değerler) için hint VERME
 """
 
 ENTITY_EXTRACTOR_PROMPT = """Kullanıcı önceki sorgu sonuçlarından bir entity seçmek istiyor.
