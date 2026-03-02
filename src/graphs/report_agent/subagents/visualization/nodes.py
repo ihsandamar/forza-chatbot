@@ -7,9 +7,12 @@ Visualization Subagent Nodes
     chart_generator  - LLM: VizDecision + data → Plotly code → HTML snippet
     response_builder - Pure Python: tüm çıktıları visualization_output'a paketle
 """
+import datetime as _dt
 import json
 import logging
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
+
+from langchain_core.runnables import RunnableConfig
 
 from src.graphs.report_agent.subagents.visualization.data_analyzer import DataAnalyzer
 from src.graphs.report_agent.subagents.visualization.prompts import (
@@ -23,11 +26,125 @@ logger = logging.getLogger(__name__)
 NO_GRAPH_TYPES = {"single_value", "simple_list", "table"}
 
 
+def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
+    """RunnableConfig'ten değer oku; yoksa fallback döndür."""
+    if not config:
+        return fallback
+    configurable = config.get("configurable", {})
+    if hasattr(configurable, key):
+        val = getattr(configurable, key)
+    elif isinstance(configurable, dict):
+        val = configurable.get(key)
+    else:
+        return fallback
+    if val is None or val == "" or val == {}:
+        return fallback
+    return val
+
+
+def _infer_date_column_from_metadata(config: Optional[RunnableConfig]) -> Optional[str]:
+    """
+    Runtime config'teki column_metadata'dan tarih kolonunu tahmin eder.
+    Tek bir tarih kolonu bulunursa onu döndürür; birden fazla veya yoksa None.
+    """
+    column_metadata = _get_configurable(config, "column_metadata", None)
+    if not column_metadata or not isinstance(column_metadata, dict):
+        return None
+
+    _DATE_HINTS = {"date", "tarih", "datetime", "zaman"}
+    date_cols = [
+        col for col, desc in column_metadata.items()
+        if any(h in col.lower() for h in _DATE_HINTS)
+        or any(h in str(desc).lower() for h in _DATE_HINTS)
+    ]
+    if len(date_cols) == 1:
+        return date_cols[0]
+    if len(date_cols) > 1:
+        logger.debug(f"[DATA_ANALYZER] Ambiguous date columns {date_cols}, no hint selected")
+    return None
+
+
+def _infer_date_column_from_values(rows: List[Dict[str, Any]], empty_key_target: str) -> str:
+    """
+    Boş-key kolonunun değerlerine bakarak tarih kolonu olup olmadığını doğrular.
+    Tarihse empty_key_target'ı döndürür; değilse 'UnknownColumn' döndürür.
+
+    [year, month, day] listesi kontrolü: yıl/ay/gün aralığı doğrulaması yaparak
+    RGB, koordinat, versiyon tuple gibi false-positive'leri önler.
+    """
+    sample = rows[0].get("") if rows else None
+    if sample is None:
+        return empty_key_target
+
+    is_date_value = (
+        isinstance(sample, (_dt.date, _dt.datetime))
+        or (
+            isinstance(sample, list)
+            and len(sample) == 3
+            and all(isinstance(x, int) for x in sample)
+            and 1900 <= sample[0] <= 2100  # yıl
+            and 1 <= sample[1] <= 12        # ay
+            and 1 <= sample[2] <= 31        # gün
+        )
+        or (
+            isinstance(sample, str)
+            and len(sample) >= 8
+            and sample[:4].isdigit()
+            and 1900 <= int(sample[:4]) <= 2100  # ISO tarih string'i için yıl aralığı
+        )
+    )
+    return empty_key_target if is_date_value else "UnknownColumn"
+
+
+def _normalize_results(
+    results: List[Dict[str, Any]],
+    date_column_hint: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Normalizes results list before visualization processing:
+    - Converts datetime.date / datetime.datetime values to ISO strings (JSON serializable)
+    - Renames empty-string column names using date_column_hint (from runtime config)
+      or value-based detection; never hardcodes 'DocumentDate'
+    - Handles [year, month, day] lists for ANY column (LangGraph checkpoint deserialization)
+    """
+    if not results:
+        return results
+
+    # Boş key varsa → rename hedefini dinamik belirle
+    column_renames: Dict[str, str] = {}
+    if "" in results[0]:
+        candidate = date_column_hint or "Date"
+        column_renames[""] = _infer_date_column_from_values(results, candidate)
+
+    normalized = []
+    for row in results:
+        new_row: Dict[str, Any] = {}
+        for key, val in row.items():
+            new_key = column_renames.get(key, key)
+            if isinstance(val, _dt.datetime):
+                val = val.date().isoformat()
+            elif isinstance(val, _dt.date):
+                val = val.isoformat()
+            elif (
+                isinstance(val, list)
+                and len(val) == 3
+                and all(isinstance(x, int) for x in val)
+            ):
+                # LangGraph serializes datetime.date as [year, month, day] — herhangi bir kolona uygula
+                try:
+                    val = _dt.date(val[0], val[1], val[2]).isoformat()
+                except (ValueError, TypeError):
+                    pass
+            new_row[new_key] = val
+        normalized.append(new_row)
+    return normalized
+
+
 # =============================================================================
 # NODE 1: DATA ANALYZER
 # =============================================================================
 
-async def data_analyzer_node(state: dict) -> dict:
+async def data_analyzer_node(state: dict, config: Optional[RunnableConfig] = None) -> dict:
     """
     Pure Python: results → DataProfile.
     DataAnalyzer class'ı doğrudan kullanır (Türkçe pattern'ler dahil).
@@ -38,9 +155,19 @@ async def data_analyzer_node(state: dict) -> dict:
         logger.info("[DATA_ANALYZER] No results, skipping analysis")
         return {"data_profile": None}
 
+    # Boş-key kolon için runtime config'ten tarih kolonu adını al
+    date_hint = _infer_date_column_from_metadata(config)
+    if date_hint:
+        logger.debug(f"[DATA_ANALYZER] Date column hint from config: '{date_hint}'")
+
+    # Normalize: datetime.date → ISO string, boş kolon adı → dinamik rename
+    normalized = _normalize_results(results, date_column_hint=date_hint)
+    if normalized != results:
+        logger.info("[DATA_ANALYZER] Results normalized (dates → ISO strings, empty columns renamed)")
+
     analyzer = DataAnalyzer()
     # DataAnalyzer "raw_data" key'ini okur — results'ı map ediyoruz
-    profile_state = analyzer.analyze({"raw_data": results})
+    profile_state = analyzer.analyze({"raw_data": normalized})
     profile = profile_state.get("data_profile")
 
     if profile:
@@ -48,9 +175,11 @@ async def data_analyzer_node(state: dict) -> dict:
             f"[DATA_ANALYZER] Profile: {profile['row_count']} rows, "
             f"{profile['column_count']} cols, "
             f"dims={profile['dimension_columns']}, "
-            f"metrics={profile['metric_columns']}"
+            f"metrics={profile['metric_columns']}, "
+            f"time={profile.get('time_column')}"
         )
-    return {"data_profile": profile}
+    # Propagate normalized results so downstream nodes (viz_decider, chart_generator) use clean data
+    return {"data_profile": profile, "results": normalized}
 
 
 # =============================================================================

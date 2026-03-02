@@ -812,10 +812,10 @@ def create_sql_generator_node(
                 # Mevcut group_by'dan ham tarih kolonlarını çıkar
                 _existing  = [_c for _c in raw_schema.get("group_by", []) if _c not in _raw_dates]
                 _time_set  = set(_t_cols)
-                # entity: mevcut group_by'da zaten varsa çift ekleme
-                _has_comp  = _comp_dim and _comp_dim in _existing
+                # comp_dim her zaman başa gelir (zaten _existing'de olsa bile — _has_comp kontrolü
+                # kaldırıldı: "zaten var → atla" mantığı carry-over loop'ta da dışlıyordu → drop bug)
                 _new_group_by: list = []
-                if _comp_dim and not _has_comp:
+                if _comp_dim:
                     _new_group_by.append(_comp_dim)
                 _new_group_by.extend(_t_cols)
                 # Mevcut group_by'dan zaman ifadeleri + entity dışındaki kolonları koru

@@ -374,13 +374,3 @@ class DataAnalyzer:
                 if re.match(pattern, value.strip()):
                     return True
         return False
-
-
-# ============================================================
-# LangGraph Node Function
-# ============================================================
-
-def data_analyzer_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """DataAnalyzer wrapper — raw_data veya results → data_profile."""
-    analyzer = DataAnalyzer()
-    return analyzer.analyze(state)
