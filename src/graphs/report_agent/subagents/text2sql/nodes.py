@@ -60,13 +60,13 @@ def _replace_in_sql(sql: str, column: str, old_val: str, new_val: str) -> str:
         rf"(\[{re.escape(column)}\]\s*=\s*)'{re.escape(old_val)}'",
         re.IGNORECASE,
     )
-    result, n = col_pattern.subn(rf"\g<1>'{new_val}'", sql)
+    result, n = col_pattern.subn(lambda m: f"{m.group(1)}'{new_val}'", sql)
     if n > 0:
         return result
 
     # 2. Fallback: plain replace (count=1 ile yanlış occurrence'ı engelle)
     plain_pattern = re.compile(rf"'{re.escape(old_val)}'", re.IGNORECASE)
-    return plain_pattern.sub(f"'{new_val}'", sql, count=1)
+    return plain_pattern.sub(lambda m: f"'{new_val}'", sql, count=1)
 
 
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
@@ -518,7 +518,7 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
                     continue
 
                 # Tarih ve saf sayıları atla
-                if re.match(r"^\d+$", embedded_val) or re.search(r"\d{4}-\d{2}-\d{2}", embedded_val):
+                if re.match(r"^[\d.,]+$", embedded_val) or re.search(r"\d{4}-\d{2}-\d{2}", embedded_val):
                     logger.debug(f"[VALUE_RESOLVER/MODIFY] Atlandı (tarih/sayı): '{embedded_val}'")
                     continue
 

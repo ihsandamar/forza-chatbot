@@ -517,3 +517,14 @@ def test_value_resolver_node_new_query_branch_unchanged():
     # Mevcut NEW_QUERY davranışı: query_schema güncellemeli
     assert "query_schema" in result
     assert result["query_schema"]["filters"][0]["resolved_value"] == "DURUMLER"
+
+
+def test_replace_in_sql_new_val_with_backslash():
+    """new_val regex özel karakterleri içerse bile SQL bozulmamalı."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _replace_in_sql
+
+    sql = "SELECT * FROM T WHERE [CategoryName] = 'old'"
+    # Backslash içeren new_val — regex replacement string olarak yorumlanırsa crash veya corruption
+    result = _replace_in_sql(sql, "CategoryName", "old", r"new\value")
+    assert r"'new\value'" in result
+    assert "'old'" not in result
