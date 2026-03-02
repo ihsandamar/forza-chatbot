@@ -406,3 +406,114 @@ class TestClarificationProcessing:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
+
+
+# ── _replace_in_sql helper ────────────────────────────────────────────────────
+
+def test_replace_in_sql_column_aware():
+    """[Column] = 'old' kalıbını column-aware olarak değiştirmeli."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _replace_in_sql
+
+    sql = "SELECT * FROM T WHERE [CategoryName] = 'dürümler' AND [BranchName] = 'istanbul'"
+    result = _replace_in_sql(sql, "CategoryName", "dürümler", "DURUMLER")
+    assert "'DURUMLER'" in result
+    assert "'istanbul'" in result            # diğer kolon dokunulmaz
+    assert "'dürümler'" not in result
+
+
+def test_replace_in_sql_case_insensitive():
+    """embedded_value büyük/küçük harf farkı gözetmeksizin eşleşmeli."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _replace_in_sql
+
+    sql = "SELECT * FROM T WHERE [CategoryName] = 'Dürümler'"
+    result = _replace_in_sql(sql, "CategoryName", "dürümler", "DURUMLER")
+    assert "'DURUMLER'" in result
+
+
+def test_replace_in_sql_fallback_when_no_column_match():
+    """Kolon-aware pattern eşleşmezse plain replace fallback çalışmalı."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _replace_in_sql
+
+    # LLM bazen [Col] yerine Col yazmış olabilir
+    sql = "SELECT * FROM T WHERE CategoryName = 'dürümler'"
+    result = _replace_in_sql(sql, "CategoryName", "dürümler", "DURUMLER")
+    assert "'DURUMLER'" in result
+
+
+# ── value_resolver_node MODIFY_QUERY branch ─────────────────────────────────
+
+def test_value_resolver_node_modify_query_branch():
+    """pre_built_sql + modification_hints varsa SQL patch edilmeli."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_resolver = MagicMock()
+    mock_resolver.resolve = AsyncMock(return_value={
+        "resolved": "DURUMLER",
+        "confidence": 95,
+        "column": "CategoryName",
+    })
+
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_value_resolver_node
+    node = create_value_resolver_node(mock_resolver)
+
+    state = {
+        "pre_built_sql": "SELECT * FROM T WHERE [CategoryName] = 'dürümler'",
+        "modification_hints": [{"column": "CategoryName", "embedded_value": "dürümler"}],
+        "query_schema": None,
+    }
+    result = asyncio.get_event_loop().run_until_complete(node(state))
+
+    assert "pre_built_sql" in result
+    assert "'DURUMLER'" in result["pre_built_sql"]
+    assert "'dürümler'" not in result["pre_built_sql"]
+    assert result["modification_hints"] is None      # temizlenmeli
+
+
+def test_value_resolver_node_modify_query_skips_numeric():
+    """Sayısal embedded_value atlanmalı (TOP 10 gibi değerlere dokunulmamalı)."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_resolver = MagicMock()
+    mock_resolver.resolve = AsyncMock()
+
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_value_resolver_node
+    node = create_value_resolver_node(mock_resolver)
+
+    state = {
+        "pre_built_sql": "SELECT TOP 10 * FROM T",
+        "modification_hints": [{"column": "TOP", "embedded_value": "10"}],
+        "query_schema": None,
+    }
+    asyncio.get_event_loop().run_until_complete(node(state))
+
+    # resolve hiç çağrılmamalı
+    mock_resolver.resolve.assert_not_called()
+
+
+def test_value_resolver_node_new_query_branch_unchanged():
+    """pre_built_sql yoksa mevcut NEW_QUERY dalı çalışmaya devam etmeli."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_resolver = MagicMock()
+    mock_resolver.resolve = AsyncMock(return_value={
+        "resolved": "DURUMLER", "confidence": 90, "column": "CategoryName"
+    })
+
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_value_resolver_node
+    node = create_value_resolver_node(mock_resolver)
+
+    state = {
+        "pre_built_sql": None,
+        "modification_hints": None,
+        "query_schema": {
+            "filters": [{"column": "CategoryName", "value_hint": "dürümler"}]
+        },
+    }
+    result = asyncio.get_event_loop().run_until_complete(node(state))
+
+    # Mevcut NEW_QUERY davranışı: query_schema güncellemeli
+    assert "query_schema" in result
+    assert result["query_schema"]["filters"][0]["resolved_value"] == "DURUMLER"

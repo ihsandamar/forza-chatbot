@@ -15,6 +15,7 @@ Text2SQL Subagent Nodes (v2)
 import asyncio
 import json
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
@@ -45,6 +46,27 @@ logger = logging.getLogger(__name__)
 _db_executor = ThreadPoolExecutor(max_workers=3)
 MAX_RETRY = 2
 _MANUAL_ENTRY_OPTION = "Başka bir değer girin"
+
+
+def _replace_in_sql(sql: str, column: str, old_val: str, new_val: str) -> str:
+    """
+    pre_built_sql içindeki bir filtre değerini güvenli şekilde değiştirir.
+
+    1. Kolon-aware pattern: [Column] = 'old_val' → [Column] = 'new_val'
+    2. Fallback: plain case-insensitive replace (LLM köşeli parantez kullanmadıysa)
+    """
+    # 1. Column-aware replace (en güvenli)
+    col_pattern = re.compile(
+        rf"(\[{re.escape(column)}\]\s*=\s*)'{re.escape(old_val)}'",
+        re.IGNORECASE,
+    )
+    result, n = col_pattern.subn(rf"\g<1>'{new_val}'", sql)
+    if n > 0:
+        return result
+
+    # 2. Fallback: plain replace (count=1 ile yanlış occurrence'ı engelle)
+    plain_pattern = re.compile(rf"'{re.escape(old_val)}'", re.IGNORECASE)
+    return plain_pattern.sub(f"'{new_val}'", sql, count=1)
 
 
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
@@ -481,6 +503,60 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
     """
 
     async def value_resolver_node(state: dict) -> dict:
+        pre_built_sql      = state.get("pre_built_sql")
+        modification_hints = state.get("modification_hints") or []
+
+        # ── MODIFY_QUERY BRANCH ───────────────────────────────────────────────
+        if pre_built_sql and modification_hints:
+            resolved_sql = pre_built_sql
+
+            for hint in modification_hints:
+                column       = hint.get("column", "")
+                embedded_val = hint.get("embedded_value", "")
+
+                if not embedded_val:
+                    continue
+
+                # Tarih ve saf sayıları atla
+                if re.match(r"^\d+$", embedded_val) or re.search(r"\d{4}-\d{2}-\d{2}", embedded_val):
+                    logger.debug(f"[VALUE_RESOLVER/MODIFY] Atlandı (tarih/sayı): '{embedded_val}'")
+                    continue
+
+                result = await value_resolver.resolve(embedded_val, column)
+
+                if not result:
+                    answer = interrupt({
+                        "type": "input",
+                        "question": f"'{embedded_val}' veritabanında bulunamadı. Doğru değeri girin:",
+                    })
+                    resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, answer)
+                    continue
+
+                confidence = result.get("confidence", 0)
+                candidate  = result.get("resolved", "")
+
+                if confidence >= 75:
+                    resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, candidate)
+                    logger.info(
+                        f"[VALUE_RESOLVER/MODIFY] '{embedded_val}' → '{candidate}' (conf={confidence})"
+                    )
+                else:
+                    label = candidate if confidence >= 50 else f"{candidate} (%{confidence:.0f} eşleşme)"
+                    answer = interrupt({
+                        "type": "choice",
+                        "question": f"'{embedded_val}' için ne kullanılmalı?",
+                        "options": [label, _MANUAL_ENTRY_OPTION],
+                    })
+                    if answer == _MANUAL_ENTRY_OPTION:
+                        answer = interrupt({
+                            "type": "input",
+                            "question": f"'{embedded_val}' için doğru değeri girin:",
+                        })
+                    resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, answer)
+
+            return {"pre_built_sql": resolved_sql, "modification_hints": None}
+
+        # ── NEW_QUERY BRANCH (mevcut, değişmez) ──────────────────────────────
         raw_schema = state.get("query_schema")
         if not raw_schema:
             return {}
@@ -492,10 +568,9 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
         resolved_any = False
 
         for f in filters:
-            column = f.get("column", "")
+            column     = f.get("column", "")
             value_hint = f.get("value_hint", "")
 
-            # Atla: değer zaten çözülmüş, tarih, ya da boş
             if (
                 f.get("resolved_value")
                 or f.get("date_descriptor")
@@ -504,11 +579,9 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
             ):
                 continue
 
-            # Fuzzy match
             result = await value_resolver.resolve(value_hint, column)
 
             if not result:
-                # Çözülemedi → kullanıcıya sor
                 answer = interrupt({
                     "type": "input",
                     "question": f"'{value_hint}' veritabanında bulunamadı. Lütfen tam adı girin:",
@@ -518,42 +591,33 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
                 continue
 
             confidence = result.get("confidence", 0)
-            candidate = result.get("resolved", "")
+            candidate  = result.get("resolved", "")
 
             if confidence >= 75:
-                # Yüksek güven → otomatik çöz
                 f["resolved_value"] = candidate
                 f["resolution_confidence"] = confidence
                 resolved_any = True
                 logger.info(f"[VALUE_RESOLVER] '{value_hint}' → '{candidate}' (conf={confidence})")
-
             else:
-                # Düşük/orta güven → kullanıcıya seçenek sun (tek interrupt)
-                if confidence >= 50:
-                    label = candidate
-                else:
-                    label = f"{candidate} (%{confidence:.0f} eşleşme)"
-
+                label = candidate if confidence >= 50 else f"{candidate} (%{confidence:.0f} eşleşme)"
                 answer = interrupt({
                     "type": "choice",
                     "question": f"'{value_hint}' için ne kullanılmalı?",
                     "options": [label, _MANUAL_ENTRY_OPTION],
                 })
-
                 if answer == _MANUAL_ENTRY_OPTION:
-                    # Kullanıcı manuel giriş seçti → intentional ek interrupt
                     manual = interrupt({
                         "type": "input",
                         "question": f"'{value_hint}' için doğru değeri girin:",
                     })
                     f["resolved_value"] = manual
-                    f["resolution_confidence"] = 100  # Kullanıcı elle girdi
+                    f["resolution_confidence"] = 100
                 else:
-                    # Kullanıcı öneriyi seçti
                     f["resolved_value"] = candidate
                     f["resolution_confidence"] = confidence
-                    logger.info(f"[VALUE_RESOLVER] '{value_hint}' → '{candidate}' (user_selected, conf={confidence})")
-
+                    logger.info(
+                        f"[VALUE_RESOLVER] '{value_hint}' → '{candidate}' (user_selected, conf={confidence})"
+                    )
                 resolved_any = True
 
         if resolved_any:
