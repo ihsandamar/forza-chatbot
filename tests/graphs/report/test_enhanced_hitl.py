@@ -527,4 +527,80 @@ def test_replace_in_sql_new_val_with_backslash():
     # Backslash içeren new_val — regex replacement string olarak yorumlanırsa crash veya corruption
     result = _replace_in_sql(sql, "CategoryName", "old", r"new\value")
     assert r"'new\value'" in result
+
+
+# ── _normalize_document_date_group_by ────────────────────────────────────────
+
+def test_normalize_document_date_no_time_granularity():
+    """time_granularity yoksa DocumentDate → CAST(DocumentDate AS DATE) olmalı."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _normalize_document_date_group_by
+
+    schema = {"group_by": ["DocumentDate"], "time_granularity": None}
+    result = _normalize_document_date_group_by(schema)
+
+    assert result["group_by"] == ["CAST(DocumentDate AS DATE)"]
+
+
+def test_normalize_document_date_with_daily_granularity():
+    """time_granularity='daily' → CAST(DocumentDate AS DATE) olmalı."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _normalize_document_date_group_by
+
+    schema = {"group_by": ["DocumentDate"], "time_granularity": "daily"}
+    result = _normalize_document_date_group_by(schema)
+
+    assert result["group_by"] == ["CAST(DocumentDate AS DATE)"]
+
+
+def test_normalize_document_date_with_monthly_granularity():
+    """time_granularity='monthly' → YEAR + MONTH ifadeleri olmalı."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _normalize_document_date_group_by
+
+    schema = {"group_by": ["DocumentDate"], "time_granularity": "monthly"}
+    result = _normalize_document_date_group_by(schema)
+
+    assert result["group_by"] == ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
+
+
+def test_normalize_document_date_preserves_other_columns():
+    """DocumentDate dışındaki kolonlar korunmalı."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _normalize_document_date_group_by
+
+    schema = {"group_by": ["CategoryName", "DocumentDate", "BranchName"], "time_granularity": None}
+    result = _normalize_document_date_group_by(schema)
+
+    assert "CategoryName" in result["group_by"]
+    assert "BranchName" in result["group_by"]
+    assert "DocumentDate" not in result["group_by"]
+    assert "CAST(DocumentDate AS DATE)" in result["group_by"]
+
+
+def test_normalize_document_date_noop_when_already_cast():
+    """Zaten CAST(DocumentDate AS DATE) varsa değişmemeli."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _normalize_document_date_group_by
+
+    schema = {"group_by": ["CAST(DocumentDate AS DATE)", "BranchName"], "time_granularity": None}
+    result = _normalize_document_date_group_by(schema)
+
+    assert result["group_by"] == ["CAST(DocumentDate AS DATE)", "BranchName"]
+
+
+def test_normalize_document_date_noop_when_no_date():
+    """group_by'da hiç tarih yoksa schema değişmemeli."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _normalize_document_date_group_by
+
+    schema = {"group_by": ["CategoryName", "BranchName"], "time_granularity": None}
+    result = _normalize_document_date_group_by(schema)
+
+    assert result["group_by"] == ["CategoryName", "BranchName"]
+
+
+def test_normalize_document_date_brackets_stripped():
+    """[DocumentDate] köşeli parantezli hali de yakalanmalı."""
+    from src.graphs.report_agent.subagents.text2sql.nodes import _normalize_document_date_group_by
+
+    schema = {"group_by": ["[DocumentDate]"], "time_granularity": None}
+    result = _normalize_document_date_group_by(schema)
+
+    assert "CAST(DocumentDate AS DATE)" in result["group_by"]
+    assert "[DocumentDate]" not in result["group_by"]
     assert "'old'" not in result

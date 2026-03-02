@@ -47,6 +47,52 @@ _db_executor = ThreadPoolExecutor(max_workers=3)
 MAX_RETRY = 2
 _MANUAL_ENTRY_OPTION = "Başka bir değer girin"
 
+# DocumentDate datetime kolonu için granülarite → SQL ifadeleri tablosu.
+# TIME_SERIES_COMPARISON bloğu ve _normalize_document_date_group_by paylaşır.
+_TIME_GRAN_MAP: dict = {
+    "hourly":  ["CAST(DocumentDate AS DATE)", "Hour"],
+    "daily":   ["CAST(DocumentDate AS DATE)"],
+    "weekly":  ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"],
+    "monthly": ["YEAR(DocumentDate)", "MONTH(DocumentDate)"],
+    "yearly":  ["YEAR(DocumentDate)"],
+}
+# Ham datetime kolon adları (GROUP BY'da kullanıldığında her timestamp ayrı grup olur)
+_RAW_DATE_COL_NAMES = {"documentdate", "date"}
+
+
+def _normalize_document_date_group_by(raw_schema: dict) -> dict:
+    """
+    GROUP BY içinde ham DocumentDate (datetime) kolonu varsa DATE ifadesine dönüştür.
+
+    Neden: DocumentDate bir datetime kolonudur. Raw GROUP BY her timestamp'i ayrı grup
+    yapar — "günlük ciro" gibi sorgularda tamamen yanlış sonuç üretir.
+
+    time_granularity varsa → _TIME_GRAN_MAP'ten doğru ifadeyi kullan.
+    Yoksa → CAST(DocumentDate AS DATE) varsayılan (en yaygın use case).
+
+    Tüm query type'ları için çalışır. TIME_SERIES_COMPARISON kendi bloğunda
+    group_by'ı zaten yönetir; bu normalizasyon ondan sonra kalan ham tarihleri temizler.
+    """
+    current = raw_schema.get("group_by", [])
+    has_raw_date = any(c.strip().strip("[]").lower() in _RAW_DATE_COL_NAMES for c in current)
+    if not has_raw_date:
+        return raw_schema  # no-op
+
+    time_gran = raw_schema.get("time_granularity")
+    time_exprs = _TIME_GRAN_MAP.get(time_gran, ["CAST(DocumentDate AS DATE)"])
+
+    normalized: list = []
+    for col in current:
+        if col.strip().strip("[]").lower() in _RAW_DATE_COL_NAMES:
+            for expr in time_exprs:
+                if expr not in normalized:
+                    normalized.append(expr)
+        else:
+            normalized.append(col)
+
+    logger.info(f"[SQL_GENERATOR] DocumentDate normalize: {current} → {normalized} (gran={time_gran})")
+    return {**raw_schema, "group_by": normalized}
+
 
 def _replace_in_sql(sql: str, column: str, old_val: str, new_val: str) -> str:
     """
@@ -819,14 +865,7 @@ def create_sql_generator_node(
         # Önce QuerySchema.time_granularity + comparison_dimension kullan (Option A).
         # LLM alanları boş bıraktıysa kullanıcı query'sinden keyword matching ile tespit (Option B).
         if state.get("query_type") == "TIME_SERIES_COMPARISON":
-            # Zaman granülaritesi → SQL ifadeleri tablosu
-            _TIME_GRAN_MAP: dict = {
-                "hourly":  ["CAST(DocumentDate AS DATE)", "Hour"],
-                "daily":   ["CAST(DocumentDate AS DATE)"],
-                "weekly":  ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"],
-                "monthly": ["YEAR(DocumentDate)", "MONTH(DocumentDate)"],
-                "yearly":  ["YEAR(DocumentDate)"],
-            }
+            # _TIME_GRAN_MAP module-level constant'ta tanımlı (bu dosya başı)
             # Entity keyword root → DB kolon adı (Türkçe kök eşleştirme — fallback için)
             _ENTITY_ROOTS: dict = {
                 "ürün":     "ProductName",
@@ -891,6 +930,11 @@ def create_sql_generator_node(
                     f"[SQL_GENERATOR] TIME_SERIES group_by inşa edildi: "
                     f"entity={_comp_dim}, gran={_time_gran}, result={_new_group_by}"
                 )
+
+        # --- DocumentDate datetime güvenlik ağı (tüm query type'lar) ---
+        # TIME_SERIES bloğu kendi group_by'ını halleder; bu adım kalan
+        # ham DocumentDate'leri (RANKING, SINGLE, COMPARISON) temizler.
+        raw_schema = _normalize_document_date_group_by(raw_schema)
 
         # --- term_filters merge: Python garantili filtreler LLM'i override eder ---
         if term_filters:
