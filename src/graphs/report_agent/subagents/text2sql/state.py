@@ -21,6 +21,7 @@ class Text2SQLState(TypedDict, total=False):
     active_filters: Optional[List[Dict[str, Any]]]
     sql_queries: Optional[List[str]]
     pre_built_sql: Optional[str]        # modify_sql çıktısı — sql_generator bunu görünce yeniden üretmez
+    modification_hints: Optional[List[Dict[str, Any]]]  # modify_sql → value_resolver (MODIFY_QUERY value resolution)
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
     active_results: Optional[List[Dict[str, Any]]]

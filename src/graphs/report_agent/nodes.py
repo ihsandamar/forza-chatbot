@@ -112,6 +112,7 @@ def create_classify_intent_node(llm) -> Callable:
             "compute_operation": result.compute_operation,  # compute path için (avg/sum/count/min/max)
             "visualization_output": None,  # önceki tur çıktısını temizle
             "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
+            "modification_hints": None,   # her turda temizle
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:
@@ -156,9 +157,13 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
 
         result: SqlModificationResult = await structured_llm.ainvoke(prompt)
         logger.info(f"[MODIFY_SQL] → {result.modified_sql[:120]}")
+        logger.info(f"[MODIFY_SQL] {len(result.modification_hints)} hint(s) üretildi")
         # pre_built_sql: sql_generator bu alanı görünce yeniden SQL üretmez,
         # direkt bu SQL'i kullanır (CategoryName filtresi, doğru aggregation kolonları korunur).
-        return {"pre_built_sql": result.modified_sql}
+        return {
+            "pre_built_sql": result.modified_sql,
+            "modification_hints": [h.model_dump() for h in result.modification_hints],
+        }
 
     return modify_sql_node
 

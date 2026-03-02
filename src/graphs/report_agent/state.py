@@ -26,6 +26,7 @@ class ReportState(TypedDict):
     # Text2SQL I/O (subgraph shared fields)
     sql_queries: Optional[List[str]]
     pre_built_sql: Optional[str]        # modify_sql çıktısı — sql_generator bunu görünce yeniden üretmez
+    modification_hints: Optional[List[Dict[str, Any]]]  # modify_sql → value_resolver (MODIFY_QUERY value resolution)
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
     candidate_filter_terms: Optional[List[Dict[str, Any]]]  # term_resolver → term_validator (term_id + metadata)
@@ -55,6 +56,7 @@ def create_initial_state() -> ReportState:
         active_filters=None,
         sql_queries=None,
         pre_built_sql=None,
+        modification_hints=None,
         results=None,
         error=None,
         candidate_filter_terms=None,

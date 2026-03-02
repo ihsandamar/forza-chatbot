@@ -439,5 +439,35 @@ def test_sql_modification_result_hints_default_empty():
     assert result.modification_hints == []
 
 
+def test_modify_sql_node_returns_modification_hints():
+    """modify_sql_node modification_hints döndürmeli."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from src.graphs.report_agent.prompts import SqlModificationResult, ModificationHint
+
+    mock_result = SqlModificationResult(
+        modified_sql="SELECT * FROM T WHERE [CategoryName] = 'dürümler'",
+        explanation="test",
+        modification_hints=[ModificationHint(column="CategoryName", embedded_value="dürümler")],
+    )
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(return_value=mock_result)
+
+    from src.graphs.report_agent.nodes import create_modify_sql_node
+    node = create_modify_sql_node(mock_llm, column_metadata={})
+
+    state = {
+        "active_sql": "SELECT * FROM T",
+        "active_filters": [],
+        "user_query": "dürümler kategorisini göster",
+    }
+    result = asyncio.get_event_loop().run_until_complete(node(state))
+
+    assert "modification_hints" in result
+    assert len(result["modification_hints"]) == 1
+    assert result["modification_hints"][0]["column"] == "CategoryName"
+    assert result["modification_hints"][0]["embedded_value"] == "dürümler"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
