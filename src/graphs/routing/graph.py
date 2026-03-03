@@ -173,8 +173,9 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
         try:
             logger.info("[FORZA] Initializing vectorstore...")
 
-            # Get persist directory from config
-            vectorstore_path = Path(config.vector_store.persist_directory)
+            # Get persist directory from config, resolved relative to project root
+            base_path = self._get_base_path()
+            vectorstore_path = (base_path / config.vector_store.persist_directory).resolve()
 
             logger.debug(f"[FORZA] Vectorstore path: {vectorstore_path}")
 

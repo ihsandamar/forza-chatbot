@@ -4,6 +4,7 @@ Routes requests between agents using handoff pattern.
 """
 import logging
 import numpy
+from pathlib import Path
 from typing import Optional
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph import MessagesState
@@ -588,33 +589,23 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
 
         def build_report_agent_lazy():
             """Lazy builder for report agent - only imports when needed"""
-            from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
-            from src.graphs.data_visualization.graph import build_visualization_graph
-            from src.graphs.report.graph import build_report_graph
+            from src.graphs.report_agent.graph import build_report_agent_graph
+            from src.services.config_loader import ConfigLoader
 
-            # Get report configuration from supervisor config (build-time default)
-            report_config = self.config.get_report_config()
-            logger.info(f"[SUPERVISOR] Report build-time config: table={report_config.table_name}, report={report_config.report_name or 'default'}")
+            config = ConfigLoader.load_config()
+            project_root = Path(__file__).parent.parent.parent.parent
+            business_rules_path = str(project_root / "src" / "graphs" / "generic_text2sql" / "business_rules.json")
+            chroma_persist_dir = str(project_root / "data" / "vector_store")
 
-            # Build text2sql graph with report config
-            text2sql_graph = GenericText2SQLGraph(llm=self.llm, config=report_config).build_graph()
-            logger.info("[SUPERVISOR] ✓ Text2SQL subgraph built with config")
-
-            # Build visualization graph
-            visualization_graph = build_visualization_graph(llm=self.llm)
-            logger.info("[SUPERVISOR] ✓ Visualization subgraph built")
-
-            # Build report graph (combines text2sql + visualization)
-            # Use GenericSQLAssistantConfiguration as config schema for runtime config
-            from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
-            report_graph = build_report_graph(
-                text2sql_graph=text2sql_graph,
-                visualization_graph=visualization_graph,
-                llm=self.llm,
-                enable_hitl=True,
-                config_schema=GenericSQLAssistantConfiguration
+            report_graph = build_report_agent_graph(
+                llm=self.llm.get_chat(),
+                table_name="MasterReportDocumentTable",
+                column_metadata={},
+                connection_string=config.database.uri,
+                business_rules_path=business_rules_path,
+                chroma_persist_dir=chroma_persist_dir,
             )
-            logger.info("[SUPERVISOR] ✓ Report subgraph built (HITL enabled, config_schema set)")
+            logger.info("[SUPERVISOR] ✓ Report subgraph built")
             return report_graph
 
         # Build report agent (this will import dependencies)
