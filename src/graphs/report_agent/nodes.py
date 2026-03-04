@@ -148,9 +148,16 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
             logger.warning("[MODIFY_SQL] No active SQL, fallback to NEW_QUERY")
             return {"intent_type": "NEW_QUERY"}
 
+        # Sonuçların ilk 5 satırını al (token limiti için)
+        active_results = state.get("active_results") or []
+        results_preview = json.dumps(
+            active_results[:5], ensure_ascii=False, default=str
+        ) if active_results else "Sonuç yok"
+
         prompt = SQL_MODIFIER_PROMPT.format(
             active_sql=active_sql,
             active_filters=json.dumps(state.get("active_filters") or [], ensure_ascii=False),
+            active_results=results_preview,
             modification_request=state.get("user_query", ""),
             column_metadata=json.dumps(column_metadata, ensure_ascii=False, indent=2),
         )

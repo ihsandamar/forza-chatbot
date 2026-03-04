@@ -133,6 +133,9 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 ## AKTİF FİLTRELER
 {active_filters}
 
+## ÖNCEKİ SORGU SONUÇLARI (ilk 5 satır)
+{active_results}
+
 ## KULLANICI İSTEĞİ
 {modification_request}
 
@@ -149,6 +152,10 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 - Sıralama değişikliği: sadece ORDER BY clause'u güncelle
 - Geçerli T-SQL (SQL Server) üret, syntax hatası olmasın
 - explanation alanında ne değiştirdiğini kısaca açıkla
+
+⚠️ SONUÇ REFERANSI: Kullanıcı "bu gün", "o ürün", "bu şube" gibi önceki sonuca referans veriyorsa,
+ÖNCEKİ SORGU SONUÇLARI bölümündeki gerçek değerleri kullan. Sonuçlarda bir tarih değeri varsa
+ve kullanıcı "bu gün" diyorsa → o tarihi yaz, bugünün tarihini DEĞİL.
 
 ## MODIFICATION_HINTS
 Kullanıcının yazdığı ve SQL'e literal olarak gömdüğün her STRING FİLTRE DEĞERİ için bir hint ver:
