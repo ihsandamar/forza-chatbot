@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Callable, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -15,6 +16,12 @@ from src.graphs.report_agent.prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Post-processing: [DocumentDate] =/BETWEEN 'YYYY-...' → CAST([DocumentDate] AS DATE) ...
+_DATE_EQ_RE = re.compile(
+    r"\[DocumentDate\]\s*(=|BETWEEN)",
+    re.IGNORECASE,
+)
 
 CONFIDENCE_THRESHOLD = 0.70
 MODIFY_AMBIGUITY_THRESHOLD = 0.85  # MODIFY_QUERY için ayrı eşik — daha yüksek güven gerekir
@@ -163,12 +170,22 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
         )
 
         result: SqlModificationResult = await structured_llm.ainvoke(prompt)
-        logger.info(f"[MODIFY_SQL] → {result.modified_sql[:120]}")
+
+        # Post-processing: datetime kolon güvenlik ağı
+        # [DocumentDate] = '...' → CAST([DocumentDate] AS DATE) = '...'
+        modified_sql = _DATE_EQ_RE.sub(
+            lambda m: f"CAST([DocumentDate] AS DATE) {m.group(1)}",
+            result.modified_sql,
+        )
+        if modified_sql != result.modified_sql:
+            logger.info("[MODIFY_SQL] DocumentDate CAST post-processing uygulandı")
+
+        logger.info(f"[MODIFY_SQL] → {modified_sql[:120]}")
         logger.info(f"[MODIFY_SQL] {len(result.modification_hints)} hint(s) üretildi")
         # pre_built_sql: sql_generator bu alanı görünce yeniden SQL üretmez,
         # direkt bu SQL'i kullanır (CategoryName filtresi, doğru aggregation kolonları korunur).
         return {
-            "pre_built_sql": result.modified_sql,
+            "pre_built_sql": modified_sql,
             "modification_hints": [h.model_dump() for h in result.modification_hints],
         }
 

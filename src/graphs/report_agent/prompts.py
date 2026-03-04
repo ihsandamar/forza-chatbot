@@ -153,6 +153,11 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 - Geçerli T-SQL (SQL Server) üret, syntax hatası olmasın
 - explanation alanında ne değiştirdiğini kısaca açıkla
 
+⚠️ TARİH KARŞILAŞTIRMA: DocumentDate datetime kolonudur (saat bilgisi içerir).
+Belirli bir güne filtre koyarken ASLA `[DocumentDate] = '2026-02-15'` yazma — eşleşmez!
+HER ZAMAN `CAST([DocumentDate] AS DATE) = '2026-02-15'` kullan.
+Tarih aralığı için: `CAST([DocumentDate] AS DATE) BETWEEN '...' AND '...'` kullan.
+
 ⚠️ SONUÇ REFERANSI: Kullanıcı "bu gün", "o ürün", "bu şube" gibi önceki sonuca referans veriyorsa,
 ÖNCEKİ SORGU SONUÇLARI bölümündeki gerçek değerleri kullan. Sonuçlarda bir tarih değeri varsa
 ve kullanıcı "bu gün" diyorsa → o tarihi yaz, bugünün tarihini DEĞİL.

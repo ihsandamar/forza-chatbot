@@ -42,7 +42,8 @@ def _resolve_date_filter(col_expr: str, descriptor: Dict[str, Any], operator: st
 
     if d_type == "exact":
         val = descriptor.get("value", "")
-        return f"{col_expr} {operator} '{val}'"
+        # DocumentDate datetime kolonu — CAST ile gün seviyesinde karşılaştır
+        return f"CAST({col_expr} AS DATE) {operator} '{val}'"
 
     elif d_type == "relative":
         unit_map = {"day": "DAY", "month": "MONTH", "year": "YEAR", "quarter": "QUARTER"}
