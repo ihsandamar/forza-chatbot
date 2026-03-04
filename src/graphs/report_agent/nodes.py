@@ -234,12 +234,6 @@ _COMPUTE_OP_LABELS = {
 }
 
 
-_TOOL_TO_OP = {
-    "find_max": "max", "find_min": "min",
-    "sum_column": "sum", "avg_column": "avg", "count_rows": "count",
-}
-
-
 def _execute_compute_tool(
     results: list[dict],
     tool: str,
