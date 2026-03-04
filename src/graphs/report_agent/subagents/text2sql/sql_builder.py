@@ -22,6 +22,16 @@ _AGG_EXPR_RE = re.compile(r"^\s*(SUM|COUNT|AVG|MAX|MIN)\s*\(", re.IGNORECASE)
 # date_descriptor SADECE bu kolonlara uygulanır; diğer kolonlardaki date_descriptor drop edilir
 _DATE_COLUMNS: frozenset[str] = frozenset({"DocumentDate", "Date"})
 
+# SQL expression → SELECT alias mapping (GROUP BY expression'ları için)
+# Expression'lar _TIME_GRAN_MAP'ten gelir, alias'sız olursa SQL Server boş kolon adı döner.
+_EXPR_ALIAS_MAP: dict[str, str] = {
+    "YEAR(DocumentDate)": "Yil",
+    "MONTH(DocumentDate)": "Ay",
+    "CAST(DocumentDate AS DATE)": "Tarih",
+    "DATEPART(WEEK, DocumentDate)": "Hafta",
+    "DATEPART(QUARTER, DocumentDate)": "Ceyrek",
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -147,7 +157,17 @@ def _build_select_parts(schema_dict: Dict[str, Any], applied_rules: List[Dict[st
 
         # GROUP BY kolonlarını önce ekle (display için)
         for col in group_by:
-            parts.append(_col_expr(col))
+            expr = _col_expr(col)
+            # SQL expression (YEAR(...), CAST(...) vb.) → alias ekle yoksa kolon adı boş döner
+            alias = _EXPR_ALIAS_MAP.get(col)
+            if alias:
+                parts.append(f"{expr} AS [{alias}]")
+            elif any(c in col for c in ("(", ")")):
+                # Bilinmeyen expression → fonksiyon adından alias türet
+                func_name = col.split("(")[0].strip()
+                parts.append(f"{expr} AS [{func_name}]")
+            else:
+                parts.append(expr)
 
         # Aggregation ifadelerini ekle
         agg_rule_modifier = next(
