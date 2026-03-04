@@ -234,30 +234,98 @@ _COMPUTE_OP_LABELS = {
 }
 
 
-async def compute_results_node(state: dict) -> dict:
-    """Pure Python: active_results üzerinde matematiksel işlem. LLM yok, SQL yok."""
-    results = state.get("active_results") or []
-    operation = state.get("compute_operation") or "sum"
+_TOOL_TO_OP = {
+    "find_max": "max", "find_min": "min",
+    "sum_column": "sum", "avg_column": "avg", "count_rows": "count",
+}
 
-    if not results:
-        return {
-            "final_response": "Hesaplama için önceki sorgu sonuçları bulunamadı.",
-            "error": None,
-        }
 
-    # Sayısal kolonları bul (str/None dışı)
-    numeric_cols = [
-        col for col in results[0].keys()
-        if isinstance(results[0].get(col), (int, float))
-        and not isinstance(results[0].get(col), bool)
+def _execute_compute_tool(
+    results: list[dict],
+    tool: str,
+    target_column: str,
+    display_columns: list[str],
+) -> dict:
+    """
+    Pure Python tool execution. Returns:
+      {"value": <computed>, "row": <full_row_or_None>, "display": {col: val}}
+    """
+    values = [
+        (i, row[target_column])
+        for i, row in enumerate(results)
+        if target_column in row
+        and row[target_column] is not None
+        and isinstance(row[target_column], (int, float))
     ]
 
-    if not numeric_cols:
-        return {
-            "final_response": "Sonuçlarda sayısal kolon bulunamadı.",
-            "error": None,
-        }
+    if not values and tool != "count_rows":
+        return {"value": None, "row": None, "display": {}}
 
+    if tool == "find_max":
+        idx, val = max(values, key=lambda x: x[1])
+        row = results[idx]
+        display = {c: row.get(c) for c in display_columns}
+        return {"value": val, "row": row, "display": display}
+
+    elif tool == "find_min":
+        idx, val = min(values, key=lambda x: x[1])
+        row = results[idx]
+        display = {c: row.get(c) for c in display_columns}
+        return {"value": val, "row": row, "display": display}
+
+    elif tool == "sum_column":
+        total = sum(v for _, v in values)
+        return {"value": total, "row": None, "display": {target_column: total}}
+
+    elif tool == "avg_column":
+        avg = sum(v for _, v in values) / len(values)
+        return {"value": avg, "row": None, "display": {target_column: avg}}
+
+    elif tool == "count_rows":
+        count = len(results)
+        return {"value": count, "row": None, "display": {"count": count}}
+
+    return {"value": None, "row": None, "display": {}}
+
+
+def _format_compute_result(tool: str, tool_result: dict, display_columns: list[str]) -> str:
+    """Tool sonucunu insan-okunabilir formata çevir."""
+    val = tool_result["value"]
+    if val is None:
+        return "Hesaplama yapılamadı."
+
+    if tool in ("find_max", "find_min"):
+        label = "En yüksek" if tool == "find_max" else "En düşük"
+        row = tool_result["row"] or {}
+        text_parts = []
+        num_parts = []
+        for col in display_columns:
+            v = row.get(col)
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                num_parts.append(f"{col}: {v:,.2f}")
+            else:
+                text_parts.append(str(v))
+
+        entity = ", ".join(text_parts) if text_parts else ""
+        value_str = " | ".join(num_parts) if num_parts else f"{val:,.2f}"
+
+        if entity:
+            return f"{label}: **{entity}** — {value_str}"
+        return f"{label}: {value_str}"
+
+    elif tool == "count_rows":
+        return f"Toplam satır sayısı: **{val:,}**"
+
+    else:
+        op_label = "Toplam" if tool == "sum_column" else "Ortalama"
+        formatted = f"{val:,.2f}" if isinstance(val, float) else f"{val:,}"
+        return f"{op_label}: **{formatted}**"
+
+
+def _compute_fallback(results: list[dict], numeric_cols: list[str], operation: str) -> dict:
+    """LLM başarısız olursa eski pure-Python davranış."""
     lines = []
     for col in numeric_cols:
         values = [
@@ -285,11 +353,67 @@ async def compute_results_node(state: dict) -> dict:
         lines.append(f"**{col}** → {label}: {formatted}")
 
     response = "\n".join(lines) if lines else "Hesaplama yapılamadı."
-    logger.info(
-        f"[COMPUTE_RESULTS] op={operation}, cols={numeric_cols}, "
-        f"rows={len(results)}, result_lines={len(lines)}"
-    )
     return {"final_response": response, "error": None}
+
+
+def create_compute_results_node(llm) -> Callable:
+    """Hybrid compute node: LLM tool selection + pure Python execution."""
+
+    from src.graphs.report_agent.prompts import ComputeToolSelection, COMPUTE_TOOL_PROMPT
+    structured_llm = llm.with_structured_output(ComputeToolSelection)
+
+    async def compute_results_node(state: dict) -> dict:
+        results = state.get("active_results") or []
+
+        if not results:
+            return {
+                "final_response": "Hesaplama için önceki sorgu sonuçları bulunamadı.",
+                "error": None,
+            }
+
+        # Kolon tipleri
+        numeric_cols = [
+            col for col in results[0]
+            if isinstance(results[0].get(col), (int, float))
+            and not isinstance(results[0].get(col), bool)
+        ]
+        text_cols = [col for col in results[0] if col not in numeric_cols]
+
+        if not numeric_cols:
+            return {
+                "final_response": "Sonuçlarda sayısal kolon bulunamadı.",
+                "error": None,
+            }
+
+        # Phase 1: LLM tool selection
+        try:
+            prompt = COMPUTE_TOOL_PROMPT.format(
+                active_results=json.dumps(results[:5], ensure_ascii=False, default=str),
+                numeric_columns=", ".join(numeric_cols),
+                text_columns=", ".join(text_cols),
+                user_query=state.get("user_query", ""),
+            )
+            selection = await structured_llm.ainvoke(prompt)
+            tool = selection.tool
+            target = selection.target_column
+            display = selection.display_columns
+            logger.info(f"[COMPUTE] LLM selected: {tool}({target}) display={display}")
+        except Exception as e:
+            # Fallback: compute_operation state field'ından eski davranış
+            logger.warning(f"[COMPUTE] LLM failed ({e}), falling back to compute_operation")
+            op = state.get("compute_operation") or "sum"
+            return _compute_fallback(results, numeric_cols, op)
+
+        # Phase 2: Tool execution
+        tool_result = _execute_compute_tool(results, tool, target, display)
+
+        # Phase 3: Format
+        response = _format_compute_result(tool, tool_result, display)
+        logger.info(f"[COMPUTE] Response: {response[:100]}")
+
+        return {"final_response": response, "error": None}
+
+    return compute_results_node
 
 
 async def build_response_node(state: dict) -> dict:

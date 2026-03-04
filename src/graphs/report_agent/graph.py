@@ -18,8 +18,8 @@ from langgraph.graph import END, START, StateGraph
 from src.graphs.report_agent.configuration import ReportAgentConfiguration
 from src.graphs.report_agent.nodes import (
     build_response_node,
-    compute_results_node,
     create_classify_intent_node,
+    create_compute_results_node,
     create_extract_entity_node,
     create_modify_sql_node,
 )
@@ -84,7 +84,7 @@ def build_report_agent_graph(
     graph.add_node("classify_intent", create_classify_intent_node(llm))
     graph.add_node("modify_sql", create_modify_sql_node(llm, column_metadata))
     graph.add_node("extract_entity", create_extract_entity_node(llm))
-    graph.add_node("compute_results", compute_results_node)
+    graph.add_node("compute_results", create_compute_results_node(llm))
     graph.add_node("text2sql", text2sql)
     graph.add_node("visualization", visualization)
     graph.add_node("build_response", build_response_node)
