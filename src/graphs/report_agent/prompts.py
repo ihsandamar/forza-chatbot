@@ -190,3 +190,41 @@ Kullanıcının hangi entity'yi seçtiğini belirle ve yeni bir sorgu için seed
 - new_query_seed: Bu entity için doğal dil sorgu cümlesi (Text2SQL'e gönderilecek)
   Örnek: "iPhone 15 Pro'nun aylık satış detayları nedir?"
 """
+
+
+class ComputeToolSelection(BaseModel):
+    """LLM compute tool seçimi — hangi işlem, hangi kolon, hangi kolonlar gösterilsin."""
+
+    tool: Literal["find_max", "find_min", "sum_column", "avg_column", "count_rows"]
+    target_column: str                # işlem yapılacak sayısal kolon (e.g., "ToplamCiro")
+    display_columns: List[str]        # sonuçta gösterilecek kolonlar (e.g., ["ProductName", "ToplamCiro"])
+
+
+COMPUTE_TOOL_PROMPT = """Kullanıcı önceki sorgu sonuçları üzerinde bir hesaplama istiyor.
+
+## MEVCUT SONUÇLAR (ilk 5 satır)
+{active_results}
+
+## KOLON BİLGİSİ
+Sayısal kolonlar: {numeric_columns}
+Metin kolonları: {text_columns}
+
+## KULLANICI İSTEĞİ
+{user_query}
+
+## GÖREV
+Kullanıcının isteğine göre doğru tool'u seç:
+- find_max: "en çok", "en yüksek", "en fazla", "maksimum", "birinci" → ilgili satırı bul
+- find_min: "en az", "en düşük", "minimum", "sonuncu" → ilgili satırı bul
+- sum_column: "topla", "toplam", "toplam ne kadar" → kolondaki tüm değerleri topla
+- avg_column: "ortalama", "ortalama nedir" → kolondaki değerlerin ortalaması
+- count_rows: "kaç tane", "kaç satır", "sayısı" → satır sayısı
+
+## KURALLAR
+- target_column: İşlem yapılacak sayısal kolon adını AYNEN yaz (büyük/küçük harf dahil)
+- display_columns: Kullanıcının görmek isteyeceği kolonları seç
+  → find_max/find_min: İlişkili metin kolonu + hedef sayısal kolon (ör: ["ProductName", "ToplamCiro"])
+  → sum_column/avg_column: Sadece hedef kolon (ör: ["ToplamCiro"])
+  → count_rows: Boş liste []
+- Birden fazla sayısal kolon varsa, kullanıcının bahsettiği kolonu seç (ciro=amount, adet=quantity)
+"""
