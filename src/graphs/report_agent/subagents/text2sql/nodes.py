@@ -59,6 +59,9 @@ _TIME_GRAN_MAP: dict = {
 # Ham datetime kolon adları (GROUP BY'da kullanıldığında her timestamp ayrı grup olur)
 _RAW_DATE_COL_NAMES = {"documentdate", "date"}
 
+# Business rule filter parse: [Column] = Value
+_RULE_FILTER_EQ_RE = re.compile(r"^\[(\w+)\]\s*=\s*(.+)$")
+
 
 def _normalize_document_date_group_by(raw_schema: dict) -> dict:
     """
@@ -740,6 +743,69 @@ def create_business_rules_node(vector_store: BusinessRulesVectorStore, llm=None)
 
 
 # =============================================================================
+# COMPARISON: Çakışan auto_rule filter'ları IN'e dönüştür
+# =============================================================================
+
+def _merge_conflicting_rule_filters_for_comparison(
+    raw_schema: dict,
+    auto_rules: list[dict],
+) -> tuple[dict, list[dict]]:
+    """
+    COMPARISON sorgularında aynı kolona ait çakışan auto_rule filter'larını
+    tespit eder, schema'ya tek IN filtresi olarak ekler ve rule'lardan kaldırır.
+
+    Sadece basit [Column] = Value pattern'i eşleştirir; karmaşık ifadeler korunur.
+    Orijinal listeleri mutate etmez — yeni kopyalar döner.
+    """
+    # Parse rule filters: column -> [(rule_index, value_str)]
+    col_rule_map: dict[str, list[tuple[int, str]]] = {}
+    for i, rule in enumerate(auto_rules):
+        sql_filter = (rule.get("sql") or {}).get("filter") or ""
+        m = _RULE_FILTER_EQ_RE.match(sql_filter.strip())
+        if m:
+            col, val = m.group(1), m.group(2).strip()
+            col_rule_map.setdefault(col, []).append((i, val))
+
+    # Çakışma var mı?
+    conflicting_cols = {col: entries for col, entries in col_rule_map.items() if len(entries) > 1}
+    if not conflicting_cols:
+        return raw_schema, auto_rules
+
+    # Kopyalar oluştur
+    new_rules = list(auto_rules)
+    schema_filters = list(raw_schema.get("filters") or [])
+
+    for col, entries in conflicting_cols.items():
+        vals = [e[1] for e in entries]
+
+        # Schema'daki mevcut bu kolon filtrelerini kaldır (IN dahil — yenisiyle değişecek)
+        schema_filters = [f for f in schema_filters if f.get("column") != col]
+
+        # Yeni IN filtresi ekle
+        schema_filters.append({
+            "column": col,
+            "operator": "IN",
+            "values": vals,
+            "logical_operator": "AND",
+        })
+
+        # Çakışan rule'ların filter'ını kaldır (diğer sql bileşenleri korunur)
+        for idx, _ in entries:
+            old_rule = new_rules[idx]
+            new_sql = dict(old_rule.get("sql") or {})
+            new_sql["filter"] = None
+            new_rules[idx] = {**old_rule, "sql": new_sql}
+
+        logger.info(
+            f"[SQL_GENERATOR] COMPARISON: [{col}] çakışan rule filter'lar "
+            f"IN ({vals}) olarak birleştirildi"
+        )
+
+    new_schema = {**raw_schema, "filters": schema_filters}
+    return new_schema, new_rules
+
+
+# =============================================================================
 # NODE 4: SQL GENERATOR
 # =============================================================================
 
@@ -949,6 +1015,12 @@ def create_sql_generator_node(
                 f"[SQL_GENERATOR] validated_term_filters merged: {[tf['column'] for tf in term_filters]}"
             )
 
+        # --- COMPARISON güvenlik ağı: çakışan auto_rule filtreleri → IN merge ---
+        if state.get("query_type") == "COMPARISON" and auto_rules:
+            raw_schema, auto_rules = _merge_conflicting_rule_filters_for_comparison(
+                raw_schema, auto_rules
+            )
+
         try:
             sql = generate_sql(raw_schema, table_name, auto_rules, today)
             logger.info(f"[SQL_GENERATOR] SQL ready: {sql[:200]}")
@@ -1101,7 +1173,7 @@ def create_cleanup_table_node(connection_string: str, default_table_name: str) -
             return {}
 
         table_name = _get_configurable(config, "table_name", default_table_name)
-        drop_sql = f"DROP TABLE IF EXISTS [{table_name}];"
+        drop_sql = f"--DROP TABLE IF EXISTS [{table_name}];"
         logger.info(f"[CLEANUP_TABLE] Dropping '{table_name}'")
 
         loop = asyncio.get_event_loop()
