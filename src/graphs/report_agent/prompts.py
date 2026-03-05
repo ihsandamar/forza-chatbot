@@ -10,7 +10,7 @@ from pydantic import BaseModel, field_validator
 class IntentClassificationResult(BaseModel):
     """Intent + query type — tek LLM çağrısı ile sınıflandırma."""
 
-    intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT"]
+    intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT", "VAGUE_QUERY"]
     query_type: Literal["SINGLE", "LISTING", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
     wants_visualization: bool = False           # Kullanıcı açıkça grafik/chart istedi mi?
@@ -40,6 +40,7 @@ class SqlModificationResult(BaseModel):
 
     modified_sql: str
     explanation: str
+    confidence: float       # 0.0-1.0: referans çözümleme ve değişiklik doğruluğuna güven
     modification_hints: List[ModificationHint] = []
 
 
@@ -49,6 +50,13 @@ class EntityExtractionResult(BaseModel):
     entity_name: str
     entity_type: str        # product | branch | customer | category | period
     new_query_seed: str     # Text2SQL subagent'a gönderilecek doğal dil sorgu
+
+
+class QueryClarificationResult(BaseModel):
+    """VAGUE_QUERY — belirsiz sorgu için kullanıcıya öneriler üretir."""
+
+    message: str            # kullanıcıya gösterilecek açıklama mesajı
+    suggestions: List[str]  # 3-4 spesifik sorgu önerisi
 
 
 # =============================================================================
@@ -73,6 +81,12 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 - NEW_QUERY: Kullanıcı tamamen yeni bir sorgu istiyor, önceki bağlamla ilgisi yok
 - MODIFY_QUERY: Önceki sorguyu değiştirmek istiyor (filtre ekle/çıkar, sırala, limitı değiştir)
   → Aktif SQL olmadan ASLA MODIFY_QUERY seçme
+- VAGUE_QUERY: Sorgu çok genel/belirsiz — SQL'e çevrilemeyecek kadar spesifik değil
+  → Dönem belirtmemiş, filtre/kırılım yok, ne istediği açık değil
+  → Örnekler: "satış durumu nedir", "ciro", "durum ne", "satışlar nasıl"
+  → DİKKAT: "toplam ciro nedir" VAGUE_QUERY DEĞİLDİR — net bir metrik istiyor (SINGLE)
+  → DİKKAT: "son 1 aydaki satışlar" VAGUE_QUERY DEĞİLDİR — dönem + metrik belirli (NEW_QUERY)
+  → SADECE gerçekten belirsiz, spesifik olmayan sorgularda VAGUE_QUERY seç
 - USE_RESULT: Önceki SONUÇLARI kullanmak istiyor
   → use_result_type="new_query": Sonuçtaki bir entity için tamamen yeni sorgu oluştur
   → use_result_type="revisualize": Aynı veriyi farklı chart/format ile göster
@@ -127,6 +141,9 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 
 SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre değiştir.
 
+## KONUŞMA GEÇMİŞİ
+{conversation_context}
+
 ## MEVCUT SQL
 {active_sql}
 
@@ -143,10 +160,10 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 {column_metadata}
 
 ## KURALLAR
-⚠️ KESİNLİKLE: Mevcut SQL'i YENIDEN YAZMA. Sadece istenen kısmı değiştir. SELECT kolonları, FROM, tüm WHERE koşulları (değiştirilecek olanlar hariç), GROUP BY ve ORDER BY AYNEN korunur.
+⚠️ KESİNLİKLE: Mümkün olduğunca mevcut SQL'in yapısını koru. Kullanıcı sadece filtre/tarih/limit değişikliği istiyorsa SELECT, GROUP BY, ORDER BY'a dokunma. Ancak kullanıcı farklı bir gruplama, farklı kolonlar veya farklı bir analiz perspektifi istiyorsa (ör: "haftanın gününe göre", "aylık kırılımda") yapısal değişiklik yapabilirsin — bu durumda WHERE koşullarını mümkün olduğunca koru.
 
-- Sadece istenilen değişikliği yap, SQL'in geri kalanını koru
-- Tarih aralığı değişikliği: SADECE DATEADD/BETWEEN ifadesini güncelle — diğer WHERE koşulları, SELECT, GROUP BY, ORDER BY dokunulmaz
+- Kullanıcının isteğini TAMAMEN karşıla — birden fazla değişiklik isteniyorsa HEPSİNİ uygula
+- Değişiklik gerektirmeyen kısımları koru (ör: sadece tarih değişiyorsa GROUP BY'a dokunma)
 - Yeni filtre: WHERE clause'a ekle (varsa AND ile bağla)
 - Limit değişikliği: sadece TOP N değerini güncelle
 - Sıralama değişikliği: sadece ORDER BY clause'u güncelle
@@ -158,9 +175,20 @@ Belirli bir güne filtre koyarken ASLA `[DocumentDate] = '2026-02-15'` yazma —
 HER ZAMAN `CAST([DocumentDate] AS DATE) = '2026-02-15'` kullan.
 Tarih aralığı için: `CAST([DocumentDate] AS DATE) BETWEEN '...' AND '...'` kullan.
 
-⚠️ SONUÇ REFERANSI: Kullanıcı "bu gün", "o ürün", "bu şube" gibi önceki sonuca referans veriyorsa,
-ÖNCEKİ SORGU SONUÇLARI bölümündeki gerçek değerleri kullan. Sonuçlarda bir tarih değeri varsa
-ve kullanıcı "bu gün" diyorsa → o tarihi yaz, bugünün tarihini DEĞİL.
+⚠️ SONUÇ REFERANSI: Kullanıcı "bu ürün", "o şube", "bu gün" gibi önceki sonuca veya konuşmaya referans veriyorsa:
+1. KONUŞMA GEÇMİŞİ bölümündeki mesajlardan referansın ne olduğunu belirle (ör: "bu ürün" → AI yanıtında bahsedilen ürün adı)
+2. ÖNCEKİ SORGU SONUÇLARI bölümündeki gerçek değerleri kullanarak SQL'e doğru filtre ekle
+3. Sonuçlarda bir tarih değeri varsa ve kullanıcı "bu gün" diyorsa → o tarihi yaz, bugünün tarihini DEĞİL
+
+⚠️ YAPISAL DEĞİŞİKLİK: Kullanıcı sorgunun yapısını değiştirmek istiyorsa (farklı GROUP BY, farklı SELECT kolonları, farklı aggregation),
+SELECT/GROUP BY/ORDER BY'ı kullanıcının isteğine göre yeniden yaz. WHERE koşullarını mümkün olduğunca koru.
+
+## CONFIDENCE
+confidence alanına 0.0–1.0 arası bir değer ver:
+- 1.0: İstek açık, referanslar net, değişiklik kesin doğru
+- 0.7-0.9: İstek anlaşılıyor ama küçük belirsizlikler var (ör: "bu" neyi kastettiği %90 belli)
+- 0.5-0.7: Referans belirsiz — "bu ürün" deniyor ama konuşmada birden fazla entity geçiyor
+- <0.5: Ne istendiği veya referans çözülemedi
 
 ## MODIFICATION_HINTS
 Kullanıcının yazdığı ve SQL'e literal olarak gömdüğün her STRING FİLTRE DEĞERİ için bir hint ver:
@@ -189,6 +217,26 @@ Kullanıcının hangi entity'yi seçtiğini belirle ve yeni bir sorgu için seed
 - entity_type: product | branch | customer | category | period
 - new_query_seed: Bu entity için doğal dil sorgu cümlesi (Text2SQL'e gönderilecek)
   Örnek: "iPhone 15 Pro'nun aylık satış detayları nedir?"
+"""
+
+
+QUERY_CLARIFICATION_PROMPT = """Kullanıcının sorgusu çok genel/belirsiz. Sorguyu netleştirmek için öneriler üret.
+
+## KULLANICI SORGUSU
+{user_query}
+
+## MEVCUT VERİ KOLONLARI
+{column_metadata}
+
+## GÖREV
+Kullanıcının ne istemiş olabileceğini tahmin et ve 3-4 SPESİFİK sorgu önerisi üret.
+
+KURALLAR:
+- Her öneri doğrudan SQL'e çevrilebilecek kadar spesifik olmalı
+- Öneriler kullanıcının orijinal sorgusundaki konuyla ilgili olmalı
+- Dönem, kırılım ve metrik içermeli (ör: "Son 1 ayın kategorilere göre satış cirosu")
+- message alanında kullanıcıya kısa ve samimi bir açıklama yaz
+- suggestions listesine 3-4 öneri koy
 """
 
 

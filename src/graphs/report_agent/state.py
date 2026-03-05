@@ -11,7 +11,7 @@ class ReportState(TypedDict):
     session_id: Optional[str]
 
     # Intent Classification (tek LLM çağrısı)
-    intent_type: Optional[str]         # NEW_QUERY | MODIFY_QUERY | USE_RESULT
+    intent_type: Optional[str]         # NEW_QUERY | MODIFY_QUERY | USE_RESULT | VAGUE_QUERY
     query_type: Optional[str]          # SINGLE | RANKING | COMPARISON | TIME_SERIES_COMPARISON
     intent_confidence: Optional[float]
     wants_visualization: Optional[bool]  # Kullanıcı açıkça grafik istedi mi?
@@ -26,6 +26,7 @@ class ReportState(TypedDict):
     # Text2SQL I/O (subgraph shared fields)
     sql_queries: Optional[List[str]]
     pre_built_sql: Optional[str]        # modify_sql çıktısı — sql_generator bunu görünce yeniden üretmez
+    _force_table_refresh: Optional[bool]  # True = DROP + recreate master table
     modification_hints: Optional[List[Dict[str, Any]]]  # modify_sql → value_resolver (MODIFY_QUERY value resolution)
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
@@ -35,6 +36,10 @@ class ReportState(TypedDict):
     # Visualization
     viz_request: Optional[str]           # "pasta grafik" gibi görselleştirme tarzı (sadece revisualize'da)
     visualization_output: Optional[Dict[str, Any]]
+
+    # Clarification (VAGUE_QUERY loop protection)
+    _clarification_count: Optional[int]  # report_chat geçiş sayısı, max 2
+    _skip_vague_check: Optional[bool]    # True = max clarification aşıldı, VAGUE_QUERY → NEW_QUERY zorla
 
     # Response
     final_response: Optional[str]
@@ -63,5 +68,7 @@ def create_initial_state() -> ReportState:
         validated_term_filters=None,
         viz_request=None,
         visualization_output=None,
+        _clarification_count=0,
+        _skip_vague_check=False,
         final_response=None,
     )

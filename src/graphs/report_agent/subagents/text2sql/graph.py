@@ -15,6 +15,7 @@ term_validator: Parallel LLM gate — filter adaylarını onaylar/reddeder.
 sql_generator: validated_term_filters okur. LLM yok.
 """
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Dict
 
@@ -35,6 +36,9 @@ from src.graphs.report_agent.subagents.text2sql.nodes import (
     create_term_validator_node,
     create_value_resolver_node,
     schema_merge_node,
+    init_master_table_background,
+    _table_init_event,
+    _table_init_started,
 )
 from src.graphs.report_agent.subagents.text2sql.state import Text2SQLState
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
@@ -156,4 +160,23 @@ def build_text2sql_graph(
         "→ [sql_architect ∥ schema_validator ∥ term_validator] → schema_merge "
         "→ value_resolver → sql_generator → sql_executor → cleanup_table (max 2 retry)"
     )
+
+    # --- Background table creation at init time (runs only once per process) ---
+    if not _table_init_started:
+        sql_file = Path(__file__).parent.parent.parent.parent / "generic_text2sql" / "master_table_creation.sql"
+        if sql_file.exists():
+            sql_script = sql_file.read_text(encoding="utf-8")
+            logger.info(f"[TEXT2SQL] Starting background table creation ({len(sql_script)} chars)")
+            init_thread = threading.Thread(
+                target=init_master_table_background,
+                args=(connection_string, table_name, sql_script),
+                daemon=True,
+            )
+            init_thread.start()
+        else:
+            logger.warning(f"[TEXT2SQL] SQL file not found at {sql_file}, skipping background init")
+            _table_init_event.set()
+    else:
+        logger.info("[TEXT2SQL] Background table init already started, skipping")
+
     return compiled

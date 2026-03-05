@@ -9,9 +9,11 @@ from langgraph.types import interrupt
 from src.graphs.report_agent.prompts import (
     EntityExtractionResult,
     IntentClassificationResult,
+    QueryClarificationResult,
     SqlModificationResult,
     ENTITY_EXTRACTOR_PROMPT,
     INTENT_CLASSIFIER_PROMPT,
+    QUERY_CLARIFICATION_PROMPT,
     SQL_MODIFIER_PROMPT,
 )
 
@@ -53,6 +55,27 @@ def create_classify_intent_node(llm) -> Callable:
             user_query = state.get("user_query", "")
             extracted_from_messages = False
 
+        # --- Table refresh detection (before LLM call) ---
+        _REFRESH_KEYWORDS = {"verileri güncelle", "tabloyu güncelle", "verileri yenile", "tabloyu yenile", "veriyi güncelle", "veriyi yenile"}
+        user_lower = user_query.lower().strip()
+        is_refresh_request = any(kw in user_lower for kw in _REFRESH_KEYWORDS)
+
+        if is_refresh_request:
+            logger.info(f"[CLASSIFY] Table refresh detected: '{user_query}'")
+            return {
+                "user_query": user_query,
+                "intent_type": "NEW_QUERY",
+                "query_type": "SINGLE",
+                "intent_confidence": 1.0,
+                "wants_visualization": False,
+                "use_result_type": None,
+                "compute_operation": None,
+                "visualization_output": None,
+                "pre_built_sql": None,
+                "modification_hints": None,
+                "_force_table_refresh": True,
+            }
+
         history_parts = []
         for msg in messages[-4:]:
             if isinstance(msg, HumanMessage):
@@ -72,6 +95,11 @@ def create_classify_intent_node(llm) -> Callable:
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
             f"conf={result.confidence:.2f} wants_viz={result.wants_visualization}"
         )
+
+        # Max clarification tur aşıldıysa VAGUE_QUERY'yi NEW_QUERY'ye zorla
+        if result.intent_type == "VAGUE_QUERY" and state.get("_skip_vague_check"):
+            logger.info("[CLASSIFY] _skip_vague_check active, overriding VAGUE_QUERY → NEW_QUERY")
+            result.intent_type = "NEW_QUERY"
 
         # Genel güven eşiği — tüm intent'ler için
         needs_clarification = result.confidence < CONFIDENCE_THRESHOLD
@@ -120,6 +148,9 @@ def create_classify_intent_node(llm) -> Callable:
             "visualization_output": None,  # önceki tur çıktısını temizle
             "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
             "modification_hints": None,   # her turda temizle
+            "_force_table_refresh": False,
+            "_clarification_count": 0 if result.intent_type != "VAGUE_QUERY" else state.get("_clarification_count", 0),
+            "_skip_vague_check": False,
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:
@@ -161,15 +192,57 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
             active_results[:5], ensure_ascii=False, default=str
         ) if active_results else "Sonuç yok"
 
+        # Konuşma geçmişi: zamir referanslarını ("bu ürün", "o şube") çözmek için
+        # Son 6 mesajı al (modification_request ile çakışma zararsız)
+        messages = state.get("messages") or []
+        context_lines: list[str] = []
+        for msg in messages[-6:]:
+            if isinstance(msg, HumanMessage):
+                role = "Kullanıcı"
+            elif isinstance(msg, AIMessage):
+                role = "Asistan"
+            else:
+                continue
+            content = msg.content[:200] if msg.content else ""
+            context_lines.append(f"{role}: {content}")
+        conversation_context = "\n".join(context_lines) if context_lines else "Yok"
+
         prompt = SQL_MODIFIER_PROMPT.format(
             active_sql=active_sql,
             active_filters=json.dumps(state.get("active_filters") or [], ensure_ascii=False),
             active_results=results_preview,
             modification_request=state.get("user_query", ""),
             column_metadata=json.dumps(column_metadata, ensure_ascii=False, indent=2),
+            conversation_context=conversation_context,
         )
 
         result: SqlModificationResult = await structured_llm.ainvoke(prompt)
+
+        logger.info(
+            f"[MODIFY_SQL] confidence={result.confidence:.2f} "
+            f"explanation={result.explanation[:80]}"
+        )
+
+        # Düşük güven: kullanıcıya sor
+        if result.confidence < 0.5:
+            logger.warning(
+                f"[MODIFY_SQL] Low confidence ({result.confidence:.2f}), "
+                f"interrupting user"
+            )
+            answer = interrupt({
+                "type": "clarification",
+                "question": (
+                    f"İsteğinizi tam anlayamadım: \"{state.get('user_query', '')}\"\n"
+                    f"Şu şekilde anladım: {result.explanation}\n"
+                    "Doğru mu, yoksa daha açık belirtir misiniz?"
+                ),
+            })
+            # Kullanıcı açıklama yaptıysa yeni query olarak tekrar dene
+            if answer and isinstance(answer, str) and answer.strip():
+                return {
+                    "user_query": answer.strip(),
+                    "intent_type": "MODIFY_QUERY",
+                }
 
         # Post-processing: datetime kolon güvenlik ağı
         # [DocumentDate] = '...' → CAST([DocumentDate] AS DATE) = '...'
@@ -190,6 +263,58 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
         }
 
     return modify_sql_node
+
+
+MAX_CLARIFICATION_TURNS = 2
+
+
+def create_report_chat_node(llm, column_metadata: dict) -> Callable:
+    """Report Chat: VAGUE_QUERY → kullanıcıya öneriler sun, cevabı user_query olarak set et."""
+    structured_llm = llm.with_structured_output(QueryClarificationResult)
+
+    async def report_chat_node(state: dict) -> dict:
+        count = (state.get("_clarification_count") or 0) + 1
+
+        # Sonsuz döngü koruması: max tura ulaştıysa en iyi tahminle devam et
+        if count > MAX_CLARIFICATION_TURNS:
+            logger.warning(
+                f"[REPORT_CHAT] Max clarification turns ({MAX_CLARIFICATION_TURNS}) "
+                f"reached, proceeding with original query as NEW_QUERY"
+            )
+            return {
+                "_clarification_count": 0,
+                "_skip_vague_check": True,
+            }
+
+        prompt = QUERY_CLARIFICATION_PROMPT.format(
+            user_query=state.get("user_query", ""),
+            column_metadata=json.dumps(column_metadata, ensure_ascii=False, indent=2),
+        )
+
+        result: QueryClarificationResult = await structured_llm.ainvoke(prompt)
+        logger.info(
+            f"[REPORT_CHAT] {len(result.suggestions)} suggestions generated "
+            f"(turn {count}/{MAX_CLARIFICATION_TURNS})"
+        )
+
+        # interrupt() ile kullanıcıya hibrit seçenek sun
+        answer = interrupt({
+            "type": "clarification",
+            "question": result.message,
+            "options": result.suggestions,
+        })
+
+        # Kullanıcı bir seçenek seçtiyse veya serbest metin yazdıysa
+        chosen_query = answer.strip() if isinstance(answer, str) and answer.strip() else state.get("user_query", "")
+        logger.info(f"[REPORT_CHAT] User chose: {chosen_query[:80]}")
+
+        return {
+            "user_query": chosen_query,
+            "messages": [HumanMessage(content=chosen_query)],
+            "_clarification_count": count,
+        }
+
+    return report_chat_node
 
 
 def create_extract_entity_node(llm) -> Callable:

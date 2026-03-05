@@ -173,7 +173,7 @@ class TermVectorStore:
         # Pre-compile word-boundary regex patterns for keyword pre-resolution
         self._keyword_patterns = {
             alias.lower(): re.compile(
-                rf"(?<![{_TR_CHARS}]){re.escape(alias.lower())}(?![{_TR_CHARS}])"
+                rf"(?<![{_TR_CHARS}]){re.escape(alias.lower())}(?:ları|leri|lar|ler|su|sı|si|sü|nın|nin|nun|nün|dan|den|tan|ten|da|de|ta|te|ya|ye|yı|yi|yu|yü|ı|i|u|ü|a|e)?(?![{_TR_CHARS}])"
             )
             for entry in self._terms_data
             if not entry.get("filter_structured") and not entry.get("ambiguous_columns")
@@ -242,7 +242,9 @@ class TermVectorStore:
     def _keyword_pre_resolve(self, user_query: str) -> Dict[str, "TermCandidate"]:
         """
         Threshold'dan bağımsız keyword/alias match ile unambiguous non-filter
-        term'leri önceden çözer.
+        term'leri önceden çözer.  Longest-match-first: alias'lar uzunluktan
+        kısaya sıralanır, match edilen span'lar consumed olarak işaretlenir.
+        Kısa alias consumed span'a denk gelirse atlanır.
 
         Dahil: metric + dimension term'ler (filter_structured=None, ambiguous_columns=[])
         Hariç: filter term'ler (filter_structured var) → semantic + term_validator LLM gate yeter
@@ -255,36 +257,51 @@ class TermVectorStore:
 
         query_lower = user_query.lower()
         pre_resolved: Dict[str, TermCandidate] = {}
+        consumed_spans: list[tuple[int, int]] = []
 
+        # Tüm eligible alias'ları topla
+        alias_entries: list[tuple[str, dict]] = []
         for entry in self._terms_data:
-            # filter term'leri atla — semantic + LLM validator yeterli
-            if entry.get("filter_structured"):
+            if entry.get("filter_structured") or entry.get("ambiguous_columns"):
                 continue
-            # ambiguous term'leri atla — zaten belirsiz, pre-resolve edilemez
-            if entry.get("ambiguous_columns"):
+            if not entry.get("column"):
+                continue
+            for alias in [entry["term"]] + entry.get("aliases", []):
+                alias_entries.append((alias.lower(), entry))
+
+        # Uzundan kısaya sırala — longest match first
+        alias_entries.sort(key=lambda x: len(x[0]), reverse=True)
+
+        for alias, entry in alias_entries:
+            column = entry["column"]
+            if column in pre_resolved:
                 continue
 
-            column = entry.get("column", "")
-            if not column:
+            pat = self._keyword_patterns.get(alias)
+            if not pat:
                 continue
 
-            aliases_to_check = [entry["term"]] + entry.get("aliases", [])
-            for alias in aliases_to_check:
-                pat = self._keyword_patterns.get(alias.lower())
-                if pat and pat.search(query_lower):
-                    if column not in pre_resolved:  # ilk eşleşen kazanır
-                        pre_resolved[column] = TermCandidate(
-                            term_id=entry["id"],
-                            category=entry.get("category", ""),
-                            term=entry["term"],
-                            column=column,
-                            specificity=float(entry.get("specificity", 1.0)),
-                            hint=entry.get("hint", ""),
-                            filter_structured=None,
-                            ambiguous_columns=[],
-                            similarity=1.0,  # keyword match = mükemmel eşleşme
-                        )
-                    break  # ilk alias eşleşti, sonraki entry'ye geç
+            match = pat.search(query_lower)
+            if not match:
+                continue
+
+            # Match edilen span consumed mı?
+            m_start, m_end = match.start(), match.end()
+            if any(cs <= m_start < ce or cs < m_end <= ce for cs, ce in consumed_spans):
+                continue
+
+            consumed_spans.append((m_start, m_end))
+            pre_resolved[column] = TermCandidate(
+                term_id=entry["id"],
+                category=entry.get("category", ""),
+                term=entry["term"],
+                column=column,
+                specificity=float(entry.get("specificity", 1.0)),
+                hint=entry.get("hint", ""),
+                filter_structured=None,
+                ambiguous_columns=[],
+                similarity=1.0,
+            )
 
         if pre_resolved:
             logger.info(

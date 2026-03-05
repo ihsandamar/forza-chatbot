@@ -6,8 +6,9 @@ START → classify_intent → [intent_router]
   ├── MODIFY_QUERY       → modify_sql → text2sql → visualization → build_response → END
   ├── USE_RESULT(A)      → extract_entity → text2sql → visualization → build_response → END
   ├── USE_RESULT(B)      → visualization → build_response → END
-  ├── USE_RESULT(compute)→ compute_results → build_response → END           [YENİ]
-  └── USE_RESULT(modify) → extract_entity → modify_sql → text2sql → ...     [YENİ]
+  ├── USE_RESULT(compute)→ compute_results → build_response → END
+  ├── USE_RESULT(modify) → extract_entity → modify_sql → text2sql → ...
+  └── VAGUE_QUERY        → report_chat → classify_intent (loop, max 2)
 """
 import logging
 from typing import Any, Dict
@@ -22,6 +23,7 @@ from src.graphs.report_agent.nodes import (
     create_compute_results_node,
     create_extract_entity_node,
     create_modify_sql_node,
+    create_report_chat_node,
 )
 from src.graphs.report_agent.state import ReportState
 from src.graphs.report_agent.subagents.text2sql.graph import build_text2sql_graph
@@ -35,6 +37,8 @@ def _intent_router(state: dict) -> str:
     intent = state.get("intent_type", "NEW_QUERY")
     if intent == "MODIFY_QUERY":
         return "modify_sql"
+    if intent == "VAGUE_QUERY":
+        return "report_chat"
     if intent == "USE_RESULT":
         use_result = state.get("use_result_type")
         if use_result == "revisualize":
@@ -85,6 +89,7 @@ def build_report_agent_graph(
     graph.add_node("modify_sql", create_modify_sql_node(llm, column_metadata))
     graph.add_node("extract_entity", create_extract_entity_node(llm))
     graph.add_node("compute_results", create_compute_results_node(llm))
+    graph.add_node("report_chat", create_report_chat_node(llm, column_metadata))
     graph.add_node("text2sql", text2sql)
     graph.add_node("visualization", visualization)
     graph.add_node("build_response", build_response_node)
@@ -99,9 +104,11 @@ def build_report_agent_graph(
             "extract_entity":  "extract_entity",
             "visualization":   "visualization",
             "compute_results": "compute_results",
+            "report_chat":     "report_chat",
         },
     )
     graph.add_edge("modify_sql", "text2sql")
+    graph.add_edge("report_chat", "classify_intent")
     graph.add_conditional_edges(
         "extract_entity",
         _after_extract_entity_router,
@@ -120,5 +127,5 @@ def build_report_agent_graph(
     graph.add_edge("build_response", END)
 
     compiled = graph.compile(checkpointer=checkpointer or MemorySaver())
-    logger.info("[REPORT_AGENT] Built: 7 nodes, compute=0-LLM, modify_context=2-LLM")
+    logger.info("[REPORT_AGENT] Built: 8 nodes, report_chat=VAGUE_QUERY loop")
     return compiled

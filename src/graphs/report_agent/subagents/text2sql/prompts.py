@@ -256,6 +256,9 @@ YANLIŞ ❌:
 DOĞRU ✅:
   select_columns=[], aggregations=[SUM(Quantity) AS TotalQty], group_by=["ProductName"]
 
+DOĞRU ✅ — birden fazla metrik (adet + ciro):
+  select_columns=[], aggregations=[SUM(Quantity) AS ToplamAdet, SUM(RowAmount) AS ToplamCiro], group_by=["CategoryName"]
+
 ### KURAL 4 — RANKING Sorguları
 "Top 10 / en çok / en az / sıralama" → limit + order_by_column + en az 1 aggregation ZORUNLU.
 
@@ -420,11 +423,16 @@ Daha fazla örnek:
   "paket servisteki kategorilerin satış adetleri"
   → filters: column=DocumentKindName, value_hint="paket servis"
   → group_by: ["CategoryName"]
+  → aggregations: [SUM(Quantity) AS ToplamAdet]
 
   "dürümler kategorisindeki ürünlerin bu yıl satışları"
   → filters: column=CategoryName, value_hint="dürümler"
            + column=DocumentDate, date_descriptor=current_period:year
   → group_by: ["ProductName"]
+
+  "kategorilere göre satış adedi ve cirosu"
+  → group_by: ["CategoryName"]
+  → aggregations: [SUM(Quantity) AS ToplamAdet, SUM(CASE WHEN [DocumentTypeIsReturn] = 1 THEN -[RowAmount] ELSE [RowAmount] END) AS ToplamCiro]
 
 ÖNEMLİ: term_hints'te bir kolon için "group_by veya select kullan" yazıyorsa bile,
 sorgudan o kolonun FİLTRE değeri olduğu anlaşılıyorsa filters'a koy, group_by'a KOYMA.
