@@ -322,9 +322,11 @@ def create_chart_generator_node(llm) -> Callable:
             logger.info("[CHART_GENERATOR] No graph needed, skipping")
             return {}
 
+        sample_data = results[:5]
         prompt = CHART_GENERATOR_PROMPT.format(
             viz_decision=json.dumps(viz_decision, ensure_ascii=False, indent=2),
-            data=json.dumps(results, ensure_ascii=False),
+            sample_data=json.dumps(sample_data, ensure_ascii=False, indent=2),
+            total_rows=len(results),
         )
 
         # LLM → Plotly Python kodu (serbest metin, structured output değil)
@@ -367,7 +369,6 @@ async def response_builder_node(state: dict) -> dict:
     visualization_output = {
         "needs_graph": needs_graph,
         "chart_type": chart_type,
-        "data": results,
         "plotly_html_snippet": html_snippet,
         "summary": summary,
         "x_field": viz_decision.get("x_field"),
