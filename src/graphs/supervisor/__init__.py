@@ -35,7 +35,7 @@ from src.graphs.supervisor.tools import (
 )
 
 from src.graphs.supervisor.graph import create_supervisor_graph
-from src.graphs.supervisor.utilities import create_handoff_tool
+from src.graphs.supervisor.utilities import create_handoff_tool, create_forward_tool
 
 __all__ = [
     # Tools
@@ -54,4 +54,5 @@ __all__ = [
     "create_supervisor_graph",
     # Utilities
     "create_handoff_tool",
+    "create_forward_tool",
 ]
