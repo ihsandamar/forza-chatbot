@@ -3,7 +3,7 @@ Supervisor Tools - Tools available for the supervisor agent
 """
 from langchain_core.tools import tool
 from datetime import datetime
-from src.graphs.supervisor.utilities import create_handoff_tool
+from src.graphs.supervisor.utilities import create_handoff_tool, create_forward_tool
 
 @tool
 def get_current_time() -> str:
@@ -28,7 +28,7 @@ assign_to_routing_agent = create_handoff_tool(
     description="Assign task to routing agent for Forza page routing and navigation tasks.",
 )
 
-assign_to_report_agent = create_handoff_tool(
+assign_to_report_agent = create_forward_tool(
     agent_name="report",
-    description="Assign task to report agent for data analysis, SQL queries, reports, visualizations, charts, and master report queries.",
+    description="Forward to report agent for data analysis, SQL queries, reports, visualizations, charts — response goes directly to user.",
 )

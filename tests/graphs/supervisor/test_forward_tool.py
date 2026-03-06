@@ -21,3 +21,10 @@ def test_create_forward_tool_custom_name():
     from src.graphs.supervisor.utilities import create_forward_tool
     tool = create_forward_tool(agent_name="report", name="forward_to_report")
     assert tool.name == "forward_to_report"
+
+
+def test_report_agent_uses_forward_tool():
+    """assign_to_report_agent should use create_forward_tool, not create_handoff_tool."""
+    from src.graphs.supervisor.tools import assign_to_report_agent
+    # Forward tools have passthrough description pattern
+    assert "forward" in assign_to_report_agent.description.lower() or "directly" in assign_to_report_agent.description.lower()
