@@ -44,7 +44,7 @@ def create_classify_intent_node(llm) -> Callable:
         # state.get("user_query") önceki turdan kalan bayat değer olabilir.
         human_msgs = [
             m for m in messages
-            if isinstance(m, HumanMessage) and m.content and m.content.strip()
+            if isinstance(m, HumanMessage) and m.content and isinstance(m.content, str) and m.content.strip()
         ]
         if human_msgs:
             user_query = human_msgs[-1].content.strip()
@@ -535,6 +535,30 @@ def create_compute_results_node(llm) -> Callable:
     return compute_results_node
 
 
+def _results_to_markdown_table(results: list, max_rows: int = 50) -> str:
+    """Convert a list of dicts to a markdown table."""
+    if not results:
+        return "Bu sorgu için sonuç bulunamadı."
+
+    headers = list(results[0].keys())
+    header_line = "| " + " | ".join(headers) + " |"
+    separator = "| " + " | ".join("---" for _ in headers) + " |"
+
+    rows = results[:max_rows]
+    row_lines = []
+    for row in rows:
+        cells = [str(row.get(h, "")) for h in headers]
+        row_lines.append("| " + " | ".join(cells) + " |")
+
+    table = "\n".join([header_line, separator] + row_lines)
+
+    remaining = len(results) - max_rows
+    if remaining > 0:
+        table += f"\n\n*...ve {remaining} satır daha*"
+
+    return table
+
+
 async def build_response_node(state: dict) -> dict:
     """Final Response Builder: pure Python, LLM yok."""
     error = state.get("error")
@@ -550,9 +574,9 @@ async def build_response_node(state: dict) -> dict:
     elif not results:
         response = "Bu sorgu için sonuç bulunamadı."
     elif viz.get("needs_graph") and viz.get("plotly_html_snippet"):
-        response = viz["plotly_html_snippet"]
+        response = "Grafiğiniz oluşturuldu."
     else:
-        response = f"{len(results)} sonuç bulundu."
+        response = _results_to_markdown_table(results)
 
     return {
         "final_response": response,

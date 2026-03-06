@@ -85,16 +85,17 @@ CHART_GENERATOR_PROMPT = """Sen bir Plotly uzmanısın. Verilen karar ve veriye 
 ## GÖRSELLEŞTIRME KARARI
 {viz_decision}
 
-## VERİ (tüm satırlar)
-{data}
+## ÖRNEK VERİ (ilk 5 satır, toplam {total_rows} satır)
+{sample_data}
 
 ## KURALLAR
 1. SADECE Python kodu döndür, açıklama veya import yazma
 2. `go`, `px`, `pd` ve `data` değişkenleri ZATEN TANIMLI — import etme!
-3. `fig` adında bir Plotly figure oluştur
-4. Türkçe başlık ve etiketler kullan
-5. `autosize=True` kullan (responsive değil)
-6. x_field ve y_field olarak karar'daki kolon adlarını kullan
+3. `data` değişkeni TÜM satırları içerir ({total_rows} satır) — sample değil
+4. `fig` adında bir Plotly figure oluştur
+5. Türkçe başlık ve etiketler kullan
+6. `autosize=True` kullan (responsive değil)
+7. x_field ve y_field olarak karar'daki kolon adlarını kullan
 
 ## ÇIKTI FORMATI
 Sadece Python kodu:

@@ -175,6 +175,12 @@ Belirli bir güne filtre koyarken ASLA `[DocumentDate] = '2026-02-15'` yazma —
 HER ZAMAN `CAST([DocumentDate] AS DATE) = '2026-02-15'` kullan.
 Tarih aralığı için: `CAST([DocumentDate] AS DATE) BETWEEN '...' AND '...'` kullan.
 
+⚠️ LIKE KULLANIMI: "İçeren", "geçen", "başlayan", "biten" gibi kısmi arama ifadelerinde LIKE operatörü kullanırken HER ZAMAN wildcard (%) kullan:
+- "isminde X geçen" / "X içeren" → [ProductName] LIKE '%X%'
+- ASLA [ProductName] LIKE 'X' yazma — bu sadece TAM EŞLEŞMEyi bulur, kısmi eşleşme YAPMAZ!
+- Doğru: AND [ProductName] LIKE '%LATTE%'   (LATTE içeren tüm ürünler)
+- Yanlış: AND [ProductName] LIKE 'LATTE'     (sadece tam olarak "LATTE" olanlar)
+
 ⚠️ SONUÇ REFERANSI: Kullanıcı "bu ürün", "o şube", "bu gün" gibi önceki sonuca veya konuşmaya referans veriyorsa:
 1. KONUŞMA GEÇMİŞİ bölümündeki mesajlardan referansın ne olduğunu belirle (ör: "bu ürün" → AI yanıtında bahsedilen ürün adı)
 2. ÖNCEKİ SORGU SONUÇLARI bölümündeki gerçek değerleri kullanarak SQL'e doğru filtre ekle
