@@ -11,6 +11,7 @@ from src.models.base_assistant_configuration import BaseAssistantConfiguration
 from src.graphs.routing.assistant_configuration import RoutingAssistantConfiguration
 from src.graphs.chat.assistant_configuration import ChatAssistantConfiguration
 from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
+from src.graphs.report_agent.configuration import ReportAgentConfiguration
 
 today = datetime.now().strftime("%Y-%m-%d")
 
@@ -109,13 +110,13 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
     )
 
     report_query: str = Field(
-        default="",
+        default=ReportAgentConfiguration.model_fields["query"].default,
         description="Tablo oluşturma SQL sorgusu (runtime'da çalıştırılacak)",
         json_schema_extra={"langgraph_nodes": ["report"]}
     )
 
     report_column_metadata: Dict[str, str] = Field(
-        default_factory=dict,
+        default=ReportAgentConfiguration.model_fields["column_metadata"].default,
         description="Sütun metaverileri - column_name -> description mapping",
         json_schema_extra={"langgraph_nodes": ["report"]}
     )
