@@ -346,7 +346,11 @@ def create_chart_generator_node(llm) -> Callable:
 
         try:
             html_snippet = _execute_plotly_code(code, results)
-            logger.info(f"[CHART_GENERATOR] HTML snippet: {len(html_snippet)} chars")
+            html_size = len(html_snippet)
+            if html_size > 100_000:
+                logger.warning(f"[CHART_GENERATOR] Large HTML snippet: {html_size} chars (>100KB)")
+            else:
+                logger.info(f"[CHART_GENERATOR] HTML snippet: {html_size} chars")
             return {"plotly_html_snippet": html_snippet}
         except Exception as e:
             logger.error(f"[CHART_GENERATOR] Execution error: {e}")

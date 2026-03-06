@@ -45,3 +45,18 @@ fig.update_layout(title="Test", autosize=True)
     # We can't easily check trace count in HTML, but we verify it doesn't error
     # and the HTML size is reasonable (< 200KB for capped traces)
     assert len(html) < 200_000, f"HTML too large: {len(html)} chars — traces likely not capped"
+
+
+def test_execute_plotly_code_normal_case():
+    """Normal Plotly code with few traces should work without capping."""
+    from src.graphs.report_agent.subagents.visualization.nodes import _execute_plotly_code
+
+    code = """
+fig = px.bar(pd.DataFrame(data), x='category', y='value', title='Test')
+fig.update_layout(autosize=True)
+"""
+    data = [{"category": f"cat_{i}", "value": i * 10} for i in range(20)]
+    html = _execute_plotly_code(code, data)
+
+    assert "<div" in html
+    assert len(html) > 100  # Sanity check: HTML is not empty
