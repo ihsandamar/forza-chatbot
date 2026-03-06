@@ -38,6 +38,13 @@ from langchain_core.runnables import RunnableLambda
 logger = logging.getLogger(__name__)
 
 
+def _post_agent_router(state: dict) -> str:
+    """Route after agent: passthrough -> END, otherwise -> supervisor."""
+    if state.get("_passthrough_active"):
+        return "__end__"
+    return "supervisor"
+
+
 async def create_subagents(llm: LLM, runtime: dict):
     """
     Create all subagents using runtime configuration.
@@ -655,20 +662,32 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         logger.info("[SUPERVISOR]   START → supervisor")
         logger.info(f"[SUPERVISOR]   supervisor → {edge_list}")
         logger.info("[SUPERVISOR]   routing → process_routing_output")
-        logger.info("[SUPERVISOR]   process_routing_output → supervisor")
-        logger.info("[SUPERVISOR]   chat → supervisor")
+        logger.info("[SUPERVISOR]   process_routing_output → supervisor|END (conditional)")
+        logger.info("[SUPERVISOR]   chat → supervisor|END (conditional)")
         if report_agent_wrapper:
-            logger.info("[SUPERVISOR]   report → supervisor")
+            logger.info("[SUPERVISOR]   report → supervisor|END (conditional)")
         logger.info("[SUPERVISOR]   supervisor → END")
 
         builder.add_edge(START, "supervisor")
         builder.add_edge("routing", "process_routing_output")
-        builder.add_edge("process_routing_output", "supervisor")
-        builder.add_edge("chat", "supervisor")
+        builder.add_conditional_edges(
+            "process_routing_output",
+            _post_agent_router,
+            {"__end__": END, "supervisor": "supervisor"},
+        )
+        builder.add_conditional_edges(
+            "chat",
+            _post_agent_router,
+            {"__end__": END, "supervisor": "supervisor"},
+        )
 
-        # Add report edge only if agent wrapper exists
+        # Add report conditional edge only if agent wrapper exists
         if report_agent_wrapper:
-            builder.add_edge("report", "supervisor")
+            builder.add_conditional_edges(
+                "report",
+                _post_agent_router,
+                {"__end__": END, "supervisor": "supervisor"},
+            )
 
         builder.add_edge("supervisor", END)
 
