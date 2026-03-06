@@ -24,6 +24,7 @@ from src.graphs.report_agent.subagents.visualization.prompts import (
 logger = logging.getLogger(__name__)
 
 NO_GRAPH_TYPES = {"single_value", "simple_list", "table"}
+MAX_TRACES = 50
 
 
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
@@ -304,6 +305,13 @@ def _execute_plotly_code(code: str, data: List[Dict[str, Any]]) -> str:
     fig = exec_locals.get("fig") or exec_globals.get("fig")
     if fig is None:
         raise ValueError("Plotly kodu 'fig' değişkeni oluşturmadı")
+
+    # Guard: cap trace count to prevent HTML bloat from bad LLM code
+    if hasattr(fig, "data") and len(fig.data) > MAX_TRACES:
+        logger.warning(
+            f"[CHART_GENERATOR] Trace count {len(fig.data)} exceeds {MAX_TRACES}, capping"
+        )
+        fig.data = fig.data[:MAX_TRACES]
 
     return fig.to_html(include_plotlyjs="cdn", full_html=False)
 
