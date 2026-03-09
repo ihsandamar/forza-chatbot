@@ -55,11 +55,11 @@ def create_handoff_tool(*, agent_name: str, name: str | None = None, description
 
 
 def create_forward_tool(*, agent_name: str, name: str | None = None, description: str | None = None) -> BaseTool:
-    """Create a tool that transfers control to an agent and goes directly to END after.
+    """Create a tool that transfers control to an agent whose response goes directly to END.
 
-    Unlike create_handoff_tool (agent -> supervisor -> END), this tool sets
-    _passthrough_active=True so the conditional edge routes agent -> END directly.
-    The agent's response becomes the final response without supervisor re-processing.
+    Unlike create_handoff_tool (agent → supervisor → END), forward agents are
+    configured at graph build time with a direct edge to END. This tool simply
+    routes to the agent; the graph topology handles the passthrough behavior.
     """
     if name is None:
         name = f"transfer_to_{_normalize_agent_name(agent_name)}"
@@ -75,7 +75,7 @@ def create_forward_tool(*, agent_name: str, name: str | None = None, description
         last_msg = messages[-1] if messages else None
         last_msg_content = getattr(last_msg, "content", str(last_msg))[:100] if last_msg else "No message"
 
-        logger.info(f"[SUPERVISOR] FORWARD TRIGGERED -> {agent_name.upper()} (passthrough=True)")
+        logger.info(f"[SUPERVISOR] FORWARD TRIGGERED -> {agent_name.upper()}")
         logger.debug(f"[SUPERVISOR] User message: '{last_msg_content}...'")
 
         tool_message = ToolMessage(
@@ -91,7 +91,6 @@ def create_forward_tool(*, agent_name: str, name: str | None = None, description
             graph=Command.PARENT,
             update={
                 "messages": state["messages"] + [tool_message],
-                "_passthrough_active": True,
             },
         )
     return forward_to_agent

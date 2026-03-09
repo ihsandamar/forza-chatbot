@@ -153,16 +153,21 @@ def _replace_in_sql(sql: str, column: str, old_val: str, new_val: str) -> str:
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
     """RunnableConfig'ten değer oku; yoksa fallback döndür."""
     if not config:
+        logger.debug(f"[_get_configurable] No config, using fallback for '{key}' (fallback type={type(fallback).__name__}, len={len(fallback) if hasattr(fallback, '__len__') else 'N/A'})")
         return fallback
     configurable = config.get("configurable", {})
     if hasattr(configurable, key):
         val = getattr(configurable, key)
+        logger.debug(f"[_get_configurable] Found '{key}' via getattr (type={type(val).__name__}, len={len(val) if hasattr(val, '__len__') else 'N/A'})")
     elif isinstance(configurable, dict):
         val = configurable.get(key)
+        logger.debug(f"[_get_configurable] Dict lookup '{key}': found={val is not None}, val_type={type(val).__name__ if val is not None else 'None'}, len={len(val) if hasattr(val, '__len__') and val is not None else 'N/A'}")
     else:
+        logger.debug(f"[_get_configurable] No match for '{key}', using fallback (configurable type={type(configurable).__name__})")
         return fallback
     # Boş dict/string/None → fallback
     if val is None or val == "" or val == {}:
+        logger.debug(f"[_get_configurable] '{key}' is empty/None, using fallback (len={len(fallback) if hasattr(fallback, '__len__') else 'N/A'})")
         return fallback
     return val
 
@@ -395,6 +400,7 @@ def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
         active_filters     = state.get("active_filters") or []
         sql_error          = state.get("sql_error") or "Yok"
         effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
+        logger.info(f"[SQL_ARCHITECT] column_metadata: {len(effective_metadata)} keys, closure fallback: {len(column_metadata)} keys")
         today              = date.today()
 
         # Konuşma bağlamı

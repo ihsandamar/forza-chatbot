@@ -126,6 +126,11 @@ def build_report_agent_graph(
     graph.add_edge("visualization", "build_response")
     graph.add_edge("build_response", END)
 
-    compiled = graph.compile(checkpointer=checkpointer or MemorySaver())
+    # When checkpointer is explicitly False, compile without one (for use as subgraph
+    # where the parent's checkpointer handles state and interrupt propagation).
+    if checkpointer is False:
+        compiled = graph.compile()
+    else:
+        compiled = graph.compile(checkpointer=checkpointer or MemorySaver())
     logger.info("[REPORT_AGENT] Built: 8 nodes, report_chat=VAGUE_QUERY loop")
     return compiled

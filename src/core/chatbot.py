@@ -12,6 +12,8 @@ Interface-specific handling moved to interface adapters (GradioAdapter, etc).
 
 from typing import Optional, List, Dict, Any
 import asyncio
+from langgraph.errors import GraphInterrupt, GraphBubbleUp
+from langgraph.types import Command
 from src.core.exceptions.chatbot_exception import AdapterException, StateAdaptationException
 from src.graphs.base_graph import BaseGraph
 from src.models.llm import LLM
@@ -190,7 +192,7 @@ class Chatbot:
             full_config = self._prepare_config(thread_id=thread_id)
             graph_output = self.graph.invoke(graph_state, config=full_config)
             return graph_output
-        except (InvalidGraphStateException, ConfigurationException):
+        except (InvalidGraphStateException, ConfigurationException, GraphBubbleUp):
             raise
         except Exception as e:
             raise GraphInvocationException(
@@ -325,9 +327,10 @@ class Chatbot:
             Graph output
         """
         try:
-            if not isinstance(graph_state, dict):
+            # Command(resume=...) for HITL graph resumption — skip dict validation
+            if not isinstance(graph_state, (dict, Command)):
                 raise InvalidGraphStateException(
-                    "Graph state must be a dictionary",
+                    "Graph state must be a dictionary or Command",
                     state_type=type(graph_state).__name__
                 )
 
@@ -346,7 +349,7 @@ class Chatbot:
                     full_config
                 )
             return graph_output
-        except (InvalidGraphStateException, ConfigurationException):
+        except (InvalidGraphStateException, ConfigurationException, GraphBubbleUp):
             raise
         except Exception as e:
             raise GraphInvocationException(
@@ -369,6 +372,11 @@ class Chatbot:
             Graph output
         """
         try:
+            # Command(resume=...) is used to resume an interrupted graph (HITL)
+            if isinstance(state, Command):
+                thread_id = adapter_kwargs.get('thread_id')
+                return await self._invoke_graph_async(state, thread_id=thread_id)
+
             if not isinstance(state, dict):
                 raise MessageProcessingException(
                     "State must be a dictionary",
@@ -396,7 +404,7 @@ class Chatbot:
 
             thread_id = adapter_kwargs.get('thread_id')
             return await self._invoke_graph_async(graph_state, thread_id=thread_id)
-        except (MessageProcessingException, ConfigurationException, GraphExecutionException):
+        except (MessageProcessingException, ConfigurationException, GraphExecutionException, GraphBubbleUp):
             raise
         except Exception as e:
             raise MessageProcessingException(
@@ -481,7 +489,7 @@ class Chatbot:
         """
         try:
             return await self._process_message_async(state, **adapter_kwargs)
-        except (MessageProcessingException, GraphExecutionException, ConfigurationException):
+        except (MessageProcessingException, GraphExecutionException, ConfigurationException, GraphBubbleUp):
             raise
         except Exception as e:
             raise MessageProcessingException(

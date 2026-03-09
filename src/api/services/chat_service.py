@@ -1,7 +1,11 @@
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 import re
 from datetime import datetime
 from typing import Optional, Dict
+from langgraph.errors import GraphInterrupt, GraphBubbleUp
 from src.api.models.requests.chat import SessionStartRequest, ChatMessageRequest
 from src.api.models.responses.chat import (
     SessionStartResponse,
@@ -349,7 +353,51 @@ class ChatService:
 
         # Get full graph output with all messages (including agent responses)
         # Only invoke graph ONCE - this is the source of truth
-        graph_output = await self.chatbot.get_graph_output_async(state, **adapter_kwargs)
+        try:
+            graph_output = await self.chatbot.get_graph_output_async(state, **adapter_kwargs)
+        except GraphInterrupt as e:
+            # Graph interrupted (e.g., report agent needs clarification via interrupt())
+            # Extract interrupt data and return as HITL question
+            interrupts = e.args[0] if e.args else []
+            interrupt_data = interrupts[0].value if interrupts else {}
+            logger.info(f"[CHAT] GraphInterrupt caught — HITL question: {interrupt_data}")
+
+            hitl_info = {
+                "question": interrupt_data.get("question", "Açıklama gerekiyor"),
+                "options": interrupt_data.get("options", []),
+                "context": interrupt_data.get("context", ""),
+            }
+            self._store_hitl_state(request.session_id, hitl_info)
+
+            question_text = hitl_info["question"]
+            options = hitl_info["options"]
+            context = hitl_info.get("context", "")
+
+            options_text = "\n".join([f"  {i+1}. {opt}" for i, opt in enumerate(options)])
+            full_text = f"❓ {question_text}\n\nSeçenekler:\n{options_text}"
+            if context:
+                full_text += f"\n\nℹ️ {context}"
+
+            response_data = ResponseData(
+                text=full_text,
+                type="question",
+                confidence=0.9,
+                action=ActionResponse(
+                    type="hitl",
+                    target="",
+                    params={
+                        "question": question_text,
+                        "options": options,
+                        "context": context,
+                    },
+                ),
+            )
+
+            return ChatMessageResponse(
+                session_id=request.session_id,
+                timestamp=datetime.now(),
+                response=response_data,
+            )
 
         # Extract all messages from graph output and persist to session
         # This ensures all agent-generated messages are saved
@@ -368,7 +416,7 @@ class ChatService:
         if graph_output.get("query_history"):
             session["query_history"] = graph_output["query_history"]
 
-        # Check for HITL question in graph output
+        # Check for HITL question in graph output (state-based fallback)
         hitl_info = self._detect_hitl_question(graph_output)
         if hitl_info:
             # Store HITL state for next message
