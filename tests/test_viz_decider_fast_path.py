@@ -41,6 +41,14 @@ def test_time_series_query_gets_line_chart():
         "dimension_columns": ["Month"], "metric_columns": ["Revenue"],
         "time_column": "Month", "has_time_series": True,
     }
+    # Both TIME_SERIES and TIME_SERIES_COMPARISON should produce line_chart
+    for qt in ("TIME_SERIES", "TIME_SERIES_COMPARISON"):
+        decision = _rule_based_viz_decision(qt, results, profile, wants_viz=True)
+        assert decision is not None, f"{qt} returned None"
+        assert decision["chart_type"] == "line_chart", f"{qt} got {decision['chart_type']}"
+        assert decision["needs_graph"] is True, f"{qt} needs_graph is False"
+
+    # Return last decision for backward compat assertions below
     decision = _rule_based_viz_decision("TIME_SERIES_COMPARISON", results, profile, wants_viz=True)
     assert decision is not None
     assert decision["chart_type"] == "line_chart"
