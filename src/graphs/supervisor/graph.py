@@ -163,7 +163,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         report_agent = None
         try:
             report_agent = self._build_report_agent()
-            logger.info("[SUPERVISOR] ✓ Report subgraph built (passthrough, inherits parent checkpointer)")
+            logger.info("[SUPERVISOR] ✓ Report subgraph built (own checkpointer for context preservation)")
         except Exception as e:
             logger.error(f"[SUPERVISOR] Failed to build report agent: {e}")
             logger.warning("[SUPERVISOR] Report agent disabled due to build error")
