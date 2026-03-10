@@ -163,7 +163,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         report_agent = None
         try:
             report_agent = self._build_report_agent()
-            logger.info("[SUPERVISOR] ✓ Report subgraph built (passthrough, no own checkpointer)")
+            logger.info("[SUPERVISOR] ✓ Report subgraph built (passthrough, inherits parent checkpointer)")
         except Exception as e:
             logger.error(f"[SUPERVISOR] Failed to build report agent: {e}")
             logger.warning("[SUPERVISOR] Report agent disabled due to build error")
@@ -201,7 +201,16 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         return compiled_graph
 
     def _build_report_agent(self):
-        """Build report agent subgraph with checkpointer=False for parent management."""
+        """Build report agent subgraph with its own checkpointer for context preservation.
+
+        The report agent gets checkpointer=True so it inherits the parent
+        supervisor's checkpointer. This means ReportState fields (active_sql,
+        active_results, active_filters) persist between turns. Without this,
+        the supervisor only sees MessagesState and all other fields are lost.
+
+        Interrupt propagation is unaffected — GraphInterrupt bubbles up via
+        exception chain regardless of checkpointer configuration.
+        """
         from src.graphs.report_agent.graph import build_report_agent_graph
         from src.services.config_loader import ConfigLoader
 
@@ -217,7 +226,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
             connection_string=config.database.uri,
             business_rules_path=business_rules_path,
             chroma_persist_dir=chroma_persist_dir,
-            checkpointer=False,
+            checkpointer=True,
         )
 
 
