@@ -419,13 +419,32 @@ def create_chart_generator_node(llm) -> Callable:
     needs_graph=False ise conditional edge tarafından atlanır.
     """
 
-    async def chart_generator_node(state: dict) -> dict:
+    async def chart_generator_node(state: dict, config: Optional[RunnableConfig] = None) -> dict:
         viz_decision = state.get("viz_decision") or {}
         results = state.get("results") or []
 
         if not viz_decision.get("needs_graph", False):
             logger.info("[CHART_GENERATOR] No graph needed, skipping")
             return {}
+
+        # --- Template fast path ---
+        from src.graphs.report_agent.subagents.visualization.chart_templates import build_chart as template_build_chart
+
+        column_metadata = _get_configurable(config, "column_metadata", {})
+        if isinstance(column_metadata, str):
+            try:
+                column_metadata = json.loads(column_metadata)
+            except (json.JSONDecodeError, TypeError):
+                column_metadata = {}
+
+        template_html = template_build_chart(viz_decision, results, column_metadata)
+
+        if template_html is not None:
+            logger.info(f"[CHART_GENERATOR] Template fast path: {viz_decision.get('chart_type')}")
+            return {"plotly_html_snippet": template_html}
+
+        # --- LLM fallback (existing code below) ---
+        logger.info("[CHART_GENERATOR] Template unavailable, using LLM code generation")
 
         sample_data = results[:5]
         prompt = CHART_GENERATOR_PROMPT.format(
