@@ -30,6 +30,10 @@ _EXPR_ALIAS_MAP: dict[str, str] = {
     "CAST(DocumentDate AS DATE)": "Tarih",
     "DATEPART(WEEK, DocumentDate)": "Hafta",
     "DATEPART(QUARTER, DocumentDate)": "Ceyrek",
+    "DATEPART(HOUR, DocumentDate)": "Saat",
+    # Birleşik CONCAT ifadeleri (tek kolon — haftalık/aylık)
+    "CONCAT(YEAR(DocumentDate), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DocumentDate) AS VARCHAR), 2))": "Hafta",
+    "CONCAT(YEAR(DocumentDate), '-', RIGHT('0' + CAST(MONTH(DocumentDate) AS VARCHAR), 2))": "Ay",
 }
 
 logger = logging.getLogger(__name__)
@@ -254,11 +258,19 @@ def _build_order_by(schema_dict: Dict[str, Any]) -> str:
     direction = schema_dict.get("order_by_direction", "DESC")
 
     if order_col:
-        return f"ORDER BY {_col_expr(order_col)} {direction}"
+        # Ham tarih kolonu GROUP BY'da yoksa kaldır — auto ORDER BY'a düş
+        if order_col.strip().strip("[]").lower() in {"documentdate", "date"}:
+            group_by = schema_dict.get("group_by", [])
+            if not any(order_col.upper() == gc.upper() for gc in group_by):
+                order_col = None  # auto ORDER BY devreye girsin
+            else:
+                return f"ORDER BY {_col_expr(order_col)} {direction}"
+        else:
+            return f"ORDER BY {_col_expr(order_col)} {direction}"
 
     # Periyodik gruplama varsa otomatik ORDER BY
     group_by = schema_dict.get("group_by", [])
-    time_indicators = ("YEAR(", "MONTH(", "CAST(", "DATEPART(")
+    time_indicators = ("YEAR(", "MONTH(", "CAST(", "DATEPART(", "CONCAT(")
     time_cols = [col for col in group_by if any(col.upper().startswith(t) for t in time_indicators)]
     if time_cols:
         return "ORDER BY " + ", ".join(time_cols) + " ASC"

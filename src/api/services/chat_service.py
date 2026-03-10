@@ -135,10 +135,11 @@ class ChatService:
 
     def _detect_report_response(self, messages: list) -> Optional[dict]:
         """
-        Detect if messages contain a report response (AI message with Plotly HTML).
+        Detect if messages contain a report response (AI message with chart HTML).
 
-        Checks the last few messages for AI messages containing Plotly HTML snippets,
-        which indicates a data visualization/report generation action.
+        First checks additional_kwargs.chart_html (new pattern: HTML stored as metadata,
+        not in message content, to avoid bloating LLM context on subsequent turns).
+        Falls back to parsing content for legacy iframe detection.
 
         Args:
             messages: List of messages from graph output
@@ -147,35 +148,35 @@ class ChatService:
             Dict with report info if detected, None otherwise
             Format: {"html": str, "text": str}
         """
-        # Check last 5 messages for AI messages with HTML
+        # Check last 5 messages for AI messages with chart HTML
         check_count = min(5, len(messages))
         recent_messages = messages[-check_count:] if check_count > 0 else []
 
         for msg in reversed(recent_messages):
-            # Parse message to get role and content
             role, content = self._parse_message(msg)
 
-            # Check if it's an AI message
             if role == "assistant" and content:
+                # Priority 1: chart_html in additional_kwargs (new pattern — no LLM bloat)
+                additional_kwargs = getattr(msg, "additional_kwargs", None) or {}
+                chart_html = additional_kwargs.get("chart_html")
+                if chart_html:
+                    return {
+                        "html": chart_html,
+                        "text": str(content),
+                    }
+
+                # Priority 2: Legacy — parse iframe from content (backward compat)
                 content_str = str(content)
-                # Check if content contains Plotly HTML (iframe or div with plotly)
                 if ("<iframe" in content_str and "base64" in content_str) or \
                    ("<div" in content_str and "plotly" in content_str.lower()):
-                    # Extract HTML snippet
-                    # Find the HTML part (between iframe tags or entire content if it's mostly HTML)
                     import re
-
-                    # Try to find iframe first (our current format)
                     iframe_pattern = r'<iframe[^>]*src="[^"]*"[^>]*>.*?</iframe>'
                     iframe_match = re.search(iframe_pattern, content_str, re.DOTALL | re.IGNORECASE)
 
                     if iframe_match:
                         html_snippet = iframe_match.group(0)
-                        # Extract text without HTML for summary
                         text_without_html = re.sub(r'<[^>]+>', '', content_str).strip()
-                        # Clean up extra whitespace
                         text_without_html = re.sub(r'\s+', ' ', text_without_html).strip()
-
                         return {
                             "html": html_snippet,
                             "text": text_without_html

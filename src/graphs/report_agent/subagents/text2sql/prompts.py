@@ -374,6 +374,20 @@ Tarih kolonu adını column_metadata'dan al.
    YANLIŞ ❌: group_by: ["CAST(DocumentDate AS DATE)", "DocumentDate"]  ← datetime çift sayar!
    DOĞRU ✅:  group_by: ["CAST(DocumentDate AS DATE)"]                  ← sadece DATE ifadesi
 
+⚠️ KRİTİK — REDUNDANT ZAMAN KOLONU YASAK:
+   Her sorguda TEK BİR zaman granülaritesi kullan. Birden fazla zaman ifadesini KESİNLİKLE birlikte KOYMA.
+   YEAR() zaten DATE içinde var, DATE zaten MONTH içinde var — üst kümeyi kullanma.
+
+   YANLIŞ ❌: group_by: ["YEAR(DocumentDate)", "CAST(DocumentDate AS DATE)"]  ← YEAR redundant, DATE zaten yılı içerir!
+   YANLIŞ ❌: group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)", "CAST(DocumentDate AS DATE)"]  ← 3 zaman kolonu!
+   DOĞRU ✅:  günlük → group_by: ["CAST(DocumentDate AS DATE)"]                  ← TEK zaman ifadesi
+   DOĞRU ✅:  haftalık → group_by: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]  ← YEAR gerekli çünkü hafta numarası yıla bağlı
+   DOĞRU ✅:  aylık → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]    ← YEAR gerekli çünkü ay numarası yıla bağlı
+   DOĞRU ✅:  yıllık → group_by: ["YEAR(DocumentDate)"]                          ← TEK zaman ifadesi
+
+   KURAL: DATE/DATETIME ifadesi varsa YEAR/MONTH/WEEK EKLEME — DATE zaten hepsini içerir.
+   KURAL: YEAR+MONTH veya YEAR+WEEK varsa DATE EKLEME — redundant bilgi.
+
 ### KURAL 5.5 — Entity + Zaman Kombinasyonu (TIME_SERIES_COMPARISON ile entity kırılımı)
 "X kategorisindeki/şubesindeki [entity]leri [periyot] bazında karşılaştır" kalıbı:
   - X → WHERE filtresi (value_hint kullan — filtre değeri, GROUP BY değil!)

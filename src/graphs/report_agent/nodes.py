@@ -597,16 +597,28 @@ async def build_response_node(state: dict) -> dict:
             f'style="width:100%;height:100vh;border:none;"></iframe>'
         )
 
-        # Build summary text similar to expected format
+        # SHORT summary for LLM context (no base64 bloat)
         summary_text = (
             f"\U0001f4ca Rapor Sonucu:\n"
             f"\u2022 Görselleştirme Tipi: {chart_type}\n"
             f"\u2022 Grafik Gerekli: \u2713 Evet\n"
             f"\u2022 Veri Noktası: {row_count}\n"
             f"\u2022 {row_count} kayıt\n"
-            f"### \U0001f4c8 Grafik:"
+            f"### \U0001f4c8 Grafik oluşturuldu."
         )
-        response = f"{summary_text}\n\n{iframe}"
+
+        # Full response with iframe for user display
+        full_response = f"{summary_text}\n\n{iframe}"
+
+        # Messages: short summary in content (LLM sees this)
+        # chart_html in additional_kwargs (LLM does NOT see this, chat_service extracts it)
+        return {
+            "final_response": full_response,
+            "messages": [AIMessage(
+                content=summary_text,
+                additional_kwargs={"chart_html": iframe},
+            )],
+        }
     else:
         response = _results_to_markdown_table(results)
 

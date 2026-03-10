@@ -124,20 +124,29 @@ class DataAnalyzer:
         dimension_columns: List[str] = []
         metric_columns: List[str] = []
         time_column: Optional[str] = None
-        
+        time_candidates: List[ColumnInfo] = []
+
         for col_name in columns:
             col_info = self._analyze_column(col_name, data)
             column_infos.append(col_info)
-            
+
             # Categorize by role
             if col_info["role"] == ColumnRole.TIME:
-                if time_column is None:  # Take first time column
-                    time_column = col_name
+                time_candidates.append(col_info)
             elif col_info["role"] == ColumnRole.DIMENSION:
                 dimension_columns.append(col_name)
             elif col_info["role"] == ColumnRole.METRIC:
                 metric_columns.append(col_name)
             # IDENTIFIER role is ignored for visualization
+
+        # Select best time column: prefer DATE/DATETIME over NUMERIC (e.g., Gun > Yil)
+        # Move non-selected time columns to dimensions (still useful for grouping)
+        if time_candidates:
+            date_typed = [c for c in time_candidates if c["type"] in (ColumnType.DATE, ColumnType.DATETIME)]
+            time_column = (date_typed[0] if date_typed else time_candidates[0])["name"]
+            for tc in time_candidates:
+                if tc["name"] != time_column:
+                    dimension_columns.append(tc["name"])
         
         # Determine data characteristics
         has_time_series = time_column is not None

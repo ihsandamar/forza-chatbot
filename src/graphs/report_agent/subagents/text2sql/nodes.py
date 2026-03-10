@@ -113,14 +113,38 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
 # DocumentDate datetime kolonu için granülarite → SQL ifadeleri tablosu.
 # TIME_SERIES_COMPARISON bloğu ve _normalize_document_date_group_by paylaşır.
 _TIME_GRAN_MAP: dict = {
-    "hourly":  ["CAST(DocumentDate AS DATE)", "Hour"],
+    "hourly":  ["CAST(DocumentDate AS DATE)", "DATEPART(HOUR, DocumentDate)"],
     "daily":   ["CAST(DocumentDate AS DATE)"],
-    "weekly":  ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"],
-    "monthly": ["YEAR(DocumentDate)", "MONTH(DocumentDate)"],
+    "weekly":  ["CONCAT(YEAR(DocumentDate), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DocumentDate) AS VARCHAR), 2))"],
+    "monthly": ["CONCAT(YEAR(DocumentDate), '-', RIGHT('0' + CAST(MONTH(DocumentDate) AS VARCHAR), 2))"],
     "yearly":  ["YEAR(DocumentDate)"],
 }
 # Ham datetime kolon adları (GROUP BY'da kullanıldığında her timestamp ayrı grup olur)
 _RAW_DATE_COL_NAMES = {"documentdate", "date"}
+
+# Zaman-ilişkili tablo kolon adları — TIME_SERIES GROUP BY'da strip edilir.
+# Bunlar SQL expression değil, tablo kolonları (LLM bazen ekstra ekler).
+# Kontrol sırasında köşeli parantezler ve büyük/küçük harf normalize edilir.
+_TIME_ADJACENT_COLS_UPPER = {
+    "DAYOFWEEK", "DAYOFMONTH", "DAYOFYEAR", "WEEKDAY",
+    "HOUR", "MINUTE", "SECOND",
+    "WEEKNUM", "WEEKNUMBER", "MONTHNUMBER", "QUARTERNUMBER",
+}
+
+# Tüm olası zaman ifadeleri — redundant zaman kolonu tespiti için
+# Hem eski (YEAR+MONTH ayrı) hem yeni (CONCAT birleşik) ifadeleri kapsar
+_ALL_TIME_EXPRS_UPPER = {
+    "CAST(DOCUMENTDATE AS DATE)",
+    "YEAR(DOCUMENTDATE)",
+    "MONTH(DOCUMENTDATE)",
+    "DATEPART(WEEK, DOCUMENTDATE)",
+    "DATEPART(WEEKDAY, DOCUMENTDATE)",
+    "DATEPART(HOUR, DOCUMENTDATE)",
+    "HOUR",
+    # Birleşik CONCAT ifadeleri (tek kolon üretir)
+    "CONCAT(YEAR(DOCUMENTDATE), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DOCUMENTDATE) AS VARCHAR), 2))",
+    "CONCAT(YEAR(DOCUMENTDATE), '-', RIGHT('0' + CAST(MONTH(DOCUMENTDATE) AS VARCHAR), 2))",
+}
 
 # Business rule filter parse: [Column] = Value
 _RULE_FILTER_EQ_RE = re.compile(r"^\[(\w+)\]\s*=\s*(.+)$")
@@ -129,6 +153,7 @@ _RULE_FILTER_EQ_RE = re.compile(r"^\[(\w+)\]\s*=\s*(.+)$")
 def _normalize_document_date_group_by(raw_schema: dict) -> dict:
     """
     GROUP BY içinde ham DocumentDate (datetime) kolonu varsa DATE ifadesine dönüştür.
+    Ayrıca redundant zaman ifadelerini (YEAR+DATE gibi) tek granülariteye düşür.
 
     Neden: DocumentDate bir datetime kolonudur. Raw GROUP BY her timestamp'i ayrı grup
     yapar — "günlük ciro" gibi sorgularda tamamen yanlış sonuç üretir.
@@ -140,19 +165,31 @@ def _normalize_document_date_group_by(raw_schema: dict) -> dict:
     group_by'ı zaten yönetir; bu normalizasyon ondan sonra kalan ham tarihleri temizler.
     """
     current = raw_schema.get("group_by", [])
-    has_raw_date = any(c.strip().strip("[]").lower() in _RAW_DATE_COL_NAMES for c in current)
-    if not has_raw_date:
-        return raw_schema  # no-op
+    if not current:
+        return raw_schema
 
     time_gran = raw_schema.get("time_granularity")
     time_exprs = _TIME_GRAN_MAP.get(time_gran, ["CAST(DocumentDate AS DATE)"])
 
+    # Detect: raw DocumentDate OR mismatched/redundant time expressions
+    has_raw_date = any(c.strip().strip("[]").lower() in _RAW_DATE_COL_NAMES for c in current)
+    time_expr_hits = {c for c in current if c.upper() in _ALL_TIME_EXPRS_UPPER}
+    expected_set = set(time_exprs)
+    needs_fix = time_expr_hits and time_expr_hits != expected_set  # wrong or redundant time exprs
+
+    if not has_raw_date and not needs_fix:
+        return raw_schema  # no-op
+
     normalized: list = []
+    time_added = False
     for col in current:
-        if col.strip().strip("[]").lower() in _RAW_DATE_COL_NAMES:
-            for expr in time_exprs:
-                if expr not in normalized:
-                    normalized.append(expr)
+        if col.strip().strip("[]").lower() in _RAW_DATE_COL_NAMES or col.upper() in _ALL_TIME_EXPRS_UPPER:
+            # Replace all time-related entries with the correct granularity (once)
+            if not time_added:
+                for expr in time_exprs:
+                    if expr not in normalized:
+                        normalized.append(expr)
+                time_added = True
         else:
             normalized.append(col)
 
@@ -980,21 +1017,32 @@ def create_sql_generator_node(
 
         # --- Aggregation güvenlik ağı: order_by_column GROUP BY veya alias'ta yoksa kaldır ---
         # GROUP BY sorgusunda ORDER BY kolonu GROUP BY veya aggregation alias'ında olmalı.
+        # Ham tarih kolonları (DocumentDate) zaman ifadesiyle değiştirilmişse ORDER BY'dan kaldır
+        # → _build_order_by otomatik olarak group_by'daki zaman ifadesini kullanır.
         if raw_schema.get("aggregations"):
             _order_col = raw_schema.get("order_by_column")
             if _order_col:
-                _group_by_cols = raw_schema.get("group_by", [])
-                _agg_aliases = {_a.get("alias", "") for _a in raw_schema["aggregations"]}
-                _in_group_by = any(
-                    _order_col.upper() == _gc.upper() or _order_col.upper() in _gc.upper()
-                    for _gc in _group_by_cols
-                )
-                if not _in_group_by and _order_col not in _agg_aliases:
+                # Ham tarih kolonu → her zaman kaldır (auto ORDER BY daha güvenli)
+                if _order_col.strip().strip("[]").lower() in _RAW_DATE_COL_NAMES:
                     raw_schema = {**raw_schema, "order_by_column": None}
                     logger.warning(
-                        f"[SQL_GENERATOR] order_by_column '{_order_col}' GROUP BY veya "
-                        f"aggregation alias'ta değil → kaldırıldı (auto ORDER BY devreye girer)"
+                        f"[SQL_GENERATOR] order_by_column '{_order_col}' ham tarih kolonu "
+                        f"→ kaldırıldı (auto ORDER BY devreye girer)"
                     )
+                else:
+                    _group_by_cols = raw_schema.get("group_by", [])
+                    _agg_aliases = {_a.get("alias", "") for _a in raw_schema["aggregations"]}
+                    # Tam eşleşme (substring değil — CONCAT içindeki kolon adı eşleşme sayılmaz)
+                    _in_group_by = any(
+                        _order_col.upper() == _gc.upper()
+                        for _gc in _group_by_cols
+                    )
+                    if not _in_group_by and _order_col not in _agg_aliases:
+                        raw_schema = {**raw_schema, "order_by_column": None}
+                        logger.warning(
+                            f"[SQL_GENERATOR] order_by_column '{_order_col}' GROUP BY veya "
+                            f"aggregation alias'ta değil → kaldırıldı (auto ORDER BY devreye girer)"
+                        )
 
         # --- TIME_SERIES_COMPARISON güvenlik ağı: semantik alanlardan GROUP BY inşa et ---
         # Önce QuerySchema.time_granularity + comparison_dimension kullan (Option A).
@@ -1049,18 +1097,25 @@ def create_sql_generator_node(
                 _raw_dates = {"DocumentDate", "Date"}
                 # Mevcut group_by'dan ham tarih kolonlarını çıkar
                 _existing  = [_c for _c in raw_schema.get("group_by", []) if _c not in _raw_dates]
-                _time_set  = set(_t_cols)
                 # comp_dim her zaman başa gelir (zaten _existing'de olsa bile — _has_comp kontrolü
                 # kaldırıldı: "zaten var → atla" mantığı carry-over loop'ta da dışlıyordu → drop bug)
                 _new_group_by: list = []
                 if _comp_dim:
                     _new_group_by.append(_comp_dim)
                 _new_group_by.extend(_t_cols)
-                # Mevcut group_by'dan zaman ifadeleri + entity dışındaki kolonları koru
+                # Mevcut group_by'dan TÜM zaman ifadelerini + zaman-ilişkili kolonları + entity'yi çıkar
+                # (LLM bazen redundant YEAR+DATE veya DayOfWeek gibi alt-granülarite kolonları koyar)
                 for _c in _existing:
-                    if _c not in _time_set and _c != _comp_dim:
+                    _c_upper = _c.upper()
+                    _c_clean = _c_upper.strip().strip("[]")
+                    _is_time_expr = _c_upper in _ALL_TIME_EXPRS_UPPER
+                    _is_time_col = _c_clean in _TIME_ADJACENT_COLS_UPPER
+                    if not _is_time_expr and not _is_time_col and _c != _comp_dim:
                         _new_group_by.append(_c)
-                raw_schema = {**raw_schema, "group_by": _new_group_by}
+                # order_by_column da kaldır — group_by yeniden inşa edildi,
+                # eski order_by (örn. raw DocumentDate) artık geçersiz olabilir.
+                # _build_order_by otomatik olarak group_by'daki zaman ifadesini kullanır.
+                raw_schema = {**raw_schema, "group_by": _new_group_by, "order_by_column": None}
                 logger.info(
                     f"[SQL_GENERATOR] TIME_SERIES group_by inşa edildi: "
                     f"entity={_comp_dim}, gran={_time_gran}, result={_new_group_by}"
