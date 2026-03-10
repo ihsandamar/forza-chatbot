@@ -46,6 +46,37 @@ from src.graphs.generic_text2sql.table_registry import get_table_registry
 logger = logging.getLogger(__name__)
 
 _db_executor = ThreadPoolExecutor(max_workers=3)
+
+# Connection pool: pyodbc_conn_str -> pyodbc.Connection
+_connection_pools: dict = {}
+_pool_lock = threading.Lock()
+
+
+def get_pooled_connection(pyodbc_conn_str: str):
+    """
+    Get or create a pooled connection for the given connection string.
+    Connections are reused across calls to avoid reconnection overhead.
+    """
+    with _pool_lock:
+        if pyodbc_conn_str in _connection_pools:
+            conn = _connection_pools[pyodbc_conn_str]
+            try:
+                conn.execute("SELECT 1")
+                return conn
+            except Exception:
+                logger.debug("[SQL_EXECUTOR] Pooled connection dead, reconnecting")
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                del _connection_pools[pyodbc_conn_str]
+
+        conn = pyodbc.connect(pyodbc_conn_str, timeout=30, autocommit=True)
+        _connection_pools[pyodbc_conn_str] = conn
+        logger.debug("[SQL_EXECUTOR] New pooled connection created")
+        return conn
+
+
 MAX_RETRY = 2
 _MANUAL_ENTRY_OPTION = "Başka bir değer girin"
 
@@ -212,12 +243,12 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
     loop = asyncio.get_event_loop()
 
     def _run():
-        conn = pyodbc.connect(pyodbc_conn_str, timeout=30)
+        conn = get_pooled_connection(pyodbc_conn_str)
         cursor = conn.cursor()
         cursor.execute(sql)
         columns = [col[0] for col in cursor.description]
         rows = cursor.fetchall()
-        conn.close()
+        cursor.close()  # Close cursor, keep connection in pool
         return [_serialize_row(columns, row) for row in rows]
 
     return await loop.run_in_executor(_db_executor, _run)
