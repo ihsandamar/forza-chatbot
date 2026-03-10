@@ -16,7 +16,10 @@ en alakalı kuralları bulan vector store sınıfı.
 """
 
 import json
-import hashlib
+import os
+import threading
+from collections import OrderedDict
+
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
@@ -126,22 +129,31 @@ class BusinessRulesVectorStore:
         self.rules_data = self._load_rules()
 
         # Search result cache: query_key -> results
-        self._search_cache: dict = {}
-        self._rules_file_hash = self._compute_file_hash()
+        self._search_cache: OrderedDict = OrderedDict()
+        self._max_cache_size = 256
+        self._cache_lock = threading.Lock()
+        stat = os.stat(self.rules_file_path)
+        self._rules_file_stat = (stat.st_mtime_ns, stat.st_size)
 
     def _load_rules(self) -> Dict[str, Any]:
         """business_rules.json dosyasını yükle"""
         with open(self.rules_file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def _compute_file_hash(self) -> str:
-        """Compute hash of rules file for cache invalidation."""
-        with open(self.rules_file_path, "rb") as f:
-            return hashlib.md5(f.read()).hexdigest()
+    def _file_has_changed(self) -> bool:
+        """Fast check if rules file changed using mtime + size."""
+        stat = os.stat(self.rules_file_path)
+        key = (stat.st_mtime_ns, stat.st_size)
+        if key != self._rules_file_stat:
+            self._rules_file_stat = key
+            return True
+        return False
 
-    def _cache_key(self, user_query: str, n_results: int, use_hybrid: bool) -> str:
+    def _cache_key(self, user_query: str, n_results: int, use_hybrid: bool,
+                   detected_tables=None) -> str:
         """Generate cache key from query parameters."""
-        return f"{user_query}|{n_results}|{use_hybrid}"
+        tables_part = ",".join(sorted(detected_tables)) if detected_tables else ""
+        return f"{user_query}|{n_results}|{use_hybrid}|{tables_part}"
 
     def clear_cache(self):
         """Clear the search result cache."""
@@ -503,16 +515,14 @@ class BusinessRulesVectorStore:
             }
         """
         # --- Cache check ---
-        current_hash = self._compute_file_hash()
-        if current_hash != self._rules_file_hash:
-            self._search_cache.clear()
-            self._rules_file_hash = current_hash
-            logger.info("[BUSINESS_RULES] Rules file changed, cache invalidated")
-
-        cache_key = self._cache_key(user_query, n_results, use_hybrid)
-        if cache_key in self._search_cache:
-            logger.debug(f"[BUSINESS_RULES] Cache hit for: {user_query[:50]}")
-            return self._search_cache[cache_key]
+        with self._cache_lock:
+            if self._file_has_changed():
+                self._search_cache.clear()
+                logger.info("[BUSINESS_RULES] Rules file changed, cache invalidated")
+            cache_key = self._cache_key(user_query, n_results, use_hybrid, detected_tables)
+            if cache_key in self._search_cache:
+                logger.debug(f"[BUSINESS_RULES] Cache hit for: {user_query[:50]}")
+                return self._search_cache[cache_key]
 
         # 1. Semantic search
         semantic_results = self.search_rules(
@@ -583,7 +593,10 @@ class BusinessRulesVectorStore:
             'semantic_count': semantic_count,
             'total_count': len(unique_results)
         }
-        self._search_cache[cache_key] = result
+        with self._cache_lock:
+            if len(self._search_cache) >= self._max_cache_size:
+                self._search_cache.popitem(last=False)  # drop oldest
+            self._search_cache[cache_key] = result
         logger.debug(f"[BUSINESS_RULES] Cached result for: {user_query[:50]}")
         return result
 
