@@ -334,12 +334,12 @@ class ChatService:
             self._clear_hitl_state(request.session_id)
 
         else:
-            # Normal message - add to conversation history
-            messages.append({"role": "user", "content": request.message})
-            state["messages"] = messages
-            state["user_clarification"] = None
-            state["pending_question"] = None
-            state["waiting_for_user_input"] = False
+            # Normal message — send ONLY the new message to graph.
+            # MemorySaver checkpointer (keyed by session_id/thread_id) already
+            # retains full conversation history. Sending all messages causes
+            # the add_messages reducer to re-process N messages instead of 1.
+            new_message = {"role": "user", "content": request.message}
+            state = {"messages": [new_message]}
 
             logger.info(f"[CHAT] Normal message received: {request.message[:50]}...")
 
@@ -356,13 +356,24 @@ class ChatService:
         try:
             graph_output = await self.chatbot.get_graph_output_async(state, **adapter_kwargs)
         except GraphInterrupt as e:
+            logger.info(f"[CHAT] === GraphInterrupt CAUGHT ===")
+            logger.info(f"[CHAT] e.args type={type(e.args)}, len={len(e.args) if e.args else 0}")
+            if e.args:
+                logger.info(f"[CHAT] e.args[0] type={type(e.args[0])}, repr={repr(e.args[0])[:500]}")
+                if e.args[0]:
+                    first = e.args[0][0] if hasattr(e.args[0], '__getitem__') else e.args[0]
+                    logger.info(f"[CHAT] first interrupt type={type(first)}, hasattr value={hasattr(first, 'value')}")
+                    if hasattr(first, 'value'):
+                        logger.info(f"[CHAT] first.value={repr(first.value)[:500]}")
             # Graph interrupted (e.g., report agent needs clarification via interrupt())
             # Extract interrupt data and return as HITL question
             interrupts = e.args[0] if e.args else []
             interrupt_data = interrupts[0].value if interrupts else {}
             logger.info(f"[CHAT] GraphInterrupt caught — HITL question: {interrupt_data}")
 
+            interrupt_type = interrupt_data.get("type", "choice")
             hitl_info = {
+                "type": interrupt_type,
                 "question": interrupt_data.get("question", "Açıklama gerekiyor"),
                 "options": interrupt_data.get("options", []),
                 "context": interrupt_data.get("context", ""),
@@ -373,8 +384,11 @@ class ChatService:
             options = hitl_info["options"]
             context = hitl_info.get("context", "")
 
-            options_text = "\n".join([f"  {i+1}. {opt}" for i, opt in enumerate(options)])
-            full_text = f"❓ {question_text}\n\nSeçenekler:\n{options_text}"
+            if options:
+                options_text = "\n".join([f"  {i+1}. {opt}" for i, opt in enumerate(options)])
+                full_text = f"❓ {question_text}\n\nSeçenekler:\n{options_text}"
+            else:
+                full_text = f"❓ {question_text}"
             if context:
                 full_text += f"\n\nℹ️ {context}"
 
@@ -386,6 +400,7 @@ class ChatService:
                     type="hitl",
                     target="",
                     params={
+                        "type": interrupt_type,
                         "question": question_text,
                         "options": options,
                         "context": context,
