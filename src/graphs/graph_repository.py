@@ -58,40 +58,6 @@ class GraphRepository:
         except ImportError as e:
             logger.warning(f"Could not import ForzaRoutingGraph: {e}")
 
-        try:
-            from src.graphs.report_v2.graph import build_report_v2_graph
-            from src.graphs.data_visualization.graph import build_visualization_graph
-            from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
-            from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
-
-            llm = self.llm
-
-            class ReportV2GraphWrapper:
-                def __init__(self, llm):
-                    self._llm = llm
-
-                def build_graph(self):
-                    text2sql_config = GenericSQLAssistantConfiguration(
-                        report_name="",
-                        description="",
-                        table_name="MasterReportDocumentTable",
-                        query="",
-                        column_metadata={},
-                        business_rules=[],
-                    )
-                    text2sql_instance = GenericText2SQLGraph(llm=self._llm, config=text2sql_config)
-                    node_kit = text2sql_instance.node_kit
-                    visualization_graph = build_visualization_graph(llm=self._llm)
-                    return build_report_v2_graph(
-                        node_kit=node_kit,
-                        llm=self._llm,
-                        visualization_graph=visualization_graph,
-                    )
-
-            GRAPH_REGISTRY["report_v2"] = ReportV2GraphWrapper
-            logger.info("ReportV2Graph registered")
-        except ImportError as e:
-            logger.warning(f"Could not import ReportV2Graph: {e}")
 
         # TODO: Legacy graphs have been removed and need to be refactored
         # The following graphs were marked for deletion and should be reimplemented as needed:

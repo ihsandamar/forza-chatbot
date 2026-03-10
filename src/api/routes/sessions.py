@@ -18,8 +18,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 
 from src.graphs.generic_text2sql.table_registry import get_table_registry
-from src.graphs.generic_text2sql.sql_database_connection import execute_sql
-from src.graphs.report.conversational_cache import get_conversational_cache
+import pyodbc
 
 logger = logging.getLogger(__name__)
 
@@ -74,20 +73,18 @@ async def end_session(session_id: str) -> Dict[str, Any]:
         drop_sql = f"DROP TABLE IF EXISTS {table_name};"
 
         try:
-            await execute_sql(drop_sql, db_connection_string, return_direct=True)
+            conn_str = db_connection_string
+            if conn_str.startswith("mssql+pyodbc://"):
+                conn_str = conn_str.replace("mssql+pyodbc://", "")
+            conn = pyodbc.connect(conn_str, autocommit=True)
+            conn.execute(drop_sql)
+            conn.close()
             logger.info(f"[SESSION_API] Dropped table {table_name}")
         except Exception as e:
             logger.error(f"[SESSION_API] Failed to drop table {table_name}: {e}")
-            # Continue with cleanup even if DROP fails
 
         # Unregister from registry
         unregistered = await registry.unregister_table(session_id)
-
-        # Invalidate cache
-        cache = get_conversational_cache()
-        if cache:
-            await cache.invalidate_session(session_id, reason="explicit_end")
-            logger.info(f"[SESSION_API] Invalidated cache for session {session_id}")
 
         logger.info(
             f"[SESSION_API] Session {session_id} ended successfully "

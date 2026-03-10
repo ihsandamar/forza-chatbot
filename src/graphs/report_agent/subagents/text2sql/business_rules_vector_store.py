@@ -52,7 +52,6 @@ def preload_embedding_model(model_name: str = "sentence-transformers/all-MiniLM-
         model = SentenceTransformer(model_name)
 
         logger.info(f"[EMBEDDING] ✅ Model loaded successfully: {model_name}")
-        logger.info(f"[EMBEDDING] Model cached at: {model.cache_folder}")
 
         return True
 

@@ -21,7 +21,6 @@ import time
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException
 
-from src.graphs.report.conversational_cache import get_conversational_cache
 from src.graphs.generic_text2sql.table_registry import get_table_registry
 
 logger = logging.getLogger(__name__)
@@ -74,7 +73,7 @@ async def get_cache_stats() -> Dict[str, Any]:
     logger.info("[METRICS_API] Getting cache stats")
 
     try:
-        cache = get_conversational_cache()
+        cache = None  # TODO: conversational_cache removed with legacy report module
 
         if not cache:
             return {
@@ -116,7 +115,7 @@ async def reset_cache_stats() -> Dict[str, str]:
     logger.info("[METRICS_API] Resetting cache stats")
 
     try:
-        cache = get_conversational_cache()
+        cache = None  # TODO: conversational_cache removed with legacy report module
 
         if not cache:
             raise HTTPException(

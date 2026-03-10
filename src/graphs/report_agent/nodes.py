@@ -36,6 +36,7 @@ def create_classify_intent_node(llm) -> Callable:
     structured_llm = llm.with_structured_output(IntentClassificationResult)
 
     async def classify_intent_node(state: dict) -> dict:
+        logger.info(f"[REPORT_AGENT] ===== classify_intent_node ENTERED ===== query: {state.get('messages', [{}])[-1].content[:80] if state.get('messages') else 'NO_MESSAGES'}")
         active_sql = state.get("active_sql")
         active_results = state.get("active_results") or []
         messages = state.get("messages", [])
@@ -574,7 +575,38 @@ async def build_response_node(state: dict) -> dict:
     elif not results:
         response = "Bu sorgu için sonuç bulunamadı."
     elif viz.get("needs_graph") and viz.get("plotly_html_snippet"):
-        response = "Grafiğiniz oluşturuldu."
+        import base64
+
+        html_snippet = viz["plotly_html_snippet"]
+        summary = viz.get("summary", "Grafiğiniz oluşturuldu.")
+        chart_type = viz.get("chart_type", "chart")
+        row_count = len(results)
+
+        # Wrap div snippet in full HTML document
+        full_html = (
+            '<!DOCTYPE html>\n<html>\n<head>\n'
+            '    <meta charset="UTF-8">\n'
+            '    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+            '</head>\n<body style="margin:0;padding:0;">\n'
+            f'{html_snippet}\n'
+            '</body>\n</html>'
+        )
+        b64 = base64.b64encode(full_html.encode("utf-8")).decode("utf-8")
+        iframe = (
+            f'<iframe src="data:text/html;charset=utf-8;base64,{b64}" '
+            f'style="width:100%;height:100vh;border:none;"></iframe>'
+        )
+
+        # Build summary text similar to expected format
+        summary_text = (
+            f"\U0001f4ca Rapor Sonucu:\n"
+            f"\u2022 Görselleştirme Tipi: {chart_type}\n"
+            f"\u2022 Grafik Gerekli: \u2713 Evet\n"
+            f"\u2022 Veri Noktası: {row_count}\n"
+            f"\u2022 {row_count} kayıt\n"
+            f"### \U0001f4c8 Grafik:"
+        )
+        response = f"{summary_text}\n\n{iframe}"
     else:
         response = _results_to_markdown_table(results)
 
