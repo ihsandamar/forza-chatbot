@@ -280,30 +280,6 @@ class ChatService:
         # Check if there's a pending HITL question
         hitl_pending = self._get_hitl_state(request.session_id)
 
-        # Prepare state for chatbot - preserve existing state fields
-        state = {
-            "messages": messages.copy(),
-            # Preserve context from previous invocation
-            "active_query_context": session.get("active_query_context"),
-            "query_history": session.get("query_history", []),
-            "text2sql_output": None,
-            "visualization_output": None,
-            "error": None,
-            "no_records_message": None,
-            "_intent_type": None,
-            "_confidence": None,
-            "_extracted_entities": None,
-            "_modification_action": None,
-            "_selected_table": None,
-            "_selected_filter_value": None,
-            "_selected_column": None,
-            "_selected_value": None,
-            "_clarification_type": None,
-            "_user_preference": None,
-            "_preference_type": None,
-            "_use_exact_input": None
-        }
-
         # If HITL is pending, handle as clarification with Command pattern
         if hitl_pending:
             # Command-based HITL: Resume graph with Command(resume=...)
@@ -325,10 +301,12 @@ class ChatService:
                 logger.info("[CHAT] Command not available, using message-based HITL")
 
                 # Keep messages as-is, only set user_clarification
-                state["messages"] = messages
-                state["user_clarification"] = request.message
-                state["waiting_for_user_input"] = False
-                state["pending_question"] = hitl_pending
+                state = {
+                    "messages": messages,
+                    "user_clarification": request.message,
+                    "waiting_for_user_input": False,
+                    "pending_question": hitl_pending,
+                }
 
             # Clear HITL state
             self._clear_hitl_state(request.session_id)
@@ -356,15 +334,15 @@ class ChatService:
         try:
             graph_output = await self.chatbot.get_graph_output_async(state, **adapter_kwargs)
         except GraphInterrupt as e:
-            logger.info(f"[CHAT] === GraphInterrupt CAUGHT ===")
-            logger.info(f"[CHAT] e.args type={type(e.args)}, len={len(e.args) if e.args else 0}")
+            logger.debug(f"[CHAT] === GraphInterrupt CAUGHT ===")
+            logger.debug(f"[CHAT] e.args type={type(e.args)}, len={len(e.args) if e.args else 0}")
             if e.args:
-                logger.info(f"[CHAT] e.args[0] type={type(e.args[0])}, repr={repr(e.args[0])[:500]}")
+                logger.debug(f"[CHAT] e.args[0] type={type(e.args[0])}, repr={repr(e.args[0])[:500]}")
                 if e.args[0]:
                     first = e.args[0][0] if hasattr(e.args[0], '__getitem__') else e.args[0]
-                    logger.info(f"[CHAT] first interrupt type={type(first)}, hasattr value={hasattr(first, 'value')}")
+                    logger.debug(f"[CHAT] first interrupt type={type(first)}, hasattr value={hasattr(first, 'value')}")
                     if hasattr(first, 'value'):
-                        logger.info(f"[CHAT] first.value={repr(first.value)[:500]}")
+                        logger.debug(f"[CHAT] first.value={repr(first.value)[:500]}")
             # Graph interrupted (e.g., report agent needs clarification via interrupt())
             # Extract interrupt data and return as HITL question
             interrupts = e.args[0] if e.args else []
@@ -422,14 +400,6 @@ class ChatService:
         else:
             # Fallback: just keep the messages we have
             session["messages"] = messages
-
-        # Persist active_query_context and query_history for next invocation
-        # This is CRITICAL for conversational report agent to work properly
-        if graph_output.get("active_query_context"):
-            session["active_query_context"] = graph_output["active_query_context"]
-
-        if graph_output.get("query_history"):
-            session["query_history"] = graph_output["query_history"]
 
         # Check for HITL question in graph output (state-based fallback)
         hitl_info = self._detect_hitl_question(graph_output)
