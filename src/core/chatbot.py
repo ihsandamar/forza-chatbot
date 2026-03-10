@@ -11,7 +11,6 @@ Interface-specific handling moved to interface adapters (GradioAdapter, etc).
 """
 
 from typing import Optional, List, Dict, Any
-import copy
 import asyncio
 from langgraph.errors import GraphInterrupt, GraphBubbleUp
 from langgraph.types import Command
@@ -88,16 +87,15 @@ class Chatbot:
                     context={"config_type": type(self.config).__name__}
                 )
 
-            full_config = copy.deepcopy(self.config)
-            if "configurable" not in full_config:
-                full_config["configurable"] = {}
-            full_config["configurable"]["assistant_config"] = assistant_config_dict
-
-            # Add thread_id if provided (use session_id as thread_id)
+            # Build config without deepcopy — LangGraph doesn't mutate this
+            configurable = {
+                **self.config.get("configurable", {}),
+                "assistant_config": assistant_config_dict,
+            }
             if thread_id:
-                full_config["configurable"]["thread_id"] = thread_id
+                configurable["thread_id"] = thread_id
 
-            return full_config
+            return {**self.config, "configurable": configurable}
         except ConfigurationException:
             raise
         except Exception as e:
@@ -238,7 +236,8 @@ class Chatbot:
                     context={"message_count": 0}
                 )
 
-            graph_state = self._to_graph_state(messages)
+            # Pass state directly — chat_service already builds correct structure
+            graph_state = state
 
             # Add token to graph state if provided in adapter_kwargs
             if 'token' in adapter_kwargs:
@@ -399,7 +398,8 @@ class Chatbot:
                     context={"message_count": 0}
                 )
 
-            graph_state = self._to_graph_state(messages)
+            # Pass state directly — chat_service already builds correct structure
+            graph_state = state
 
             # Add token to graph state if provided in adapter_kwargs
             if 'token' in adapter_kwargs:
