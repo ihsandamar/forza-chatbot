@@ -2,10 +2,10 @@
 import pytest
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from typing import Annotated, Optional, List, TypedDict
 from langgraph.graph.message import add_messages
-from langchain_core.messages import BaseMessage
+from langgraph.types import interrupt, Command
 
 
 def test_subgraph_with_own_checkpointer_preserves_state():
@@ -118,3 +118,53 @@ def test_subgraph_without_checkpointer_loses_state():
     assert "Context set" in last_msg2, (
         f"Expected state to be lost (got 'Context set') but got: '{last_msg2}'"
     )
+
+
+def test_subgraph_interrupt_propagates_with_checkpointer_true():
+    """
+    Interrupt from a subgraph with checkpointer=True should still
+    bubble up to the parent and be resumable with Command(resume=...).
+    """
+
+    class ChildState(TypedDict):
+        messages: Annotated[List[BaseMessage], add_messages]
+        user_choice: Optional[str]
+
+    def child_node_with_interrupt(state: dict) -> dict:
+        answer = interrupt({"question": "Which option?", "options": ["A", "B"]})
+        return {
+            "messages": [AIMessage(content=f"User chose: {answer}")],
+            "user_choice": answer,
+        }
+
+    child_builder = StateGraph(ChildState)
+    child_builder.add_node("ask", child_node_with_interrupt)
+    child_builder.add_edge(START, "ask")
+    child_builder.add_edge("ask", END)
+    child_graph = child_builder.compile(checkpointer=True)
+
+    parent_builder = StateGraph(MessagesState)
+    parent_builder.add_node("child", child_graph)
+    parent_builder.add_edge(START, "child")
+    parent_builder.add_edge("child", END)
+    parent_graph = parent_builder.compile(checkpointer=MemorySaver())
+
+    config = {"configurable": {"thread_id": "interrupt-test"}}
+
+    # First invoke: should pause at interrupt and return interrupt data
+    result1 = parent_graph.invoke(
+        {"messages": [HumanMessage(content="start")]}, config
+    )
+    # The interrupt should be present in the result
+    interrupts = result1.get("__interrupt__", [])
+    assert len(interrupts) == 1, f"Expected 1 interrupt, got {len(interrupts)}"
+    assert interrupts[0].value.get("question") == "Which option?"
+
+    # Verify graph is paused at the child node
+    state = parent_graph.get_state(config)
+    assert "child" in state.next, f"Expected graph paused at 'child', got {state.next}"
+
+    # Resume with user's choice
+    result = parent_graph.invoke(Command(resume="A"), config)
+    last_msg = result["messages"][-1].content
+    assert "User chose: A" in last_msg
