@@ -187,6 +187,92 @@ async def data_analyzer_node(state: dict, config: Optional[RunnableConfig] = Non
 # NODE 2: VIZ DECIDER
 # =============================================================================
 
+def _rule_based_viz_decision(
+    query_type: str,
+    results: list,
+    profile: dict,
+    wants_viz: bool,
+) -> dict | None:
+    """
+    Deterministic chart selection based on query_type and data profile.
+    Returns VizDecision-compatible dict, or None if LLM should decide.
+    """
+    if not wants_viz or not results:
+        return None
+
+    dimension_cols = profile.get("dimension_columns", [])
+    metric_cols = profile.get("metric_columns", [])
+    time_col = profile.get("time_column")
+    row_count = profile.get("row_count", 0)
+
+    if not metric_cols:
+        return None
+
+    first_metric = metric_cols[0]
+    first_dim = dimension_cols[0] if dimension_cols else None
+
+    if query_type == "LISTING":
+        return {
+            "needs_graph": False,
+            "chart_type": "table",
+            "x_field": None,
+            "y_field": None,
+            "series_field": None,
+            "title": None,
+            "reason": "LISTING query → table display",
+        }
+
+    if query_type == "SINGLE" and row_count == 1 and len(metric_cols) == 1:
+        return {
+            "needs_graph": False,
+            "chart_type": "single_value",
+            "x_field": None,
+            "y_field": first_metric,
+            "series_field": None,
+            "title": None,
+            "reason": "Single value result",
+        }
+
+    if query_type in ("TIME_SERIES", "TIME_SERIES_COMPARISON"):
+        x = time_col or first_dim
+        if x:
+            series = dimension_cols[0] if dimension_cols and dimension_cols[0] != x else None
+            return {
+                "needs_graph": True,
+                "chart_type": "line_chart",
+                "x_field": x,
+                "y_field": first_metric,
+                "series_field": series,
+                "title": None,
+                "reason": f"Time series → line chart (x={x})",
+            }
+
+    if query_type == "RANKING" and first_dim:
+        return {
+            "needs_graph": True,
+            "chart_type": "bar_chart",
+            "x_field": first_dim,
+            "y_field": first_metric,
+            "series_field": None,
+            "title": None,
+            "reason": f"Ranking → bar chart (x={first_dim}, y={first_metric})",
+        }
+
+    if query_type == "COMPARISON" and first_dim:
+        series = dimension_cols[1] if len(dimension_cols) > 1 else None
+        return {
+            "needs_graph": True,
+            "chart_type": "comparison" if series else "bar_chart",
+            "x_field": first_dim,
+            "y_field": first_metric,
+            "series_field": series,
+            "title": None,
+            "reason": f"Comparison → bar chart (x={first_dim}, series={series})",
+        }
+
+    return None
+
+
 def create_viz_decider_node(llm) -> Callable:
     """
     LLM (Pydantic structured output): DataProfile + user_query → VizDecision.
@@ -218,7 +304,18 @@ def create_viz_decider_node(llm) -> Callable:
                 needs_graph=False, chart_type="single_value", reason="Tek değer sonucu"
             ).model_dump()}
 
-        # --- LLM kararı ---
+        # --- Rule-based fast path ---
+        rule_decision = _rule_based_viz_decision(
+            query_type=state.get("query_type", ""),
+            results=results,
+            profile=data_profile or {},
+            wants_viz=state.get("wants_visualization", False),
+        )
+        if rule_decision is not None:
+            logger.info(f"[VIZ_DECIDER] Rule-based fast path: {rule_decision['chart_type']} ({rule_decision['reason']})")
+            return {"viz_decision": rule_decision}
+
+        # --- LLM fallback ---
         wants_viz = state.get("wants_visualization", False)
         profile = data_profile or {}
         # viz_request varsa ("pasta grafik" gibi) onu kullan;
