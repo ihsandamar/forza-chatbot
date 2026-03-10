@@ -104,18 +104,6 @@ class Chatbot:
                 context={"original_error": str(e)}
             ) from e
 
-    def _to_graph_state(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-        """
-        Convert messages to standard graph state format.
-
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-
-        Returns:
-            State dict with messages key
-        """
-        return {"messages": messages}
-
     def _from_graph_state(self, graph_output: Any) -> str:
         """
         Extract response from message-based graph output.
@@ -246,7 +234,7 @@ class Chatbot:
             # Extract thread_id from adapter_kwargs if provided
             thread_id = adapter_kwargs.get('thread_id')
             return self._invoke_graph(graph_state, thread_id=thread_id)
-        except (MessageProcessingException, ConfigurationException, GraphExecutionException):
+        except (MessageProcessingException, ConfigurationException, GraphExecutionException, GraphInterrupt, GraphBubbleUp):
             raise
         except Exception as e:
             raise MessageProcessingException(
@@ -274,7 +262,7 @@ class Chatbot:
             graph_output = self._process_message(state, **adapter_kwargs)
             response_text = self._from_graph_state(graph_output)
             return response_text
-        except (MessageProcessingException, GraphExecutionException, ConfigurationException):
+        except (MessageProcessingException, GraphExecutionException, ConfigurationException, GraphInterrupt, GraphBubbleUp):
             raise
         except Exception as e:
             raise MessageProcessingException(
