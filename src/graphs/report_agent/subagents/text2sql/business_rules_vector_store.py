@@ -16,6 +16,7 @@ en alakalı kuralları bulan vector store sınıfı.
 """
 
 import json
+import hashlib
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
@@ -124,10 +125,28 @@ class BusinessRulesVectorStore:
         # Rules data
         self.rules_data = self._load_rules()
 
+        # Search result cache: query_key -> results
+        self._search_cache: dict = {}
+        self._rules_file_hash = self._compute_file_hash()
+
     def _load_rules(self) -> Dict[str, Any]:
         """business_rules.json dosyasını yükle"""
         with open(self.rules_file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
+
+    def _compute_file_hash(self) -> str:
+        """Compute hash of rules file for cache invalidation."""
+        with open(self.rules_file_path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+
+    def _cache_key(self, user_query: str, n_results: int, use_hybrid: bool) -> str:
+        """Generate cache key from query parameters."""
+        return f"{user_query}|{n_results}|{use_hybrid}"
+
+    def clear_cache(self):
+        """Clear the search result cache."""
+        self._search_cache.clear()
+        logger.info("[BUSINESS_RULES] Search cache cleared")
 
     def _prepare_embedding_text(self, rule: Dict[str, Any]) -> str:
         """
@@ -483,6 +502,18 @@ class BusinessRulesVectorStore:
                 'semantic_count': int
             }
         """
+        # --- Cache check ---
+        current_hash = self._compute_file_hash()
+        if current_hash != self._rules_file_hash:
+            self._search_cache.clear()
+            self._rules_file_hash = current_hash
+            logger.info("[BUSINESS_RULES] Rules file changed, cache invalidated")
+
+        cache_key = self._cache_key(user_query, n_results, use_hybrid)
+        if cache_key in self._search_cache:
+            logger.debug(f"[BUSINESS_RULES] Cache hit for: {user_query[:50]}")
+            return self._search_cache[cache_key]
+
         # 1. Semantic search
         semantic_results = self.search_rules(
             query=user_query,
@@ -543,7 +574,8 @@ class BusinessRulesVectorStore:
                 "source":      "default" if r.get("is_default") else "semantic",
             })
 
-        return {
+        # --- Cache store ---
+        result = {
             'individual_rules': individual_rules,   # LLM ID seçimi için
             'rules': unique_results,                # Backward compat
             'merged_sql': merged_sql,               # sql_generator için
@@ -551,6 +583,9 @@ class BusinessRulesVectorStore:
             'semantic_count': semantic_count,
             'total_count': len(unique_results)
         }
+        self._search_cache[cache_key] = result
+        logger.debug(f"[BUSINESS_RULES] Cached result for: {user_query[:50]}")
+        return result
 
     def rebuild_index(self):
         """
