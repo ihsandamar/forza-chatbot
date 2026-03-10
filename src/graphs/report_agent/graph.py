@@ -27,7 +27,7 @@ from src.graphs.report_agent.nodes import (
 )
 from src.graphs.report_agent.state import ReportState
 from src.graphs.report_agent.subagents.text2sql.graph import build_text2sql_graph
-from src.graphs.report_agent.subagents.visualization.graph import build_visualization_graph
+from src.graphs.report_agent.subagents.visualization_v2.graph import build_visualization_graph
 
 logger = logging.getLogger(__name__)
 
