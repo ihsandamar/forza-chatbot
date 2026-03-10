@@ -11,6 +11,7 @@ Interface-specific handling moved to interface adapters (GradioAdapter, etc).
 """
 
 from typing import Optional, List, Dict, Any
+import copy
 import asyncio
 from langgraph.errors import GraphInterrupt, GraphBubbleUp
 from langgraph.types import Command
@@ -87,7 +88,7 @@ class Chatbot:
                     context={"config_type": type(self.config).__name__}
                 )
 
-            full_config = self.config.copy()
+            full_config = copy.deepcopy(self.config)
             if "configurable" not in full_config:
                 full_config["configurable"] = {}
             full_config["configurable"]["assistant_config"] = assistant_config_dict
@@ -191,8 +192,9 @@ class Chatbot:
 
             full_config = self._prepare_config(thread_id=thread_id)
             graph_output = self.graph.invoke(graph_state, config=full_config)
+
             return graph_output
-        except (InvalidGraphStateException, ConfigurationException, GraphBubbleUp):
+        except (InvalidGraphStateException, ConfigurationException, GraphInterrupt, GraphBubbleUp):
             raise
         except Exception as e:
             raise GraphInvocationException(
@@ -348,8 +350,9 @@ class Chatbot:
                     graph_state,
                     full_config
                 )
+
             return graph_output
-        except (InvalidGraphStateException, ConfigurationException, GraphBubbleUp):
+        except (InvalidGraphStateException, ConfigurationException, GraphInterrupt, GraphBubbleUp):
             raise
         except Exception as e:
             raise GraphInvocationException(
@@ -404,7 +407,7 @@ class Chatbot:
 
             thread_id = adapter_kwargs.get('thread_id')
             return await self._invoke_graph_async(graph_state, thread_id=thread_id)
-        except (MessageProcessingException, ConfigurationException, GraphExecutionException, GraphBubbleUp):
+        except (MessageProcessingException, ConfigurationException, GraphExecutionException, GraphInterrupt, GraphBubbleUp):
             raise
         except Exception as e:
             raise MessageProcessingException(
@@ -489,7 +492,7 @@ class Chatbot:
         """
         try:
             return await self._process_message_async(state, **adapter_kwargs)
-        except (MessageProcessingException, GraphExecutionException, ConfigurationException, GraphBubbleUp):
+        except (MessageProcessingException, GraphExecutionException, ConfigurationException, GraphInterrupt, GraphBubbleUp):
             raise
         except Exception as e:
             raise MessageProcessingException(
