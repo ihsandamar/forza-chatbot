@@ -121,3 +121,49 @@ def test_scatter_chart_template():
     }
     html = build_chart(viz_decision, results, {})
     assert html is not None
+
+
+def test_treemap_template():
+    from src.graphs.report_agent.subagents.visualization.chart_templates import build_chart
+    results = [
+        {"Category": "A", "Value": 100},
+        {"Category": "B", "Value": 200},
+        {"Category": "C", "Value": 300},
+    ]
+    viz_decision = {
+        "chart_type": "treemap", "x_field": "Category", "y_field": "Value",
+        "series_field": None, "title": "Treemap Test",
+    }
+    html = build_chart(viz_decision, results, {})
+    assert html is not None
+    assert "plotly" in html.lower()
+
+
+def test_sunburst_template():
+    from src.graphs.report_agent.subagents.visualization.chart_templates import build_chart
+    results = [
+        {"Category": "A", "Value": 100},
+        {"Category": "B", "Value": 200},
+    ]
+    viz_decision = {
+        "chart_type": "sunburst", "x_field": "Category", "y_field": "Value",
+        "series_field": None, "title": "Sunburst Test",
+    }
+    html = build_chart(viz_decision, results, {})
+    assert html is not None
+    assert "plotly" in html.lower()
+
+
+def test_comparison_template():
+    from src.graphs.report_agent.subagents.visualization.chart_templates import build_chart
+    results = [
+        {"Branch": "A", "Category": "X", "Total": 100},
+        {"Branch": "B", "Category": "Y", "Total": 200},
+    ]
+    viz_decision = {
+        "chart_type": "comparison", "x_field": "Branch", "y_field": "Total",
+        "series_field": "Category", "title": "Comparison Test",
+    }
+    html = build_chart(viz_decision, results, {})
+    assert html is not None
+    assert "plotly" in html.lower()

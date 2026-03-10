@@ -50,8 +50,20 @@ def build_chart(
         y_format = _detect_number_format(df, y) if y else None
 
         fig = _BUILDERS[chart_type](df, x, y, series, title)
-        fig = _apply_labels(fig, x_label, y_label)
-        fig = _apply_number_format(fig, y_format)
+
+        # Detect if horizontal bar (labels need swapping)
+        is_horizontal = (
+            len(fig.data) > 0
+            and hasattr(fig.data[0], 'orientation')
+            and fig.data[0].orientation == 'h'
+        )
+
+        if is_horizontal:
+            fig = _apply_labels(fig, y_label, x_label)  # swap labels
+            fig = _apply_number_format(fig, y_format, axis="x")  # format on x-axis
+        else:
+            fig = _apply_labels(fig, x_label, y_label)
+            fig = _apply_number_format(fig, y_format)
         fig = _apply_layout(fig, title)
 
         if len(fig.data) > MAX_TRACES:
@@ -145,7 +157,7 @@ def _detect_number_format(df, col: str) -> Optional[str]:
         max_val = sample.max()
         if max_val > 1000:
             return "currency"
-        if 0 <= sample.min() and max_val <= 1:
+        if 0 <= sample.min() and max_val <= 1 and pd.api.types.is_float_dtype(df[col]):
             return "percentage"
     except (TypeError, ValueError):
         pass
@@ -163,11 +175,11 @@ def _apply_labels(fig, x_label: str, y_label: str):
     return fig
 
 
-def _apply_number_format(fig, fmt: Optional[str]):
+def _apply_number_format(fig, fmt: Optional[str], axis: str = "y"):
     if fmt == "currency":
-        fig.update_layout(yaxis_tickformat=",")
+        fig.update_layout(**{f"{axis}axis_tickformat": ","})
     elif fmt == "percentage":
-        fig.update_layout(yaxis_tickformat=".0%")
+        fig.update_layout(**{f"{axis}axis_tickformat": ".0%"})
     return fig
 
 
