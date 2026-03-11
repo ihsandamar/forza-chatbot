@@ -156,6 +156,38 @@ _ALL_TIME_EXPRS_UPPER = {
 _RULE_FILTER_EQ_RE = re.compile(r"^\[(\w+)\]\s*=\s*(.+)$")
 
 
+def _detect_time_granularity_from_query(user_query: str) -> Optional[str]:
+    """Detect time_granularity from Turkish keywords in user query (Option B fallback).
+
+    Returns granularity string or None if no match.
+    Order matters: aggregate-period patterns are checked FIRST (more specific),
+    then time-series patterns (more general).
+    """
+    q = user_query.lower()
+
+    # --- Aggregate period patterns (check first — more specific) ---
+    if any(k in q for k in ("saate göre", "saatlere göre", "günün saatlerine göre", "saat dağılımı")):
+        return "hour_of_day"
+    if any(k in q for k in ("haftanın günlerine göre", "haftanın günleri", "günlere göre dağılım", "güne göre dağılım")):
+        return "day_of_week"
+    if any(k in q for k in ("ayın günlerine göre", "ayın günleri")):
+        return "day_of_month"
+
+    # --- Time-series patterns (existing — more general) ---
+    if any(k in q for k in ("saatlik", "her saat", "saat saat", "saat bazında")):
+        return "hourly"
+    if any(k in q for k in ("haftalık", "her hafta", "hafta hafta", "hafta bazında")):
+        return "weekly"
+    if any(k in q for k in ("aylık", "her ay", "ay ay", "ay bazında")):
+        return "monthly"
+    if any(k in q for k in ("yıllık", "her yıl", "yıl yıl", "yıl bazında")):
+        return "yearly"
+    if any(k in q for k in ("günlük", "her gün", "gün gün", "gün bazında")):
+        return "daily"
+
+    return None
+
+
 def _normalize_document_date_group_by(raw_schema: dict) -> dict:
     """
     GROUP BY içinde ham DocumentDate (datetime) kolonu varsa DATE ifadesine dönüştür.
@@ -1077,16 +1109,7 @@ def create_sql_generator_node(
             _q_lower = (state.get("user_query") or "").lower()
 
             if not _time_gran:
-                if any(_k in _q_lower for _k in ("saatlik", "her saat", "saat saat", "saat bazında")):
-                    _time_gran = "hourly"
-                elif any(_k in _q_lower for _k in ("haftalık", "her hafta", "hafta hafta", "hafta bazında")):
-                    _time_gran = "weekly"
-                elif any(_k in _q_lower for _k in ("aylık", "her ay", "ay ay", "ay bazında")):
-                    _time_gran = "monthly"
-                elif any(_k in _q_lower for _k in ("yıllık", "her yıl", "yıl yıl", "yıl bazında")):
-                    _time_gran = "yearly"
-                elif any(_k in _q_lower for _k in ("günlük", "her gün", "gün gün", "gün bazında")):
-                    _time_gran = "daily"
+                _time_gran = _detect_time_granularity_from_query(state.get("user_query", ""))
                 if _time_gran:
                     logger.warning(f"[SQL_GENERATOR] TIME_SERIES: time_granularity keyword fallback: {_time_gran}")
 

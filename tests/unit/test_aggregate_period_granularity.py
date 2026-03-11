@@ -45,3 +45,30 @@ class TestExprAliasMap:
     def test_day_of_month_alias(self):
         from src.graphs.report_agent.subagents.text2sql.sql_builder import _EXPR_ALIAS_MAP
         assert _EXPR_ALIAS_MAP["DATEPART(DAY, DocumentDate)"] == "AyinGunu"
+
+
+class TestKeywordFallback:
+    """Verify Turkish keyword → granularity mapping for fallback detection."""
+
+    @pytest.mark.parametrize("query,expected", [
+        # hour_of_day patterns
+        ("saate göre ciro ver", "hour_of_day"),
+        ("günün saatlerine göre", "hour_of_day"),
+        ("saat dağılımı", "hour_of_day"),
+        ("saatlere göre satış", "hour_of_day"),
+        # day_of_week patterns
+        ("haftanın günlerine göre", "day_of_week"),
+        ("güne göre dağılım", "day_of_week"),
+        ("gün bazında", "daily"),  # existing keyword match for time-series
+        # day_of_month patterns
+        ("ayın günlerine göre", "day_of_month"),
+        # Existing patterns UNCHANGED
+        ("saatlik satış trendi", "hourly"),
+        ("günlük satışlar", "daily"),
+        ("haftalık ciro", "weekly"),
+        ("aylık karşılaştır", "monthly"),
+    ])
+    def test_keyword_to_granularity(self, query, expected):
+        from src.graphs.report_agent.subagents.text2sql.nodes import _detect_time_granularity_from_query
+        result = _detect_time_granularity_from_query(query)
+        assert result == expected, f"Query '{query}' → expected {expected}, got {result}"
