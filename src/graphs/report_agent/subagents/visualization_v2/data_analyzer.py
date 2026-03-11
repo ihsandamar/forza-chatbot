@@ -55,6 +55,18 @@ class DataAnalyzer:
         r'maliyet', r'gelir', r'kar', r'oran', r'puan', r'skor'
     ]
     
+    # Time granularity ranking (lower = more granular, preferred for x-axis)
+    TIME_GRANULARITY = {
+        "hour": 1, "saat": 1, "minute": 1, "dakika": 1,
+        "day": 2, "gun": 2, "dayofweek": 2,
+        "week": 3, "hafta": 3,
+        "month": 4, "ay": 4,
+        "quarter": 5, "ceyrek": 5,
+        "year": 6, "yil": 6,
+        "date": 2, "tarih": 2, "time": 1, "zaman": 1,
+        "donem": 5, "period": 5,
+    }
+
     # ID column patterns (identifiers, usually not useful for viz)
     ID_PATTERNS = [
         r'^id$', r'_id$', r'id$', r'code$', r'no$', r'num$', r'number$',
@@ -139,11 +151,26 @@ class DataAnalyzer:
                 metric_columns.append(col_name)
             # IDENTIFIER role is ignored for visualization
 
-        # Select best time column: prefer DATE/DATETIME over NUMERIC (e.g., Gun > Yil)
+        # Select best time column: prefer DATE/DATETIME over NUMERIC,
+        # then prefer most granular (Hafta > Yil) via TIME_GRANULARITY ranking.
         # Move non-selected time columns to dimensions (still useful for grouping)
+        all_time_names: List[str] = []
         if time_candidates:
             date_typed = [c for c in time_candidates if c["type"] in (ColumnType.DATE, ColumnType.DATETIME)]
-            time_column = (date_typed[0] if date_typed else time_candidates[0])["name"]
+            if date_typed:
+                time_column = date_typed[0]["name"]
+            else:
+                sorted_candidates = sorted(
+                    time_candidates,
+                    key=lambda c: self._get_time_granularity(c["name"]),
+                )
+                time_column = sorted_candidates[0]["name"]
+
+            all_time_names = [c["name"] for c in sorted(
+                time_candidates,
+                key=lambda c: self._get_time_granularity(c["name"]),
+            )]
+
             for tc in time_candidates:
                 if tc["name"] != time_column:
                     dimension_columns.append(tc["name"])
@@ -163,6 +190,7 @@ class DataAnalyzer:
             dimension_columns=dimension_columns,
             metric_columns=metric_columns,
             time_column=time_column,
+            time_columns=all_time_names if all_time_names else None,
             has_time_series=has_time_series,
             has_multiple_dimensions=has_multiple_dimensions,
             is_aggregated=is_aggregated,
@@ -173,6 +201,14 @@ class DataAnalyzer:
     # Column Analysis
     # ─────────────────────────────────────────────────────────
     
+    def _get_time_granularity(self, col_name: str) -> int:
+        """Return granularity rank for a time column name (lower = more granular)."""
+        col_lower = col_name.lower()
+        for pattern, rank in self.TIME_GRANULARITY.items():
+            if pattern in col_lower:
+                return rank
+        return 99
+
     def _analyze_column(self, col_name: str, data: List[Dict[str, Any]]) -> ColumnInfo:
         """
         Analyze a single column.

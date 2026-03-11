@@ -41,6 +41,7 @@ class DataProfile(TypedDict, total=False):
     dimension_columns: List[str]
     metric_columns: List[str]
     time_column: Optional[str]
+    time_columns: Optional[List[str]]
     has_time_series: bool
     has_multiple_dimensions: bool
     is_aggregated: bool
