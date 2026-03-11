@@ -1183,7 +1183,11 @@ def create_sql_generator_node(
         try:
             sql = generate_sql(raw_schema, table_name, auto_rules, today)
             logger.info(f"[SQL_GENERATOR] SQL ready: {sql[:200]}")
-            return {"sql_queries": [sql], "time_granularity": _time_gran}
+            return {
+                "sql_queries": [sql],
+                "time_granularity": _time_gran,
+                "comparison_dimension": _comp_dim if state.get("query_type") == "TIME_SERIES_COMPARISON" else raw_schema.get("comparison_dimension"),
+            }
         except Exception as e:
             logger.error(f"[SQL_GENERATOR] Build error: {e}")
             return {"error": f"SQL oluşturulamadı: {e}", "results": []}

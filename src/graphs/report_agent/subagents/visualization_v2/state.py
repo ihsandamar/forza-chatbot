@@ -18,6 +18,7 @@ class VisualizationState(TypedDict, total=False):
     visualization_output: Optional[Dict[str, Any]]
     error: Optional[str]
     time_granularity: Optional[str]       # from text2sql, for chart type decision
+    comparison_dimension: Optional[str]  # from text2sql, entity column for multi-dim charts
 
     # --- Internal ---
     data_profile: Optional[Dict[str, Any]]
