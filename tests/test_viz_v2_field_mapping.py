@@ -225,3 +225,109 @@ class TestCompositeTimeAxis:
         ]
         html = render_chart(spec, results, {})
         assert html is not None
+
+
+class TestEndToEndFieldMapping:
+    def test_full_pipeline_multi_product_weekly(self):
+        """ProductName x Hafta x Yil -> multi-trace line chart with composite axis."""
+        from src.graphs.report_agent.subagents.visualization_v2.data_analyzer import DataAnalyzer
+        from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
+        from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+        results = [
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 50, "ToplamSatis": 312095.1},
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 51, "ToplamSatis": 364080.046},
+            {"ProductName": "LATTE", "Yil": 2026, "Hafta": 1, "ToplamSatis": 263765.32},
+            {"ProductName": "AMERICANO", "Yil": 2025, "Hafta": 50, "ToplamSatis": 132010.1},
+            {"ProductName": "AMERICANO", "Yil": 2025, "Hafta": 51, "ToplamSatis": 178270.131},
+            {"ProductName": "AMERICANO", "Yil": 2026, "Hafta": 1, "ToplamSatis": 129130.28},
+        ]
+
+        # Step 1: Data Analyzer
+        analyzer = DataAnalyzer()
+        profile = analyzer.analyze({"raw_data": results})["data_profile"]
+
+        assert profile["time_column"] == "Hafta", f"Expected Hafta, got {profile['time_column']}"
+        assert "ProductName" in profile["dimension_columns"]
+
+        # Step 2: Simulate LLM decision (what LLM should produce)
+        llm_spec = {
+            "needs_graph": True,
+            "chart_type": "line_chart",
+            "x_field": "Hafta",
+            "y_field": "ToplamSatis",
+            "series_field": "ProductName",
+        }
+
+        # Step 3: Validator
+        validated = validate_spec(llm_spec, results, profile)
+
+        assert validated["x_field"] == "Hafta"
+        assert validated["y_field"] == "ToplamSatis"
+        assert validated["series_field"] == "ProductName"
+        assert validated["chart_type"] == "line_chart"
+
+        # Step 4: Renderer
+        html = render_chart(validated, results, {})
+
+        assert html is not None
+        assert "LATTE" in html
+        assert "AMERICANO" in html
+        assert "2025" in html
+
+    def test_validator_safety_net_when_llm_misses_series(self):
+        """LLM forgets series_field -> validator auto-fills it."""
+        from src.graphs.report_agent.subagents.visualization_v2.data_analyzer import DataAnalyzer
+        from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
+        from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+        results = [
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 50, "ToplamSatis": 100},
+            {"ProductName": "AMERICANO", "Yil": 2025, "Hafta": 50, "ToplamSatis": 200},
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 51, "ToplamSatis": 150},
+            {"ProductName": "AMERICANO", "Yil": 2025, "Hafta": 51, "ToplamSatis": 250},
+        ]
+
+        analyzer = DataAnalyzer()
+        profile = analyzer.analyze({"raw_data": results})["data_profile"]
+
+        # LLM forgot series_field
+        llm_spec = {
+            "needs_graph": True,
+            "chart_type": "line_chart",
+            "x_field": "Hafta",
+            "y_field": "ToplamSatis",
+            "series_field": None,
+        }
+
+        validated = validate_spec(llm_spec, results, profile)
+
+        # Validator safety net: ProductName auto-filled
+        assert validated["series_field"] == "ProductName"
+
+        # Render should produce multi-trace
+        html = render_chart(validated, results, {})
+        assert html is not None
+        assert "LATTE" in html
+        assert "AMERICANO" in html
+
+    def test_rule_based_returns_none_for_this_scenario(self):
+        """Verify the rule-based path correctly falls back to LLM for this data."""
+        from src.graphs.report_agent.subagents.visualization_v2.data_analyzer import DataAnalyzer
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+        results = [
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 50, "ToplamSatis": 100},
+            {"ProductName": "AMERICANO", "Yil": 2025, "Hafta": 50, "ToplamSatis": 200},
+        ]
+
+        analyzer = DataAnalyzer()
+        profile = analyzer.analyze({"raw_data": results})["data_profile"]
+
+        rule_result = _rule_based_decision(
+            query_type="TIME_SERIES_COMPARISON",
+            wants_viz=True,
+            profile=profile,
+        )
+        # Should return None = LLM fallback
+        assert rule_result is None
