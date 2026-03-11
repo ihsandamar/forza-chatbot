@@ -31,6 +31,8 @@ _EXPR_ALIAS_MAP: dict[str, str] = {
     "DATEPART(WEEK, DocumentDate)": "Hafta",
     "DATEPART(QUARTER, DocumentDate)": "Ceyrek",
     "DATEPART(HOUR, DocumentDate)": "Saat",
+    "DATEPART(DW, DocumentDate)": "HaftaGunu",        # NEW
+    "DATEPART(DAY, DocumentDate)": "AyinGunu",         # NEW
     # Birleşik CONCAT ifadeleri (tek kolon — haftalık/aylık)
     "CONCAT(YEAR(DocumentDate), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DocumentDate) AS VARCHAR), 2))": "Hafta",
     "CONCAT(YEAR(DocumentDate), '-', RIGHT('0' + CAST(MONTH(DocumentDate) AS VARCHAR), 2))": "Ay",

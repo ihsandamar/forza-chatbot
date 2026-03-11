@@ -113,12 +113,20 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
 # DocumentDate datetime kolonu için granülarite → SQL ifadeleri tablosu.
 # TIME_SERIES_COMPARISON bloğu ve _normalize_document_date_group_by paylaşır.
 _TIME_GRAN_MAP: dict = {
-    "hourly":  ["CAST(DocumentDate AS DATE)", "DATEPART(HOUR, DocumentDate)"],
-    "daily":   ["CAST(DocumentDate AS DATE)"],
-    "weekly":  ["CONCAT(YEAR(DocumentDate), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DocumentDate) AS VARCHAR), 2))"],
-    "monthly": ["CONCAT(YEAR(DocumentDate), '-', RIGHT('0' + CAST(MONTH(DocumentDate) AS VARCHAR), 2))"],
-    "yearly":  ["YEAR(DocumentDate)"],
+    "hourly":       ["CAST(DocumentDate AS DATE)", "DATEPART(HOUR, DocumentDate)"],
+    "daily":        ["CAST(DocumentDate AS DATE)"],
+    "weekly":       ["CONCAT(YEAR(DocumentDate), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DocumentDate) AS VARCHAR), 2))"],
+    "monthly":      ["CONCAT(YEAR(DocumentDate), '-', RIGHT('0' + CAST(MONTH(DocumentDate) AS VARCHAR), 2))"],
+    "yearly":       ["YEAR(DocumentDate)"],
+    # --- Aggregate period types (distribution, NOT time-series) ---
+    "hour_of_day":  ["DATEPART(HOUR, DocumentDate)"],
+    "day_of_week":  ["DATEPART(DW, DocumentDate)"],
+    "day_of_month": ["DATEPART(DAY, DocumentDate)"],
 }
+# Aggregate period types: produce distribution data (bar chart), NOT time-series (line chart).
+# Used by visualization layer to choose chart type.
+AGGREGATE_PERIOD_GRANULARITIES: frozenset = frozenset({"hour_of_day", "day_of_week", "day_of_month"})
+
 # Ham datetime kolon adları (GROUP BY'da kullanıldığında her timestamp ayrı grup olur)
 _RAW_DATE_COL_NAMES = {"documentdate", "date"}
 
@@ -140,6 +148,8 @@ _ALL_TIME_EXPRS_UPPER = {
     "DATEPART(WEEK, DOCUMENTDATE)",
     "DATEPART(WEEKDAY, DOCUMENTDATE)",
     "DATEPART(HOUR, DOCUMENTDATE)",
+    "DATEPART(DW, DOCUMENTDATE)",          # NEW — day_of_week
+    "DATEPART(DAY, DOCUMENTDATE)",          # NEW — day_of_month
     "HOUR",
     # Birleşik CONCAT ifadeleri (tek kolon üretir)
     "CONCAT(YEAR(DOCUMENTDATE), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DOCUMENTDATE) AS VARCHAR), 2))",
@@ -148,6 +158,38 @@ _ALL_TIME_EXPRS_UPPER = {
 
 # Business rule filter parse: [Column] = Value
 _RULE_FILTER_EQ_RE = re.compile(r"^\[(\w+)\]\s*=\s*(.+)$")
+
+
+def _detect_time_granularity_from_query(user_query: str) -> Optional[str]:
+    """Detect time_granularity from Turkish keywords in user query (Option B fallback).
+
+    Returns granularity string or None if no match.
+    Order matters: aggregate-period patterns are checked FIRST (more specific),
+    then time-series patterns (more general).
+    """
+    q = user_query.lower()
+
+    # --- Aggregate period patterns (check first — more specific) ---
+    if any(k in q for k in ("saate göre", "saatlere göre", "günün saatlerine göre", "saat dağılımı")):
+        return "hour_of_day"
+    if any(k in q for k in ("haftanın günlerine göre", "haftanın günleri", "günlere göre dağılım", "güne göre dağılım")):
+        return "day_of_week"
+    if any(k in q for k in ("ayın günlerine göre", "ayın günleri")):
+        return "day_of_month"
+
+    # --- Time-series patterns (existing — more general) ---
+    if any(k in q for k in ("saatlik", "her saat", "saat saat", "saat bazında")):
+        return "hourly"
+    if any(k in q for k in ("haftalık", "her hafta", "hafta hafta", "hafta bazında")):
+        return "weekly"
+    if any(k in q for k in ("aylık", "her ay", "ay ay", "ay bazında")):
+        return "monthly"
+    if any(k in q for k in ("yıllık", "her yıl", "yıl yıl", "yıl bazında")):
+        return "yearly"
+    if any(k in q for k in ("günlük", "her gün", "gün gün", "gün bazında")):
+        return "daily"
+
+    return None
 
 
 def _normalize_document_date_group_by(raw_schema: dict) -> dict:
@@ -931,7 +973,7 @@ def create_sql_generator_node(
         pre_built_sql = state.get("pre_built_sql")
         if pre_built_sql:
             logger.info(f"[SQL_GENERATOR] pre_built_sql mevcut, SQL üretimi atlanıyor: {pre_built_sql[:120]}")
-            return {"sql_queries": [pre_built_sql], "pre_built_sql": None}
+            return {"sql_queries": [pre_built_sql], "pre_built_sql": None, "time_granularity": None}
 
         raw_schema = state.get("query_schema")
         if not raw_schema:
@@ -1044,6 +1086,8 @@ def create_sql_generator_node(
                             f"aggregation alias'ta değil → kaldırıldı (auto ORDER BY devreye girer)"
                         )
 
+        _time_gran = raw_schema.get("time_granularity")  # may be None for non-TIME_SERIES
+
         # --- TIME_SERIES_COMPARISON güvenlik ağı: semantik alanlardan GROUP BY inşa et ---
         # Önce QuerySchema.time_granularity + comparison_dimension kullan (Option A).
         # LLM alanları boş bıraktıysa kullanıcı query'sinden keyword matching ile tespit (Option B).
@@ -1064,23 +1108,14 @@ def create_sql_generator_node(
             }
 
             # --- Option A: Semantik alanlardan değerleri al ---
-            _time_gran = raw_schema.get("time_granularity")
+            # _time_gran zaten line ~1089'da initialize edildi (return için)
             _comp_dim  = raw_schema.get("comparison_dimension")
 
             # --- Option B fallback: LLM alanları boş bıraktıysa query'den tespit ---
             _q_lower = (state.get("user_query") or "").lower()
 
             if not _time_gran:
-                if any(_k in _q_lower for _k in ("saatlik", "her saat", "saat saat", "saat bazında")):
-                    _time_gran = "hourly"
-                elif any(_k in _q_lower for _k in ("haftalık", "her hafta", "hafta hafta", "hafta bazında")):
-                    _time_gran = "weekly"
-                elif any(_k in _q_lower for _k in ("aylık", "her ay", "ay ay", "ay bazında")):
-                    _time_gran = "monthly"
-                elif any(_k in _q_lower for _k in ("yıllık", "her yıl", "yıl yıl", "yıl bazında")):
-                    _time_gran = "yearly"
-                elif any(_k in _q_lower for _k in ("günlük", "her gün", "gün gün", "gün bazında")):
-                    _time_gran = "daily"
+                _time_gran = _detect_time_granularity_from_query(state.get("user_query", ""))
                 if _time_gran:
                     logger.warning(f"[SQL_GENERATOR] TIME_SERIES: time_granularity keyword fallback: {_time_gran}")
 
@@ -1148,7 +1183,7 @@ def create_sql_generator_node(
         try:
             sql = generate_sql(raw_schema, table_name, auto_rules, today)
             logger.info(f"[SQL_GENERATOR] SQL ready: {sql[:200]}")
-            return {"sql_queries": [sql]}
+            return {"sql_queries": [sql], "time_granularity": _time_gran}
         except Exception as e:
             logger.error(f"[SQL_GENERATOR] Build error: {e}")
             return {"error": f"SQL oluşturulamadı: {e}", "results": []}
