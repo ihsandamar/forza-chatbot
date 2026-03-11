@@ -123,6 +123,14 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   KURAL 2: "X ve Y'yi [periyot] bazda karşılaştır" kalıbı → zaman granülaritesi + entity = TIME_SERIES_COMPARISON
   KURAL 3: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY = LISTING
 
+TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
+- "saate göre ciro dağılımı" → TIME_SERIES_COMPARISON (aggregate: hour_of_day)
+- "haftanın günlerine göre satış" → TIME_SERIES_COMPARISON (aggregate: day_of_week)
+- "ayın günlerine göre adet" → TIME_SERIES_COMPARISON (aggregate: day_of_month)
+
+⚠️ FARK: "günlük satışlar" = TIME_SERIES (trend), "haftanın günlerine göre" = TIME_SERIES (dağılım)
+  İkisi de TIME_SERIES_COMPARISON. Ayrım text2sql katmanında time_granularity ile yapılır.
+
 **wants_visualization:**
 - True: Kullanıcı açıkça grafik/görsel talep ediyor
   → "grafik", "chart", "çizgi grafik", "bar", "pasta", "görselleştir", "diyagram", "şekil olarak göster" gibi ifadeler içeriyorsa
