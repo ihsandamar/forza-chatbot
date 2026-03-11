@@ -205,7 +205,9 @@ def _build_conversation_context(state: dict, max_turns: int = 3) -> str:
         msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else None)
         content = getattr(msg, "content", None) or (msg.get("content", "") if isinstance(msg, dict) else "")
 
-        if not content or len(str(content)) > 500:
+        if not content:
+            continue
+        if len(str(content)) > 500:
             content = str(content)[:500] + "..."
 
         if msg_type == "human":

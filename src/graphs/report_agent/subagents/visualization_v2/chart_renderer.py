@@ -33,6 +33,7 @@ def render_chart(
     Returns:
         HTML snippet string or None if unsupported/empty
     """
+    spec = dict(spec)  # defensive copy — composite time mutates x_field
     chart_type = spec.get("chart_type")
     if chart_type not in _BUILDERS:
         logger.warning(f"[RENDERER] Unsupported chart_type '{chart_type}'")
