@@ -29,3 +29,19 @@ class TestTimeGranMap:
         cols = _TIME_GRAN_MAP["hourly"]
         assert "CAST(DocumentDate AS DATE)" in cols
         assert "DATEPART(HOUR, DocumentDate)" in cols
+
+
+class TestExprAliasMap:
+    """Verify SELECT aliases for aggregate period expressions."""
+
+    def test_hour_of_day_alias(self):
+        from src.graphs.report_agent.subagents.text2sql.sql_builder import _EXPR_ALIAS_MAP
+        assert _EXPR_ALIAS_MAP["DATEPART(HOUR, DocumentDate)"] == "Saat"
+
+    def test_day_of_week_alias(self):
+        from src.graphs.report_agent.subagents.text2sql.sql_builder import _EXPR_ALIAS_MAP
+        assert _EXPR_ALIAS_MAP["DATEPART(DW, DocumentDate)"] == "HaftaGunu"
+
+    def test_day_of_month_alias(self):
+        from src.graphs.report_agent.subagents.text2sql.sql_builder import _EXPR_ALIAS_MAP
+        assert _EXPR_ALIAS_MAP["DATEPART(DAY, DocumentDate)"] == "AyinGunu"
