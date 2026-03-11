@@ -346,6 +346,26 @@ query_type = "TIME_SERIES_COMPARISON" olduğunda MUTLAKA doldur:
   - "günlük satışlar"    → "daily"       (her gün ayrı satır)
   - "haftanın günlerine göre" → "day_of_week" (7 satır: Pazartesi-Pazar, günler toplanır)
 
+🔍 BELİRSİZLİK ÇÖZÜM KURALLARI:
+Kullanıcı net belirtmezse, BAĞLAM'a göre karar ver:
+
+1. "X göre" / "X'e göre" → TOPLU DAĞILIM (aggregate)
+   - "saate göre" → hour_of_day
+   - "güne göre" → day_of_week (haftanın günleri context'i varsa) veya daily
+   - "aya göre" → monthly
+
+2. "X'lik" / "X bazında" → ZAMAN SERİSİ (trend)
+   - "saatlik" → hourly
+   - "günlük" → daily
+   - "haftalık" → weekly
+
+3. "trend", "değişim", "seyir", "gelişim" kelimeleri varsa → ZAMAN SERİSİ
+4. "dağılım", "oran", "yoğunluk", "yüzde" kelimeleri varsa → TOPLU DAĞILIM
+5. Tarih aralığı kısa (1 gün) + "saate göre" → hour_of_day (kesin)
+6. Tarih aralığı uzun (aylar) + "saate göre" → hour_of_day (günler toplanır)
+
+VARSAYILAN: Belirsiz kalırsa, "X göre" → aggregate, "X'lik" → time-series
+
 **comparison_dimension** — Karşılaştırılan entity'nin DB kolon adı:
   "ürünleri", "ürünlere göre", "ürün bazında"         → "ProductName"
   "şubeleri", "şubelere göre", "şube bazında"          → "BranchName"
