@@ -131,16 +131,20 @@ def _rule_based_decision(
     query_type: str,
     wants_viz: bool,
     profile: dict,
+    time_granularity: Optional[str] = None,
+    comparison_dimension: Optional[str] = None,
 ) -> Optional[dict]:
     """
     Deterministic chart type selection.
-    Field mapping yapmaz (x_field, y_field = None) — validator doldurur.
+    Uses time_granularity + comparison_dimension for smarter multi-dim routing.
+    Returns None -> LLM fallback.
     """
     if not wants_viz:
         return None
 
     metric_cols = profile.get("metric_columns", [])
     time_col = profile.get("time_column")
+    dim_cols = profile.get("dimension_columns", [])
     row_count = profile.get("row_count", 0)
 
     if not metric_cols:
@@ -160,6 +164,49 @@ def _rule_based_decision(
             "reason": "Single value result",
         }
 
+    # --- AGGREGATE PERIOD routing (hour_of_day, day_of_week, day_of_month) ---
+    _AGG_X_FIELD_MAP = {"hour_of_day": "Saat", "day_of_week": "HaftaGunu", "day_of_month": "AyinGunu"}
+    if time_granularity and time_granularity in AGGREGATE_PERIOD_GRANULARITIES:
+        x_field = _AGG_X_FIELD_MAP.get(time_granularity)
+        if comparison_dimension:
+            # entity x period -> heatmap
+            return {
+                "needs_graph": True, "chart_type": "heatmap",
+                "x_field": x_field, "y_field": None,
+                "series_field": comparison_dimension,
+                "reason": f"Aggregate period ({time_granularity}) + entity ({comparison_dimension}) -> heatmap",
+            }
+        else:
+            # simple period distribution -> bar_chart
+            return {
+                "needs_graph": True, "chart_type": "bar_chart",
+                "x_field": x_field, "y_field": None,
+                "series_field": None,
+                "reason": f"Aggregate period distribution ({time_granularity})",
+            }
+
+    # --- TIME_SERIES_COMPARISON routing ---
+    if query_type == "TIME_SERIES_COMPARISON":
+        if comparison_dimension:
+            # entity + time trend -> multi-line (each entity = 1 line)
+            return {
+                "needs_graph": True, "chart_type": "line_chart",
+                "x_field": None, "y_field": None,
+                "series_field": comparison_dimension,
+                "reason": f"Time series + entity ({comparison_dimension}) -> multi-line",
+            }
+        has_dims = len(dim_cols) >= 1
+        if has_dims:
+            # Dimension columns exist but comparison_dimension wasn't set by text2sql.
+            # Fall back to LLM for correct field mapping.
+            return None
+        # simple time series (no entity)
+        return {
+            "needs_graph": True, "chart_type": "line_chart",
+            "x_field": None, "y_field": None, "series_field": None,
+            "reason": "Simple time series -> line chart",
+        }
+
     if query_type == "TIME_SERIES":
         return {
             "needs_graph": True, "chart_type": "line_chart",
@@ -167,15 +214,13 @@ def _rule_based_decision(
             "reason": "Time series -> line chart",
         }
 
-    if query_type == "TIME_SERIES_COMPARISON":
-        has_multi_dim = profile.get("has_multiple_dimensions", False)
-        dim_count = len(profile.get("dimension_columns", []))
-        if has_multi_dim or dim_count >= 1:
-            return None  # → LLM fallback for field mapping
+    # --- COMPARISON / RANKING with multiple dimensions -> sunburst ---
+    if query_type in ("COMPARISON", "RANKING") and len(dim_cols) >= 2 and not time_col:
         return {
-            "needs_graph": True, "chart_type": "line_chart",
+            "needs_graph": True, "chart_type": "sunburst",
             "x_field": None, "y_field": None, "series_field": None,
-            "reason": "Simple time series comparison -> line chart",
+            "hierarchy_fields": dim_cols[:3],  # max 3 levels
+            "reason": f"Multi-dimension hierarchy ({dim_cols[:3]}) -> sunburst",
         }
 
     if query_type == "RANKING":
@@ -258,24 +303,16 @@ def create_viz_decider_node(llm) -> Callable:
                 needs_graph=False, chart_type="single_value", reason="Tek deger"
             ).model_dump()}
 
-        # Aggregate period → bar chart (distribution, not trend)
         _time_gran = state.get("time_granularity")
-        _AGG_X_FIELD_MAP = {"hour_of_day": "Saat", "day_of_week": "HaftaGunu", "day_of_month": "AyinGunu"}
-        if _time_gran and _time_gran in AGGREGATE_PERIOD_GRANULARITIES:
-            logger.info(f"[V2:VIZ_DECIDER] Aggregate period: {_time_gran} → bar_chart")
-            return {"viz_decision": {
-                "needs_graph": True,
-                "chart_type": "bar_chart",
-                "x_field": _AGG_X_FIELD_MAP.get(_time_gran),
-                "y_field": None, "series_field": None,
-                "reason": f"Aggregate period distribution ({_time_gran})",
-            }}
+        _comp_dim = state.get("comparison_dimension")
 
-        # Rule-based fast path
+        # Rule-based fast path (includes aggregate period routing)
         rule_decision = _rule_based_decision(
             query_type=state.get("query_type", ""),
             wants_viz=state.get("wants_visualization", False),
             profile=data_profile or {},
+            time_granularity=_time_gran,
+            comparison_dimension=_comp_dim,
         )
         if rule_decision is not None:
             logger.info(f"[V2:VIZ_DECIDER] Rule-based: {rule_decision['chart_type']}")
