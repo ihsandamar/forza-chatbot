@@ -973,7 +973,7 @@ def create_sql_generator_node(
         pre_built_sql = state.get("pre_built_sql")
         if pre_built_sql:
             logger.info(f"[SQL_GENERATOR] pre_built_sql mevcut, SQL üretimi atlanıyor: {pre_built_sql[:120]}")
-            return {"sql_queries": [pre_built_sql], "pre_built_sql": None}
+            return {"sql_queries": [pre_built_sql], "pre_built_sql": None, "time_granularity": None}
 
         raw_schema = state.get("query_schema")
         if not raw_schema:
@@ -1108,7 +1108,7 @@ def create_sql_generator_node(
             }
 
             # --- Option A: Semantik alanlardan değerleri al ---
-            _time_gran = raw_schema.get("time_granularity")
+            # _time_gran zaten line ~1089'da initialize edildi (return için)
             _comp_dim  = raw_schema.get("comparison_dimension")
 
             # --- Option B fallback: LLM alanları boş bıraktıysa query'den tespit ---

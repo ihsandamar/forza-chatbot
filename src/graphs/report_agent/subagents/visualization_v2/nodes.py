@@ -260,12 +260,14 @@ def create_viz_decider_node(llm) -> Callable:
 
         # Aggregate period → bar chart (distribution, not trend)
         _time_gran = state.get("time_granularity")
+        _AGG_X_FIELD_MAP = {"hour_of_day": "Saat", "day_of_week": "HaftaGunu", "day_of_month": "AyinGunu"}
         if _time_gran and _time_gran in AGGREGATE_PERIOD_GRANULARITIES:
             logger.info(f"[V2:VIZ_DECIDER] Aggregate period: {_time_gran} → bar_chart")
             return {"viz_decision": {
                 "needs_graph": True,
                 "chart_type": "bar_chart",
-                "x_field": None, "y_field": None, "series_field": None,
+                "x_field": _AGG_X_FIELD_MAP.get(_time_gran),
+                "y_field": None, "series_field": None,
                 "reason": f"Aggregate period distribution ({_time_gran})",
             }}
 
