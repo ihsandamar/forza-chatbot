@@ -6,7 +6,10 @@ LLM ChartSpec JSON uretir, kod uretmez.
 """
 
 VIZ_DECIDER_PROMPT = """Sen bir veri gorselleştirme uzmanisin.
-Kullanici sorusu ve veri profiline gore en uygun gorselleştirmeyi belirle.
+Kullanici sorusu, onceki konusma baglami ve veri profiline gore en uygun gorselleştirmeyi belirle.
+
+## ONCEKI KONUSMA BAGLAMI
+{conversation_context}
 
 ## KULLANICI SORUSU
 {user_query}
@@ -33,9 +36,17 @@ wants_visualization: {wants_visualization}
 - ⚠️ ASLA x_field'e metric, y_field'e dimension koyma
 - Birden fazla metric varsa y_fields listesi kullan
 
-### series_field
-- Karsilastirma varsa ikinci dimension kolonu (renk/grup ayirimi)
-- Yoksa null birak
+### series_field (ONEMLI — KARSILASTIRMA GRAFIKLERI ICIN)
+- Birden fazla dimension varsa: bir tanesi x_field, diger(ler)i series_field
+- series_field renk/grup ayirimi yapar (her urun farkli renk gibi)
+- ⚠️ Veri birden fazla entity icerir ve karsilastirma isteniyorsa series_field MUTLAKA set et
+- Ornek: ProductName + Hafta + ToplamSatis → x_field=Hafta, series_field=ProductName
+
+### COMPOSITE TIME AXIS
+- Veri hem Yil hem Hafta/Ay iceriyorsa:
+  - x_field = en granüler zaman kolonu (Hafta > Ay > Yil)
+  - Yil bilgisi x_field'e dahildir (renderer otomatik birlestirir)
+- ⚠️ x_field'e ASLA "Yil" koyma eger daha granüler bir zaman kolonu varsa
 
 ### chart_type SECIMI
 Kullanici grafik turu belirtmisse onu kullan:

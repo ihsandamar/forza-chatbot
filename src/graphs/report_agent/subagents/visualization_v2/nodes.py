@@ -194,6 +194,28 @@ def _rule_based_decision(
     return None
 
 
+def _build_conversation_context(state: dict, max_turns: int = 3) -> str:
+    """Extract last N conversation turns as context for the LLM prompt."""
+    messages = state.get("messages") or []
+    if not messages:
+        return "Onceki konusma yok."
+
+    relevant = []
+    for msg in messages[-(max_turns * 2):]:
+        msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else None)
+        content = getattr(msg, "content", None) or (msg.get("content", "") if isinstance(msg, dict) else "")
+
+        if not content or len(str(content)) > 500:
+            content = str(content)[:500] + "..."
+
+        if msg_type == "human":
+            relevant.append(f"Kullanici: {content}")
+        elif msg_type == "ai":
+            relevant.append(f"Sistem: {content}")
+
+    return "\n".join(relevant) if relevant else "Onceki konusma yok."
+
+
 def _build_column_info(profile: dict, column_metadata: dict) -> str:
     """Format column info for LLM prompt: name (role, type): description."""
     lines = []
@@ -256,12 +278,15 @@ def create_viz_decider_node(llm) -> Callable:
         effective_query = state.get("viz_request") or state.get("user_query", "")
         column_info = _build_column_info(profile, column_metadata)
 
+        conversation_context = _build_conversation_context(state)
+
         prompt = VIZ_DECIDER_PROMPT.format(
             user_query=effective_query,
             query_type=state.get("query_type", "SINGLE"),
             wants_visualization=wants_viz,
             column_info=column_info,
             sample_rows=json.dumps(results[:3], ensure_ascii=False, indent=2),
+            conversation_context=conversation_context,
         )
 
         decision: ChartSpec = await structured_llm.ainvoke(prompt)

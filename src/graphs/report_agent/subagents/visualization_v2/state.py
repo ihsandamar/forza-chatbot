@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 class VisualizationState(TypedDict, total=False):
     # --- ReportState overlapping (auto-sync) ---
+    messages: Optional[list]               # conversation context (LLM prompt'a eklenir)
     results: Optional[List[Dict[str, Any]]]
     user_query: str
     viz_request: Optional[str]
