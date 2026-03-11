@@ -298,6 +298,7 @@ def create_viz_decider_node(llm) -> Callable:
             user_query=effective_query,
             query_type=state.get("query_type", "SINGLE"),
             wants_visualization=wants_viz,
+            time_granularity=state.get("time_granularity") or "N/A",  # NEW
             column_info=column_info,
             sample_rows=json.dumps(results[:3], ensure_ascii=False, indent=2),
             conversation_context=conversation_context,

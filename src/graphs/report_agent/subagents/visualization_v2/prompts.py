@@ -17,6 +17,9 @@ Kullanici sorusu, onceki konusma baglami ve veri profiline gore en uygun gorsell
 ## SORGU TIPI
 {query_type}
 
+## ZAMAN GRANÜLARITESI
+time_granularity: {time_granularity}
+
 ## GRAFIK TALEBI
 wants_visualization: {wants_visualization}
 ⚠️ wants_visualization=True → needs_graph MUTLAKA True olmali.
@@ -69,6 +72,13 @@ Belirtmemisse veri profiline gore:
 ### orientation
 - Kategori sayisi fazlaysa (10+) → "h" (yatay bar daha okunur)
 - Azsa veya zaman serisi → "v" veya null
+
+### 📊 TOPLU DAĞILIM (Aggregate Period) Kuralları
+- time_granularity "hour_of_day" ise: x_field = "Saat", chart_type = "bar_chart"
+- time_granularity "day_of_week" ise: x_field = "HaftaGunu", chart_type = "bar_chart"
+- time_granularity "day_of_month" ise: x_field = "AyinGunu", chart_type = "bar_chart"
+- Bu tiplerde Tarih kolonu OLMAZ — x ekseni periyod değeridir (0-23, 1-7, 1-31).
+- Entity karşılaştırması varsa (CategoryName gibi) → series_field = entity kolon.
 
 ### top_n
 - Pie chart icin 10'dan fazla kategori varsa → top_n=10 oner
