@@ -327,11 +327,24 @@ DOĞRU ✅:
 query_type = "TIME_SERIES_COMPARISON" olduğunda MUTLAKA doldur:
 
 **time_granularity** — Zaman granülaritesi (sadece bu değerlerden biri):
-  "saatlik", "saat saat", "her saat"  → "hourly"
-  "günlük", "her gün", "gün bazında" → "daily"
-  "haftalık", "her hafta"             → "weekly"
-  "aylık", "her ay", "ay bazında"    → "monthly"
-  "yıllık", "her yıl", "yıl bazında" → "yearly"
+
+  ⏰ ZAMAN SERİSİ (trend/karşılaştırma — tarih + periyod):
+  "saatlik trend", "saat saat değişim"   → "hourly"
+  "günlük", "her gün", "gün bazında"    → "daily"
+  "haftalık", "her hafta"                → "weekly"
+  "aylık", "her ay", "ay bazında"       → "monthly"
+  "yıllık", "her yıl", "yıl bazında"   → "yearly"
+
+  📊 TOPLU DAĞILIM (aggregate — SADECE periyod, tarih YOK):
+  "saate göre", "saatlere göre", "günün saatlerine göre"  → "hour_of_day"
+  "haftanın günlerine göre", "güne göre dağılım"           → "day_of_week"
+  "ayın günlerine göre", "ayın hangi günleri"              → "day_of_month"
+
+  ⚠️ KRİTİK FARK:
+  - "saatlik trend"      → "hourly"      (DATE + HOUR → her gün her saat ayrı satır)
+  - "saate göre ciro"    → "hour_of_day" (SADECE HOUR → 24 satır, günler toplanır)
+  - "günlük satışlar"    → "daily"       (her gün ayrı satır)
+  - "haftanın günlerine göre" → "day_of_week" (7 satır: Pazartesi-Pazar, günler toplanır)
 
 **comparison_dimension** — Karşılaştırılan entity'nin DB kolon adı:
   "ürünleri", "ürünlere göre", "ürün bazında"         → "ProductName"
@@ -365,12 +378,44 @@ query_type = "TIME_SERIES_COMPARISON" olduğunda MUTLAKA doldur:
   → comparison_dimension: "CategoryName"
   → filters: [BranchName = "Ankara"]
 
+ÖRNEK ✅ (aggregate — hour_of_day):
+  "son 3 ayda espresso cirosu saate göre"
+  → time_granularity: "hour_of_day"
+  → comparison_dimension: null
+  → filters: [CategoryName = "ESPRESSO"]
+  → group_by: ["DATEPART(HOUR, DocumentDate)"]
+  → Sonuç: 24 satır (0-23 saat, tüm günler toplanmış)
+
+ÖRNEK ✅ (aggregate — day_of_week):
+  "haftanın günlerine göre satış dağılımı"
+  → time_granularity: "day_of_week"
+  → comparison_dimension: null
+  → group_by: ["DATEPART(DW, DocumentDate)"]
+  → Sonuç: 7 satır (Pazartesi-Pazar)
+
+ÖRNEK ✅ (aggregate — day_of_week + entity):
+  "kategorilerin haftanın günlerine göre karşılaştırması"
+  → time_granularity: "day_of_week"
+  → comparison_dimension: "CategoryName"
+  → group_by: ["CategoryName", "DATEPART(DW, DocumentDate)"]
+
 ### KURAL 5 — Periyodik Gruplama
 "günlük satışlar"   → group_by: ["CAST(DocumentDate AS DATE)"]
 "haftalık satışlar" → group_by: ["YEAR(DocumentDate)", "DATEPART(WEEK, DocumentDate)"]  # İKİSİ BİRDEN!
 "aylık satışlar"    → group_by: ["YEAR(DocumentDate)", "MONTH(DocumentDate)"]
 "yıllık satışlar"   → group_by: ["YEAR(DocumentDate)"]
 "saatlik dağılım"   → group_by: ["CAST(DocumentDate AS DATE)", "Hour"]
+
+📊 TOPLU DAĞILIM (aggregate — tarih kolonu EKLEME):
+"saate göre ciro"            → time_granularity: "hour_of_day"
+                               group_by: ["DATEPART(HOUR, DocumentDate)"]  ← SADECE saat!
+"haftanın günlerine göre"    → time_granularity: "day_of_week"
+                               group_by: ["DATEPART(DW, DocumentDate)"]   ← SADECE gün!
+"ayın günlerine göre"        → time_granularity: "day_of_month"
+                               group_by: ["DATEPART(DAY, DocumentDate)"]  ← SADECE gün numarası!
+
+⚠️ TOPLU DAĞILIM'da CAST(DocumentDate AS DATE) veya YEAR() KOYMA — tüm tarihler TOPLANMALI.
+
 Tarih kolonu adını column_metadata'dan al.
 ⚠️ order_by_column MUTLAKA group_by'da olan bir kolon olmalı — GROUP BY'da olmayan kolona ORDER BY KOYMAK YASAK!
 ⚠️ group_by'a ham DocumentDate (datetime) ASLA KOYMA — zaman granülaritesi varsa SADECE ifadeyi kullan:
