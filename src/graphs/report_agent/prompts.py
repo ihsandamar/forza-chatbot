@@ -133,7 +133,7 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
 
 **wants_visualization:**
 - True: Kullanıcı açıkça grafik/görsel talep ediyor
-  → "grafik", "chart", "çizgi grafik", "bar", "pasta", "görselleştir", "diyagram", "şekil olarak göster" gibi ifadeler içeriyorsa
+  → "grafik", "chart", "çizgi grafik", "bar", "pasta", "görselleştir", "diyagram", "şekil olarak göster", "heatmap", "ısı haritası", "sunburst", "treemap" gibi ifadeler içeriyorsa
   → use_result_type="revisualize" ise HER ZAMAN True
   → Hem sorgu hem grafik istiyorsa (ör: "satışları bar chart olarak göster") True
 - False: Sadece veri/tablo istiyor, grafik talep etmiyor (DEFAULT)

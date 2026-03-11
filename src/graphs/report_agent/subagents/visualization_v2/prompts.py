@@ -59,6 +59,7 @@ Kullanici grafik turu belirtmisse onu kullan:
 - "scatter/dagilim" → scatter_chart
 - "sunburst/hiyerarsik" → sunburst
 - "treemap/agac harita" → treemap
+- "heatmap/ısı haritası" → heatmap
 
 Belirtmemisse veri profiline gore:
 - Tek sayi → single_value (needs_graph=False)
@@ -68,6 +69,7 @@ Belirtmemisse veri profiline gore:
 - Kategori karsilastirmasi → bar_chart
 - Oran/pay dagilimi → pie_chart
 - 2+ dimension hiyerarsi → sunburst veya treemap
+- Entity + toplu dağılım (hour_of_day/day_of_week/day_of_month) → heatmap
 
 ### orientation
 - Kategori sayisi fazlaysa (10+) → "h" (yatay bar daha okunur)
@@ -79,6 +81,15 @@ Belirtmemisse veri profiline gore:
 - time_granularity "day_of_month" ise: x_field = "AyinGunu", chart_type = "bar_chart"
 - Bu tiplerde Tarih kolonu OLMAZ — x ekseni periyod değeridir (0-23, 1-7, 1-31).
 - Entity karşılaştırması varsa (CategoryName gibi) → series_field = entity kolon.
+
+### 🗺️ HEATMAP KURALLARI
+- Heatmap = İKİ boyutlu matris görselleştirmesi (satır × sütun → renk yoğunluğu)
+- ZORUNLU ALANLAR: x_field (periyod/kategori), series_field (entity), y_field (metrik)
+- Tipik kullanım: entity × zaman periyodu matrisi
+  → "kategorilerin haftanın günlerine göre cirosu" → x_field="HaftaGunu", series_field="CategoryName"
+  → "ürünlerin saatlere göre satışları" → x_field="Saat", series_field="ProductName"
+- Kullanıcı "heatmap" veya "ısı haritası" derse → chart_type="heatmap"
+- 2 boyut + 1 metrik + toplu dağılım periyodu varsa heatmap öner
 
 ### top_n
 - Pie chart icin 10'dan fazla kategori varsa → top_n=10 oner
