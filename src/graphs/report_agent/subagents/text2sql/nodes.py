@@ -113,11 +113,15 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
 # DocumentDate datetime kolonu için granülarite → SQL ifadeleri tablosu.
 # TIME_SERIES_COMPARISON bloğu ve _normalize_document_date_group_by paylaşır.
 _TIME_GRAN_MAP: dict = {
-    "hourly":  ["CAST(DocumentDate AS DATE)", "DATEPART(HOUR, DocumentDate)"],
-    "daily":   ["CAST(DocumentDate AS DATE)"],
-    "weekly":  ["CONCAT(YEAR(DocumentDate), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DocumentDate) AS VARCHAR), 2))"],
-    "monthly": ["CONCAT(YEAR(DocumentDate), '-', RIGHT('0' + CAST(MONTH(DocumentDate) AS VARCHAR), 2))"],
-    "yearly":  ["YEAR(DocumentDate)"],
+    "hourly":       ["CAST(DocumentDate AS DATE)", "DATEPART(HOUR, DocumentDate)"],
+    "daily":        ["CAST(DocumentDate AS DATE)"],
+    "weekly":       ["CONCAT(YEAR(DocumentDate), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DocumentDate) AS VARCHAR), 2))"],
+    "monthly":      ["CONCAT(YEAR(DocumentDate), '-', RIGHT('0' + CAST(MONTH(DocumentDate) AS VARCHAR), 2))"],
+    "yearly":       ["YEAR(DocumentDate)"],
+    # --- Aggregate period types (distribution, NOT time-series) ---
+    "hour_of_day":  ["DATEPART(HOUR, DocumentDate)"],
+    "day_of_week":  ["DATEPART(DW, DocumentDate)"],
+    "day_of_month": ["DATEPART(DAY, DocumentDate)"],
 }
 # Ham datetime kolon adları (GROUP BY'da kullanıldığında her timestamp ayrı grup olur)
 _RAW_DATE_COL_NAMES = {"documentdate", "date"}
@@ -140,6 +144,8 @@ _ALL_TIME_EXPRS_UPPER = {
     "DATEPART(WEEK, DOCUMENTDATE)",
     "DATEPART(WEEKDAY, DOCUMENTDATE)",
     "DATEPART(HOUR, DOCUMENTDATE)",
+    "DATEPART(DW, DOCUMENTDATE)",          # NEW — day_of_week
+    "DATEPART(DAY, DOCUMENTDATE)",          # NEW — day_of_month
     "HOUR",
     # Birleşik CONCAT ifadeleri (tek kolon üretir)
     "CONCAT(YEAR(DOCUMENTDATE), '-W', RIGHT('0' + CAST(DATEPART(WEEK, DOCUMENTDATE) AS VARCHAR), 2))",

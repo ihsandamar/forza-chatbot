@@ -94,7 +94,10 @@ class QuerySchema(BaseModel):
     filters:            List[SchemaFilter]
     aggregations:       List[SchemaAggregation]
     group_by:             List[str]
-    time_granularity:     Optional[Literal["hourly", "daily", "weekly", "monthly", "yearly"]] = None
+    time_granularity:     Optional[Literal[
+        "hourly", "daily", "weekly", "monthly", "yearly",
+        "hour_of_day", "day_of_week", "day_of_month",
+    ]] = None
     comparison_dimension: Optional[str] = None   # DB kolon adı: "ProductName", "BranchName" vb.
     order_by_column:      Optional[str] = None
     order_by_direction:   Literal["ASC", "DESC"] = "DESC"
