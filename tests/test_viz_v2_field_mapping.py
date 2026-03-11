@@ -95,3 +95,79 @@ class TestRuleBasedDecision:
         )
         assert result is not None
         assert result["chart_type"] == "bar_chart"
+
+
+class TestValidatorSeriesField:
+    def test_auto_fill_series_field_for_multi_dim(self):
+        spec = {
+            "needs_graph": True,
+            "chart_type": "line_chart",
+            "x_field": "Hafta",
+            "y_field": "ToplamSatis",
+            "series_field": None,
+        }
+        results = [
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 40, "ToplamSatis": 100},
+            {"ProductName": "AMERICANO", "Yil": 2025, "Hafta": 40, "ToplamSatis": 200},
+        ]
+        profile = {
+            "dimension_columns": ["ProductName", "Yil"],
+            "metric_columns": ["ToplamSatis"],
+            "time_column": "Hafta",
+            "columns": [
+                {"name": "ProductName", "role": "dimension", "type": "text"},
+                {"name": "Yil", "role": "time", "type": "numeric"},
+                {"name": "Hafta", "role": "time", "type": "numeric"},
+                {"name": "ToplamSatis", "role": "metric", "type": "numeric"},
+            ],
+        }
+        validated = validate_spec(spec, results, profile)
+        assert validated["series_field"] == "ProductName"
+
+    def test_no_auto_fill_when_series_already_set(self):
+        spec = {
+            "needs_graph": True,
+            "chart_type": "line_chart",
+            "x_field": "Hafta",
+            "y_field": "ToplamSatis",
+            "series_field": "Yil",
+        }
+        results = [
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 40, "ToplamSatis": 100},
+        ]
+        profile = {
+            "dimension_columns": ["ProductName", "Yil"],
+            "metric_columns": ["ToplamSatis"],
+            "time_column": "Hafta",
+            "columns": [
+                {"name": "ProductName", "role": "dimension", "type": "text"},
+                {"name": "Yil", "role": "time", "type": "numeric"},
+                {"name": "Hafta", "role": "time", "type": "numeric"},
+                {"name": "ToplamSatis", "role": "metric", "type": "numeric"},
+            ],
+        }
+        validated = validate_spec(spec, results, profile)
+        assert validated["series_field"] == "Yil"
+
+    def test_no_auto_fill_for_pie_chart(self):
+        spec = {
+            "needs_graph": True,
+            "chart_type": "pie_chart",
+            "x_field": "ProductName",
+            "y_field": "ToplamSatis",
+            "series_field": None,
+        }
+        results = [
+            {"ProductName": "LATTE", "ToplamSatis": 100},
+        ]
+        profile = {
+            "dimension_columns": ["ProductName"],
+            "metric_columns": ["ToplamSatis"],
+            "time_column": None,
+            "columns": [
+                {"name": "ProductName", "role": "dimension", "type": "text"},
+                {"name": "ToplamSatis", "role": "metric", "type": "numeric"},
+            ],
+        }
+        validated = validate_spec(spec, results, profile)
+        assert validated["series_field"] is None

@@ -120,6 +120,34 @@ def validate_spec(
         else:
             spec["y_fields"] = valid
 
+    # Rule 6: Series field completion
+    _SERIES_COMPATIBLE = {"line_chart", "bar_chart", "comparison", "scatter_chart"}
+    if (
+        spec.get("needs_graph")
+        and spec.get("chart_type") in _SERIES_COMPATIBLE
+        and not spec.get("series_field")
+        and spec.get("x_field")
+        and spec.get("y_field")
+    ):
+        x = spec["x_field"]
+        y = spec["y_field"]
+        remaining_dims = [
+            d for d in dimension_cols
+            if d != x and d != y
+        ]
+        if remaining_dims:
+            best = None
+            best_unique = 999
+            for dim in remaining_dims:
+                if dim in actual_columns:
+                    unique = len(set(row.get(dim) for row in results))
+                    if unique > 1 and unique < best_unique:
+                        best = dim
+                        best_unique = unique
+            if best is not None and best_unique <= 50:
+                spec["series_field"] = best
+                logger.info(f"[VALIDATOR] Rule 6: series_field filled -> '{best}' ({best_unique} unique)")
+
     return spec
 
 
