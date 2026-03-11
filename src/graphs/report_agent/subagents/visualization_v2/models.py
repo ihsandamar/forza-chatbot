@@ -17,6 +17,7 @@ class ChartSpec(BaseModel):
         "bar_chart", "line_chart", "pie_chart", "scatter_chart",
         "single_value", "simple_list", "table",
         "comparison", "sunburst", "treemap",
+        "heatmap",
     ]
 
     # Field mapping

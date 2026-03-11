@@ -77,3 +77,16 @@ def test_chartspec_sort_and_topn():
     )
     assert spec.sort_order == "desc"
     assert spec.top_n == 10
+
+
+def test_chartspec_valid_heatmap():
+    from src.graphs.report_agent.subagents.visualization_v2.models import ChartSpec
+    spec = ChartSpec(
+        needs_graph=True,
+        chart_type="heatmap",
+        x_field="HaftaGunu",
+        y_field="ToplamCiro",
+        series_field="CategoryName",
+        reason="2D distribution",
+    )
+    assert spec.chart_type == "heatmap"

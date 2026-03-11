@@ -47,6 +47,8 @@ def render_chart(
         df = _apply_preprocessing(df, spec)
         df = _apply_composite_time(df, spec)
         fig = _BUILDERS[chart_type](df, spec)
+        if fig is None:
+            return None
         fig = _apply_labels(fig, spec, column_metadata)
         fig = _apply_number_format(fig, df, spec)
         fig = _apply_layout(fig, spec)
@@ -250,6 +252,45 @@ def _build_comparison(df: pd.DataFrame, spec: dict) -> go.Figure:
     )
 
 
+def _build_heatmap(df: pd.DataFrame, spec: dict) -> go.Figure:
+    """
+    Build a heatmap from flat rows by pivoting.
+
+    Expects:
+        x_field: period/category column (becomes x-axis)
+        series_field: entity column (becomes y-axis rows)
+        y_field: metric column (becomes cell color values)
+    """
+    x = spec.get("x_field")
+    y_metric = spec.get("y_field")
+    entity = spec.get("series_field")
+    title = spec.get("title") or ""
+
+    if not entity or not x or not y_metric:
+        return None
+
+    try:
+        pivot = df.pivot_table(
+            index=entity,
+            columns=x,
+            values=y_metric,
+            aggfunc="sum",
+        ).fillna(0)
+    except (KeyError, ValueError):
+        return None
+
+    fig = go.Figure(data=go.Heatmap(
+        z=pivot.values,
+        x=[str(c) for c in pivot.columns],
+        y=[str(r) for r in pivot.index],
+        colorscale="YlOrRd",
+        hoverongaps=False,
+        hovertemplate="%{y}<br>%{x}<br>Deger: %{z:,.0f}<extra></extra>",
+    ))
+    fig.update_layout(title=title)
+    return fig
+
+
 _BUILDERS = {
     "bar_chart": _build_bar,
     "line_chart": _build_line,
@@ -259,6 +300,7 @@ _BUILDERS = {
     "sunburst": _build_sunburst,
     "treemap": _build_treemap,
     "comparison": _build_comparison,
+    "heatmap": _build_heatmap,
 }
 
 
