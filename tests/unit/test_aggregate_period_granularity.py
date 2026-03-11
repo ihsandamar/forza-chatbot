@@ -72,3 +72,15 @@ class TestKeywordFallback:
         from src.graphs.report_agent.subagents.text2sql.nodes import _detect_time_granularity_from_query
         result = _detect_time_granularity_from_query(query)
         assert result == expected, f"Query '{query}' → expected {expected}, got {result}"
+
+
+class TestAggregateGranularitySet:
+    """Verify the AGGREGATE_PERIOD_GRANULARITIES constant is accessible."""
+
+    def test_set_exists_in_nodes(self):
+        from src.graphs.report_agent.subagents.text2sql.nodes import AGGREGATE_PERIOD_GRANULARITIES
+        assert "hour_of_day" in AGGREGATE_PERIOD_GRANULARITIES
+        assert "day_of_week" in AGGREGATE_PERIOD_GRANULARITIES
+        assert "day_of_month" in AGGREGATE_PERIOD_GRANULARITIES
+        assert "hourly" not in AGGREGATE_PERIOD_GRANULARITIES
+        assert "daily" not in AGGREGATE_PERIOD_GRANULARITIES

@@ -17,6 +17,7 @@ class VisualizationState(TypedDict, total=False):
     wants_visualization: Optional[bool]
     visualization_output: Optional[Dict[str, Any]]
     error: Optional[str]
+    time_granularity: Optional[str]       # from text2sql, for chart type decision
 
     # --- Internal ---
     data_profile: Optional[Dict[str, Any]]

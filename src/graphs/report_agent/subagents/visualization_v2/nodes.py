@@ -23,6 +23,7 @@ from src.graphs.report_agent.subagents.visualization_v2.models import ChartSpec
 from src.graphs.report_agent.subagents.visualization_v2.prompts import VIZ_DECIDER_PROMPT
 from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
 from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+from src.graphs.report_agent.subagents.text2sql.nodes import AGGREGATE_PERIOD_GRANULARITIES
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,17 @@ def create_viz_decider_node(llm) -> Callable:
             return {"viz_decision": ChartSpec(
                 needs_graph=False, chart_type="single_value", reason="Tek deger"
             ).model_dump()}
+
+        # Aggregate period → bar chart (distribution, not trend)
+        _time_gran = state.get("time_granularity")
+        if _time_gran and _time_gran in AGGREGATE_PERIOD_GRANULARITIES:
+            logger.info(f"[V2:VIZ_DECIDER] Aggregate period: {_time_gran} → bar_chart")
+            return {"viz_decision": {
+                "needs_graph": True,
+                "chart_type": "bar_chart",
+                "x_field": None, "y_field": None, "series_field": None,
+                "reason": f"Aggregate period distribution ({_time_gran})",
+            }}
 
         # Rule-based fast path
         rule_decision = _rule_based_decision(

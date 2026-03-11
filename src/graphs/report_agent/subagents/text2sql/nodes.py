@@ -123,6 +123,10 @@ _TIME_GRAN_MAP: dict = {
     "day_of_week":  ["DATEPART(DW, DocumentDate)"],
     "day_of_month": ["DATEPART(DAY, DocumentDate)"],
 }
+# Aggregate period types: produce distribution data (bar chart), NOT time-series (line chart).
+# Used by visualization layer to choose chart type.
+AGGREGATE_PERIOD_GRANULARITIES: frozenset = frozenset({"hour_of_day", "day_of_week", "day_of_month"})
+
 # Ham datetime kolon adları (GROUP BY'da kullanıldığında her timestamp ayrı grup olur)
 _RAW_DATE_COL_NAMES = {"documentdate", "date"}
 
@@ -1082,6 +1086,8 @@ def create_sql_generator_node(
                             f"aggregation alias'ta değil → kaldırıldı (auto ORDER BY devreye girer)"
                         )
 
+        _time_gran = raw_schema.get("time_granularity")  # may be None for non-TIME_SERIES
+
         # --- TIME_SERIES_COMPARISON güvenlik ağı: semantik alanlardan GROUP BY inşa et ---
         # Önce QuerySchema.time_granularity + comparison_dimension kullan (Option A).
         # LLM alanları boş bıraktıysa kullanıcı query'sinden keyword matching ile tespit (Option B).
@@ -1177,7 +1183,7 @@ def create_sql_generator_node(
         try:
             sql = generate_sql(raw_schema, table_name, auto_rules, today)
             logger.info(f"[SQL_GENERATOR] SQL ready: {sql[:200]}")
-            return {"sql_queries": [sql]}
+            return {"sql_queries": [sql], "time_granularity": _time_gran}
         except Exception as e:
             logger.error(f"[SQL_GENERATOR] Build error: {e}")
             return {"error": f"SQL oluşturulamadı: {e}", "results": []}
