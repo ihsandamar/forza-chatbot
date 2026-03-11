@@ -187,3 +187,61 @@ def test_rule5_valid_multi_metric_kept():
     }
     result = validate_spec(spec, results, profile)
     assert result["y_fields"] == ["Sales", "Qty"]
+
+
+# --- Rule 3: Heatmap validation ---
+
+def test_rule3_heatmap_without_series_falls_to_bar():
+    """Heatmap requires series_field for pivot; without it, fall back to bar_chart."""
+    from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
+    spec = {
+        "needs_graph": True,
+        "chart_type": "heatmap",
+        "x_field": "HaftaGunu",
+        "y_field": "ToplamCiro",
+        "series_field": None,
+    }
+    results = [
+        {"HaftaGunu": 1, "ToplamCiro": 5000},
+        {"HaftaGunu": 2, "ToplamCiro": 6000},
+    ]
+    profile = {
+        "dimension_columns": ["HaftaGunu"],
+        "metric_columns": ["ToplamCiro"],
+        "time_column": None,
+        "columns": [
+            {"name": "HaftaGunu", "role": "time", "type": "int"},
+            {"name": "ToplamCiro", "role": "metric", "type": "float"},
+        ],
+    }
+    validated = validate_spec(spec, results, profile)
+    assert validated["chart_type"] == "bar_chart"
+
+
+def test_rule3_heatmap_with_series_stays_heatmap():
+    """Heatmap with all required fields passes validation."""
+    from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
+    spec = {
+        "needs_graph": True,
+        "chart_type": "heatmap",
+        "x_field": "HaftaGunu",
+        "y_field": "ToplamCiro",
+        "series_field": "CategoryName",
+    }
+    results = [
+        {"CategoryName": "Dürümler", "HaftaGunu": 1, "ToplamCiro": 5000},
+        {"CategoryName": "İçecekler", "HaftaGunu": 1, "ToplamCiro": 2000},
+    ]
+    profile = {
+        "dimension_columns": ["CategoryName", "HaftaGunu"],
+        "metric_columns": ["ToplamCiro"],
+        "time_column": None,
+        "columns": [
+            {"name": "CategoryName", "role": "dimension", "type": "str"},
+            {"name": "HaftaGunu", "role": "time", "type": "int"},
+            {"name": "ToplamCiro", "role": "metric", "type": "float"},
+        ],
+    }
+    validated = validate_spec(spec, results, profile)
+    assert validated["chart_type"] == "heatmap"
+    assert validated["series_field"] == "CategoryName"

@@ -89,6 +89,11 @@ def validate_spec(
             spec["chart_type"] = "bar_chart"
             logger.info("[VALIDATOR] Rule 3: scatter with <2 metrics -> bar_chart")
 
+    if chart_type == "heatmap":
+        if not spec.get("series_field"):
+            spec["chart_type"] = "bar_chart"
+            logger.info("[VALIDATOR] Rule 3: heatmap without series_field -> bar_chart")
+
     # Rule 4: Missing field completion
     if spec.get("needs_graph") and not spec.get("x_field"):
         spec["x_field"] = time_col or (dimension_cols[0] if dimension_cols else None)
@@ -121,7 +126,7 @@ def validate_spec(
             spec["y_fields"] = valid
 
     # Rule 6: Series field completion
-    _SERIES_COMPATIBLE = {"line_chart", "bar_chart", "comparison", "scatter_chart"}
+    _SERIES_COMPATIBLE = {"line_chart", "bar_chart", "comparison", "scatter_chart", "heatmap"}
     if (
         spec.get("needs_graph")
         and spec.get("chart_type") in _SERIES_COMPATIBLE
