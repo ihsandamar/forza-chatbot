@@ -159,11 +159,22 @@ def _rule_based_decision(
             "reason": "Single value result",
         }
 
-    if query_type in ("TIME_SERIES", "TIME_SERIES_COMPARISON"):
+    if query_type == "TIME_SERIES":
         return {
             "needs_graph": True, "chart_type": "line_chart",
             "x_field": None, "y_field": None, "series_field": None,
             "reason": "Time series -> line chart",
+        }
+
+    if query_type == "TIME_SERIES_COMPARISON":
+        has_multi_dim = profile.get("has_multiple_dimensions", False)
+        dim_count = len(profile.get("dimension_columns", []))
+        if has_multi_dim or dim_count >= 1:
+            return None  # → LLM fallback for field mapping
+        return {
+            "needs_graph": True, "chart_type": "line_chart",
+            "x_field": None, "y_field": None, "series_field": None,
+            "reason": "Simple time series comparison -> line chart",
         }
 
     if query_type == "RANKING":
