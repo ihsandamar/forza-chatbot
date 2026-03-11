@@ -44,6 +44,7 @@ def render_chart(
     try:
         df = pd.DataFrame(results)
         df = _apply_preprocessing(df, spec)
+        df = _apply_composite_time(df, spec)
         fig = _BUILDERS[chart_type](df, spec)
         fig = _apply_labels(fig, spec, column_metadata)
         fig = _apply_number_format(fig, df, spec)
@@ -75,6 +76,68 @@ def _apply_preprocessing(df: pd.DataFrame, spec: dict) -> pd.DataFrame:
 
     if sort_by and sort_by in df.columns:
         df = df.sort_values(sort_by, ascending=(sort_order == "asc"))
+
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Composite Time Axis
+# ---------------------------------------------------------------------------
+
+_YEAR_PATTERNS = {"yil", "year"}
+_PERIOD_COMPOSITE = {
+    "hafta": "W{period:02d}",
+    "week": "W{period:02d}",
+    "ay": "{period:02d}",
+    "month": "{period:02d}",
+}
+
+
+def _apply_composite_time(df: pd.DataFrame, spec: dict) -> pd.DataFrame:
+    """
+    Combine Yil + Hafta/Ay into a sortable composite x-axis label.
+    Example: Yil=2025, Hafta=40 → "2025-W40"
+    """
+    x = spec.get("x_field")
+    if not x:
+        return df
+
+    x_lower = x.lower()
+
+    # Check if x_field is a period column that needs a year companion
+    fmt_template = None
+    for pattern, template in _PERIOD_COMPOSITE.items():
+        if pattern in x_lower:
+            fmt_template = template
+            break
+
+    if fmt_template is None:
+        return df
+
+    # Find year column in the dataframe
+    year_col = None
+    for col in df.columns:
+        if col.lower() in _YEAR_PATTERNS and col != x:
+            year_col = col
+            break
+
+    if year_col is None or year_col not in df.columns:
+        return df
+
+    # Create composite column
+    composite_col = f"_{x}_composite"
+    try:
+        df = df.copy()
+        df[composite_col] = df.apply(
+            lambda row: f"{int(row[year_col])}-{fmt_template.format(period=int(row[x]))}",
+            axis=1,
+        )
+        # Sort by year then period (numeric sort, not string sort)
+        df = df.sort_values([year_col, x])
+        # Replace x_field with composite column
+        spec["x_field"] = composite_col
+    except (ValueError, TypeError, KeyError):
+        pass  # Fallback: keep original x_field
 
     return df
 

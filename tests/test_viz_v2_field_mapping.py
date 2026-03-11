@@ -171,3 +171,57 @@ class TestValidatorSeriesField:
         }
         validated = validate_spec(spec, results, profile)
         assert validated["series_field"] is None
+
+
+class TestCompositeTimeAxis:
+    def test_yil_hafta_composite(self):
+        from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+        spec = {
+            "chart_type": "line_chart",
+            "x_field": "Hafta",
+            "y_field": "ToplamSatis",
+            "series_field": "ProductName",
+            "needs_graph": True,
+        }
+        results = [
+            {"ProductName": "LATTE", "Yil": 2025, "Hafta": 52, "ToplamSatis": 100},
+            {"ProductName": "LATTE", "Yil": 2026, "Hafta": 1, "ToplamSatis": 200},
+            {"ProductName": "AMERICANO", "Yil": 2025, "Hafta": 52, "ToplamSatis": 150},
+            {"ProductName": "AMERICANO", "Yil": 2026, "Hafta": 1, "ToplamSatis": 250},
+        ]
+        html = render_chart(spec, results, {})
+        assert html is not None
+        assert "2025" in html
+
+    def test_yil_ay_composite(self):
+        from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+        spec = {
+            "chart_type": "line_chart",
+            "x_field": "Ay",
+            "y_field": "Tutar",
+            "series_field": None,
+            "needs_graph": True,
+        }
+        results = [
+            {"Yil": 2025, "Ay": 12, "Tutar": 100},
+            {"Yil": 2026, "Ay": 1, "Tutar": 200},
+        ]
+        html = render_chart(spec, results, {})
+        assert html is not None
+        assert "2025" in html
+
+    def test_no_composite_without_yil(self):
+        from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+        spec = {
+            "chart_type": "line_chart",
+            "x_field": "Hafta",
+            "y_field": "ToplamSatis",
+            "series_field": None,
+            "needs_graph": True,
+        }
+        results = [
+            {"Hafta": 40, "ToplamSatis": 100},
+            {"Hafta": 41, "ToplamSatis": 200},
+        ]
+        html = render_chart(spec, results, {})
+        assert html is not None
