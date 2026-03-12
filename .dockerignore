@@ -1,0 +1,28 @@
+# Build artifacts (PyInstaller)
+dist/
+build/
+*.spec
+.build_cache
+
+# Virtual environment
+.venv/
+venv/
+__pycache__/
+
+# Data (mounted as volumes, not baked into image)
+data/
+config/
+.env
+
+# IDE and dev files
+.git/
+.idea/
+.vscode/
+*.pyc
+*.pyo
+
+# Documentation and tests
+docs/
+tests/
+*.md
+hooks/
