@@ -171,6 +171,12 @@ if exist "data\vector_index" (
     echo [!] WARNING: data/vector_index not found - vegaforza_navigation graph may not work
 )
 
+REM Clean old vector_store to prevent corrupt ChromaDB issues
+if exist "dist\chatbot-api\data\vector_store" (
+    rmdir /S /Q "dist\chatbot-api\data\vector_store"
+    echo [+] Cleaned old vector_store (will be auto-created on first run)
+)
+
 REM Copy forza.json catalog for vectorstore auto-creation
 if exist "data\forza.json" (
     if not exist "dist\chatbot-api\data" mkdir "dist\chatbot-api\data"

@@ -265,15 +265,22 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
                     settings=chroma_settings
                 )
             except Exception as e:
-                # Corrupt/incompatible sqlite3 from old ChromaDB version — reset and retry
+                # Corrupt/incompatible sqlite3 from old ChromaDB version — nuke and retry
                 logger.warning(f"[FORZA] Corrupt vectorstore DB, resetting: {e}")
-                db_file = vectorstore_path / "chroma.sqlite3"
-                if db_file.exists():
-                    db_file.unlink()
-                chroma_client = chromadb.PersistentClient(
-                    path=str(vectorstore_path),
-                    settings=chroma_settings
-                )
+                import shutil
+                shutil.rmtree(str(vectorstore_path), ignore_errors=True)
+                vectorstore_path.mkdir(parents=True, exist_ok=True)
+                try:
+                    chroma_client = chromadb.PersistentClient(
+                        path=str(vectorstore_path),
+                        settings=chroma_settings
+                    )
+                except Exception as retry_err:
+                    logger.error(
+                        f"[FORZA] Cannot recover vectorstore: {retry_err}. "
+                        "Delete data/vector_store/ manually and restart."
+                    )
+                    return None
 
             # Try to load existing collection
             try:
