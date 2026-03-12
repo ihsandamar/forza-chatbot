@@ -110,7 +110,7 @@ def build_text2sql_graph(
     sql_architect       = create_sql_architect_node(llm, column_metadata)
     schema_validator    = create_schema_validator_node(llm, column_metadata)
     value_resolver_node = create_value_resolver_node(value_resolver)
-    sql_generator       = create_sql_generator_node(table_name)
+    sql_generator       = create_sql_generator_node(table_name, column_metadata)
     sql_executor        = create_sql_executor_node(connection_string)
     cleanup_table       = create_cleanup_table_node(connection_string, table_name)
 

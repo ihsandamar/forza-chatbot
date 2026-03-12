@@ -957,8 +957,51 @@ def _merge_conflicting_rule_filters_for_comparison(
 # NODE 4: SQL GENERATOR
 # =============================================================================
 
+
+def _sanitize_comparison_dimension(
+    comp_dim: Optional[str],
+    column_metadata: dict,
+) -> tuple:
+    """
+    Validate and sanitize comparison_dimension from LLM output.
+
+    Handles comma-separated values, bracket-wrapped names, empty strings.
+    Returns (primary_dimension, extra_dimensions) tuple.
+    """
+    if not comp_dim or not comp_dim.strip():
+        return None, []
+
+    comp_dim = comp_dim.strip().strip("[]")
+
+    if "," in comp_dim:
+        parts = [p.strip().strip("[]") for p in comp_dim.split(",") if p.strip()]
+        if not parts:
+            return None, []
+        primary = parts[0]
+        extra = parts[1:]
+    else:
+        primary = comp_dim
+        extra = []
+
+    if column_metadata and primary not in column_metadata:
+        logger.warning(
+            f"[SQL_GENERATOR] comparison_dimension '{primary}' not in column_metadata, cleared"
+        )
+        return None, []
+
+    if column_metadata:
+        valid_extra = [e for e in extra if e in column_metadata]
+        if len(valid_extra) < len(extra):
+            dropped = [e for e in extra if e not in column_metadata]
+            logger.warning(f"[SQL_GENERATOR] Dropped invalid extra dimensions: {dropped}")
+        extra = valid_extra
+
+    return primary, extra
+
+
 def create_sql_generator_node(
     default_table_name: str,
+    column_metadata: Optional[Dict[str, Any]] = None,
 ) -> Callable:
     """
     Pure Python: QuerySchema + state.auto_rules + state.term_filters → T-SQL. LLM kullanmaz.
@@ -1087,6 +1130,8 @@ def create_sql_generator_node(
                         )
 
         _time_gran = raw_schema.get("time_granularity")  # may be None for non-TIME_SERIES
+        _comp_dim = None
+        _extra_dims = []
 
         # --- TIME_SERIES_COMPARISON güvenlik ağı: semantik alanlardan GROUP BY inşa et ---
         # Önce QuerySchema.time_granularity + comparison_dimension kullan (Option A).
@@ -1109,7 +1154,16 @@ def create_sql_generator_node(
 
             # --- Option A: Semantik alanlardan değerleri al ---
             # _time_gran zaten line ~1089'da initialize edildi (return için)
-            _comp_dim  = raw_schema.get("comparison_dimension")
+            _comp_dim_raw = raw_schema.get("comparison_dimension")
+            _comp_dim, _extra_dims = _sanitize_comparison_dimension(
+                _comp_dim_raw,
+                column_metadata,
+            )
+            if _comp_dim != _comp_dim_raw:
+                logger.info(
+                    f"[SQL_GENERATOR] comparison_dimension sanitized: "
+                    f"'{_comp_dim_raw}' → primary='{_comp_dim}', extra={_extra_dims}"
+                )
 
             # --- Option B fallback: LLM alanları boş bıraktıysa query'den tespit ---
             _q_lower = (state.get("user_query") or "").lower()
@@ -1138,6 +1192,10 @@ def create_sql_generator_node(
                 if _comp_dim:
                     _new_group_by.append(_comp_dim)
                 _new_group_by.extend(_t_cols)
+                # Add extra dimensions from comma-split
+                for _ed in _extra_dims:
+                    if _ed not in _new_group_by:
+                        _new_group_by.append(_ed)
                 # Mevcut group_by'dan TÜM zaman ifadelerini + zaman-ilişkili kolonları + entity'yi çıkar
                 # (LLM bazen redundant YEAR+DATE veya DayOfWeek gibi alt-granülarite kolonları koyar)
                 for _c in _existing:
@@ -1145,7 +1203,7 @@ def create_sql_generator_node(
                     _c_clean = _c_upper.strip().strip("[]")
                     _is_time_expr = _c_upper in _ALL_TIME_EXPRS_UPPER
                     _is_time_col = _c_clean in _TIME_ADJACENT_COLS_UPPER
-                    if not _is_time_expr and not _is_time_col and _c != _comp_dim:
+                    if not _is_time_expr and not _is_time_col and _c != _comp_dim and _c not in _extra_dims:
                         _new_group_by.append(_c)
                 # order_by_column da kaldır — group_by yeniden inşa edildi,
                 # eski order_by (örn. raw DocumentDate) artık geçersiz olabilir.
