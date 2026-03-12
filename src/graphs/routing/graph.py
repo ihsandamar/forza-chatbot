@@ -259,10 +259,21 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
                 chroma_api_impl="chromadb.api.segment.SegmentAPI"
             )
 
-            chroma_client = chromadb.PersistentClient(
-                path=str(vectorstore_path),
-                settings=chroma_settings
-            )
+            try:
+                chroma_client = chromadb.PersistentClient(
+                    path=str(vectorstore_path),
+                    settings=chroma_settings
+                )
+            except Exception as e:
+                # Corrupt/incompatible sqlite3 from old ChromaDB version — reset and retry
+                logger.warning(f"[FORZA] Corrupt vectorstore DB, resetting: {e}")
+                db_file = vectorstore_path / "chroma.sqlite3"
+                if db_file.exists():
+                    db_file.unlink()
+                chroma_client = chromadb.PersistentClient(
+                    path=str(vectorstore_path),
+                    settings=chroma_settings
+                )
 
             # Try to load existing collection
             try:

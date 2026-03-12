@@ -171,6 +171,15 @@ if exist "data\vector_index" (
     echo [!] WARNING: data/vector_index not found - vegaforza_navigation graph may not work
 )
 
+REM Copy forza.json catalog for vectorstore auto-creation
+if exist "data\forza.json" (
+    if not exist "dist\chatbot-api\data" mkdir "dist\chatbot-api\data"
+    copy "data\forza.json" "dist\chatbot-api\data\" > nul
+    echo [+] Copied forza.json catalog
+) else (
+    echo [!] WARNING: data/forza.json not found - routing vectorstore auto-creation will not work
+)
+
 REM Create example .env if it doesn't exist
 if not exist "dist\chatbot-api\.env" (
     echo OPENAI_API_KEY=your-api-key-here> "dist\chatbot-api\.env.example"
