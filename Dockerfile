@@ -13,9 +13,11 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Dependencies layer (cached unless requirements.txt changes)
+# Install CPU-only PyTorch first (saves ~1.5GB vs full CUDA version)
 # gcc/g++ still available for C extension compilation (chroma-hnswlib etc.)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt && \
     apt-get update && \
     apt-get purge -y curl gnupg2 gcc g++ && \
     apt-get autoremove -y && \
