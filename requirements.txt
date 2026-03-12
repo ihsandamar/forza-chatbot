@@ -25,6 +25,8 @@ PyYAML==6.0.2
 # Web Interfaces
 Flask==3.1.1
 gradio==5.31.0
+uvicorn[standard]==0.38.0
+fastapi==0.121.2
 
 # Utilities
 structlog==25.4.0
