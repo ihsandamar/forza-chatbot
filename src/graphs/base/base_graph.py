@@ -107,6 +107,7 @@ class BaseGraph(ABC, Generic[ConfigT]):
         if memory is None:
             memory = MemorySaver()
         self.memory = memory
+        self._compiled_graph = None
 
     def _get_default_config(self) -> ConfigT:
         """
@@ -361,6 +362,12 @@ class BaseGraph(ABC, Generic[ConfigT]):
 
         return input
 
+    def _get_compiled_graph(self):
+        """Return cached compiled graph, building on first call."""
+        if self._compiled_graph is None:
+            self._compiled_graph = self.build_graph()
+        return self._compiled_graph
+
     # Async methods for non-blocking execution
     async def ainvoke(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -388,8 +395,8 @@ class BaseGraph(ABC, Generic[ConfigT]):
         # Inject config into state for backward compatibility
         input = self._inject_config_to_state(input, config)
 
-        compiled_graph = self.build_graph()
-        loop = asyncio.get_event_loop()
+        compiled_graph = self._get_compiled_graph()
+        loop = asyncio.get_running_loop()
 
         # Run blocking invoke in executor
         return await loop.run_in_executor(
@@ -413,8 +420,8 @@ class BaseGraph(ABC, Generic[ConfigT]):
         Yields:
             Stream results from the graph
         """
-        compiled_graph = self.build_graph()
-        loop = asyncio.get_event_loop()
+        compiled_graph = self._get_compiled_graph()
+        loop = asyncio.get_running_loop()
 
         # Run blocking stream in executor
         for result in await loop.run_in_executor(
@@ -448,5 +455,5 @@ class BaseGraph(ABC, Generic[ConfigT]):
         # Inject config into state for backward compatibility
         input = self._inject_config_to_state(input, config)
 
-        compiled_graph = self.build_graph()
+        compiled_graph = self._get_compiled_graph()
         return compiled_graph.invoke(input, config)
