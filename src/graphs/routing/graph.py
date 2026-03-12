@@ -161,10 +161,73 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
             ],
         )
 
+    def _create_documents_from_catalog(self, catalog: dict) -> list:
+        """Create LangChain Documents from forza.json catalog.
+
+        Produces documents with all metadata fields routing nodes expect:
+        title, url, url_route, category, page_id, document_type,
+        sub_page_type, parent_page_id, has_parameters, parameter_count,
+        url_parameters, keywords.
+        """
+        import json as _json
+        from langchain_core.documents import Document
+
+        documents = []
+        for page in catalog.get("web_pages_catalog", []):
+            metadata = page.get("metadata", {})
+            structured_data = page.get("structured_data", {})
+
+            # Build content for embedding
+            content_parts = [page.get("embedding_content", "")]
+
+            functions = structured_data.get("functions", [])
+            if functions:
+                content_parts.append("\n\nÖzellikler ve İşlevler:")
+                content_parts.append("\n".join(f"- {func}" for func in functions))
+
+            keywords = structured_data.get("keywords", [])
+            if keywords:
+                content_parts.append("\n\nAnahtar Kelimeler:")
+                content_parts.append(", ".join(keywords))
+
+            user_expressions = page.get("user_expressions", [])
+            if user_expressions:
+                content_parts.append("\n\nKullanıcı İfadeleri:")
+                content_parts.append("\n".join(f"- {expr}" for expr in user_expressions))
+
+            # URL parameters
+            url_params = metadata.get("url_parameters", {}) or {}
+            url_params_json = _json.dumps(url_params, ensure_ascii=False) if url_params else ""
+            url_route = metadata.get("url_route", "")
+
+            doc = Document(
+                page_content="\n".join(content_parts),
+                metadata={
+                    "page_id": metadata.get("page_id", ""),
+                    "title": metadata.get("title", ""),
+                    "url": url_route,
+                    "url_route": url_route,
+                    "category": metadata.get("category", ""),
+                    "document_type": metadata.get("page_type", "main_page"),
+                    "sub_page_type": metadata.get("sub_page_type", ""),
+                    "parent_page_id": metadata.get("parent_page_id", ""),
+                    "keywords": ", ".join(keywords),
+                    "has_parameters": len(url_params) > 0,
+                    "parameter_count": len(url_params),
+                    "url_parameters": url_params_json,
+                    "source": "forza_web_catalog",
+                    "catalog_version": catalog.get("version", "unknown"),
+                },
+            )
+            documents.append(doc)
+
+        return documents
+
     def _setup_vectorstore(self) -> Optional[Chroma]:
         """
         Initialize Chroma vectorstore for document retrieval.
 
+        If the collection doesn't exist, auto-creates it from data/forza.json.
         Handles both dev and production (frozen exe) environments.
 
         Returns:
@@ -179,10 +242,8 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
 
             logger.debug(f"[FORZA] Vectorstore path: {vectorstore_path}")
 
-            # Validate path
-            if not vectorstore_path.exists():
-                logger.error(f"[FORZA] Vectorstore path not found: {vectorstore_path}")
-                return None
+            # Create directory if it doesn't exist
+            vectorstore_path.mkdir(parents=True, exist_ok=True)
 
             # Setup embeddings from config
             embeddings = OpenAIEmbeddings(
@@ -191,7 +252,7 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
                 base_url=config.embedding.base_url,
             )
 
-            # Initialize Chroma
+            # Initialize Chroma client (single instance, reused for both load and create)
             chroma_settings = Settings(
                 anonymized_telemetry=False,
                 allow_reset=True,
@@ -203,33 +264,72 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
                 settings=chroma_settings
             )
 
-            # Validate collection
+            # Try to load existing collection
             try:
                 collection = chroma_client.get_collection("forza_web_pages")
                 doc_count = collection.count()
 
                 if doc_count == 0:
-                    logger.warning("[FORZA] Collection is empty")
-                    return None
+                    logger.warning("[FORZA] Collection is empty, re-creating...")
+                    chroma_client.delete_collection("forza_web_pages")
+                    return self._auto_create_collection(base_path, chroma_client, embeddings)
 
                 logger.info(f"[FORZA] Collection ready - {doc_count} pages")
 
+                vectorstore = Chroma(
+                    client=chroma_client,
+                    collection_name="forza_web_pages",
+                    embedding_function=embeddings,
+                )
+
+                logger.info("[FORZA] Vectorstore initialized successfully")
+                return vectorstore
+
             except Exception as e:
-                logger.error(f"[FORZA] Collection validation failed: {e}")
-                return None
-
-            # Create vectorstore
-            vectorstore = Chroma(
-                client=chroma_client,
-                collection_name="forza_web_pages",
-                embedding_function=embeddings,
-            )
-
-            logger.info("[FORZA] Vectorstore initialized successfully")
-            return vectorstore
+                logger.warning(f"[FORZA] Collection not available: {e}")
+                logger.info("[FORZA] Attempting auto-creation from forza.json...")
+                return self._auto_create_collection(base_path, chroma_client, embeddings)
 
         except Exception as e:
             logger.error(f"[FORZA] Vectorstore initialization failed: {e}", exc_info=True)
+            return None
+
+    def _auto_create_collection(self, base_path: Path, chroma_client, embeddings) -> Optional[Chroma]:
+        """Auto-create forza_web_pages collection from data/forza.json.
+
+        Uses the already-created chroma_client to avoid dual PersistentClient
+        locking conflicts on the same directory.
+        """
+        import json as _json
+
+        catalog_path = base_path / "data" / "forza.json"
+        if not catalog_path.exists():
+            logger.error(f"[FORZA] Catalog not found: {catalog_path} — cannot auto-create")
+            return None
+
+        try:
+            with open(catalog_path, "r", encoding="utf-8") as f:
+                catalog = _json.load(f)
+
+            documents = self._create_documents_from_catalog(catalog)
+            if not documents:
+                logger.error("[FORZA] No documents created from catalog")
+                return None
+
+            logger.info(f"[FORZA] Creating collection from {len(documents)} pages...")
+
+            vectorstore = Chroma.from_documents(
+                documents=documents,
+                embedding=embeddings,
+                collection_name="forza_web_pages",
+                client=chroma_client,
+            )
+
+            logger.info(f"[FORZA] Auto-created forza_web_pages with {len(documents)} documents")
+            return vectorstore
+
+        except Exception as e:
+            logger.error(f"[FORZA] Auto-creation failed: {e}", exc_info=True)
             return None
 
     def _get_base_path(self) -> Path:
