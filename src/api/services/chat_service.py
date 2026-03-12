@@ -444,11 +444,16 @@ class ChatService:
         # Don't invoke graph again - use the output we already have
         bot_response_text = self.chatbot._from_graph_state(graph_output)
 
+        # Only scan CURRENT TURN messages for detection (not full history)
+        # graph_messages contains ALL turns from MemorySaver; scanning all of them
+        # causes false positives from previous turns' chart_html or URLs.
+        current_turn_msgs = self._get_current_turn_messages(graph_messages)
+
         # Detect if this is a routing/navigation response
-        routing_info = self._detect_routing_response(graph_messages)
+        routing_info = self._detect_routing_response(current_turn_msgs)
 
         # Detect if this is a report/visualization response
-        report_info = self._detect_report_response(graph_messages)
+        report_info = self._detect_report_response(current_turn_msgs)
 
         # Build response based on what was detected (priority: routing > report > text)
         if routing_info:
@@ -577,6 +582,14 @@ class ChatService:
         content = getattr(msg, "content", "")
 
         return role, content
+
+    def _get_current_turn_messages(self, messages: list) -> list:
+        """Extract only messages from the current turn (after last user message)."""
+        for i in range(len(messages) - 1, -1, -1):
+            role, _ = self._parse_message(messages[i])
+            if role == "user":
+                return messages[i:]
+        return messages
 
     async def get_session_history(self, session_id: str) -> SessionHistoryResponse:
         """
