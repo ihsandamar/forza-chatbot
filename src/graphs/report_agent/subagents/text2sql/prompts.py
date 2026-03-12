@@ -375,6 +375,30 @@ VARSAYILAN: Belirsiz kalırsa, "X göre" → aggregate, "X'lik" → time-series
   "şehirleri", "şehirlere göre", "şehir bazında"      → "BranchCityName"
   "kanalları", "kanallar bazında", "satış kanallarını" → "DocumentKindName"
   Eğer sadece zaman kırılımı istiyorsa (entity yok)   → null
+  ⚠️ comparison_dimension TEK BİR DB kolon adı olmalı — ASLA virgülle birleştirme!
+  YANLIŞ ❌: "CategoryName,ProductName"
+  DOĞRU ✅: "CategoryName"
+
+  Birden fazla boyut isteniyorsa ("kategorilere VE ürünlere göre"):
+  → comparison_dimension: birincil boyut (ilk belirtilen) — "CategoryName"
+  → group_by: ikincil boyut(lar)ı da ekle — ["CategoryName", "ProductName"]
+  → Python zaman ifadelerini otomatik ekler, sen sadece entity kolonlarını koy
+
+  ÖRNEKLER:
+  "kategorilere ve ürünlere göre haftalık ciro"
+  → comparison_dimension: "CategoryName"
+  → group_by: ["CategoryName", "ProductName"]
+  → time_granularity: "weekly"
+
+  "şubelere ve kategorilere göre aylık satış"
+  → comparison_dimension: "BranchName"
+  → group_by: ["BranchName", "CategoryName"]
+  → time_granularity: "monthly"
+
+  "ürünlerin şehirlere göre ciro dağılımı"
+  → comparison_dimension: "ProductName"
+  → group_by: ["ProductName", "BranchCityName"]
+  → time_granularity varsa ekle, yoksa null
 
 **group_by** — Python bu alanları kullanarak inşa eder, SEN BOŞ BIRAKIP BIRAKMAMAN FARK ETMEZ.
   Ancak doldurursan Python ile çelişme: zaman ifadeleri Python ekler, ham DocumentDate KOYMA.
