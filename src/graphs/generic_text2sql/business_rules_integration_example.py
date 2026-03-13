@@ -252,23 +252,23 @@ def demo_integration():
             llm_function=None  # Demo'da LLM yok
         )
 
-        print("\n📋 Applied Rules:")
+        print("\nApplied Rules:")
         for rule in result['applied_rules'][:5]:
             print(f"  - [{rule['rule_id']}] "
                   f"({rule['metadata']['description']}) "
                   f"[similarity: {rule['similarity']:.2f}]")
 
-        print("\n🔧 Merged SQL Components:")
+        print("\nMerged SQL Components:")
         for component, value in result['merged_sql'].items():
             if value:
                 print(f"  {component}: {value}")
 
-        print("\n📝 Business Context (LLM'e gönderilecek):")
+        print("\nBusiness Context (LLM'e gonderilecek):")
         print("-" * 70)
         print(result['business_context'])
 
     print("\n" + "=" * 70)
-    print("✅ Demo completed!")
+    print("[OK] Demo completed!")
     print("=" * 70)
 
 

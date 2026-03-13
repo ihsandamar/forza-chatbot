@@ -34,14 +34,14 @@ async def startup_event():
     try:
         from src.graphs.generic_text2sql.business_rules_vector_store import preload_embedding_model
 
-        print("[STARTUP] 📦 Preloading embedding model (first run may take 1-2 minutes)...")
+        print("[STARTUP] Preloading embedding model (first run may take 1-2 minutes)...")
         model_loaded = preload_embedding_model()
         if model_loaded:
-            print("[STARTUP] ✅ Embedding model cached successfully")
+            print("[STARTUP] [OK] Embedding model cached successfully")
         else:
-            print("[STARTUP] ⚠️  Embedding model preload failed (will retry on first use)")
+            print("[STARTUP] [WARN] Embedding model preload failed (will retry on first use)")
     except Exception as e:
-        print(f"[STARTUP] ⚠️  Warning: Failed to preload embedding model: {e}")
+        print(f"[STARTUP] [WARN] Failed to preload embedding model: {e}")
 
     # Phase 4: Start background table cleanup
     try:

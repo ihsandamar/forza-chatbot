@@ -21,7 +21,6 @@ import threading
 from collections import OrderedDict
 
 import chromadb
-from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
@@ -87,11 +86,9 @@ class BusinessRulesVectorStore:
         self.rules_file_path = Path(rules_file_path)
         self.similarity_threshold = similarity_threshold
 
-        # ChromaDB setup
-        self.client = chromadb.Client(Settings(
-            persist_directory=persist_directory,
-            anonymized_telemetry=False
-        ))
+        # ChromaDB setup — in-memory client (no persistence needed,
+        # index is rebuilt from business_rules.json on every startup).
+        self.client = chromadb.EphemeralClient()
 
         # Embedding function with offline-first strategy
         # Model cache: ~/.cache/huggingface/hub/
@@ -635,7 +632,7 @@ def main():
     )
 
     # Rebuild index
-    print("\n📦 Building index...")
+    print("\n[*] Building index...")
     store.rebuild_index()
 
     # Test queries
@@ -652,7 +649,7 @@ def main():
     print("=" * 60)
 
     for query in test_queries:
-        print(f"\n🔍 Query: {query}")
+        print(f"\nQuery: {query}")
         print("-" * 60)
 
         result = store.get_relevant_rules_for_query(
@@ -672,13 +669,13 @@ def main():
                   f"(similarity: {rule['similarity']:.3f}) "
                   f"{'[DEFAULT]' if rule['is_default'] else ''}")
 
-        print(f"\n🔧 Merged SQL:")
+        print(f"\nMerged SQL:")
         for component, value in result['merged_sql'].items():
             if value:
                 print(f"   {component}: {value}")
 
     print("\n" + "=" * 60)
-    print("✅ Test completed!")
+    print("[OK] Test completed!")
     print("=" * 60)
 
 

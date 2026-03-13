@@ -6,6 +6,13 @@ import sys
 import os
 from pathlib import Path
 
+# SQLite monkey-patch for Docker (python:3.11-slim has SQLite < 3.35 which chromadb requires)
+try:
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass  # pysqlite3 not installed (e.g., local dev on Windows) — use system sqlite3
+
 # Add current directory to path for imports
 if getattr(sys, 'frozen', False):
     # Running as compiled executable

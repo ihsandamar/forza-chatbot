@@ -80,9 +80,9 @@ class GradioInterface:
             )
             self.session_id = response.session_id
             token_info = f" (token: {self.token[:10]}...)" if self.token else " (no token)"
-            print(f"✓ Session started: {self.session_id}{token_info}")
+            print(f"[OK] Session started: {self.session_id}{token_info}")
         except Exception as e:
-            print(f"✗ Failed to start session: {str(e)}")
+            print(f"[FAIL] Failed to start session: {str(e)}")
             raise
 
     async def _handle_message(
@@ -256,10 +256,10 @@ class GradioInterface:
                     session = self.chat_service.get_session(self.session_id)
                     if session and "settings" in session:
                         session["settings"]["token"] = self.token
-                        print(f"✓ Token updated in session")
-                return f"✓ Token kaydedildi ({self.token[:10]}...)"
+                        print("[OK] Token updated in session")
+                return f"[OK] Token kaydedildi ({self.token[:10]}...)"
             else:
-                return "✓ Token temizlendi"
+                return "[OK] Token temizlendi"
 
         except Exception as e:
             error_msg = f"✗ Token güncellemesi başarısız: {str(e)}"
@@ -336,9 +336,9 @@ class GradioInterface:
         try:
             response = await self.chat_service.create_new_session()
             self.session_id = response.session_id
-            print(f"✓ New session created: {self.session_id}")
+            print(f"[OK] New session created: {self.session_id}")
         except Exception as e:
-            print(f"✗ Error creating session: {e}")
+            print(f"[FAIL] Error creating session: {e}")
 
     async def _load_session_history(self, session_id: str) -> List[dict]:
         """

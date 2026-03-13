@@ -116,12 +116,7 @@ class TermVectorStore:
         self.similarity_threshold = similarity_threshold
 
         import chromadb
-        from chromadb.config import Settings
-
-        self._client = chromadb.Client(Settings(
-            persist_directory=persist_directory,
-            anonymized_telemetry=False,
-        ))
+        self._client = chromadb.EphemeralClient()
 
         import os
         try:
