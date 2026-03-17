@@ -1,91 +1,83 @@
-"""Tests for LLM-based chart type detection routing.
-
-Replaces the old regex-based TestDetectExplicitChartType and TestExplicitChartTypeOverride.
-The LLM now handles chart type understanding — these tests verify the routing logic.
-"""
+"""Tests for intent-based chart type routing in viz_decider."""
 import pytest
 
 
-class TestHasVizPreference:
-    """_has_viz_preference detects when user mentions a chart type, triggering LLM path."""
+class TestVizDeciderWithRequestedChartType:
+    """viz_decider_node uses requested_chart_type from intent classification."""
 
-    def _check(self, query):
-        from src.graphs.report_agent.subagents.visualization_v2.nodes import _has_viz_preference
-        return _has_viz_preference(query)
+    def test_rule_based_default_without_chart_type(self):
+        """No requested_chart_type → line_chart for TIME_SERIES_COMPARISON."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+        profile = {
+            "dimension_columns": ["CategoryName", "Ay"],
+            "metric_columns": ["ToplamCiro"],
+            "time_column": "Ay",
+            "row_count": 49,
+        }
+        result = _rule_based_decision(
+            "TIME_SERIES_COMPARISON", True, profile,
+            time_granularity="monthly", comparison_dimension="CategoryName",
+        )
+        assert result["chart_type"] == "line_chart"
 
-    # --- Should detect preference (broad keyword match) ---
-    def test_heatmap(self):
-        assert self._check("heatmap grafik ver") is True
-
-    def test_sunburst_typo(self):
-        """'sunbrust' contains 'sunbr' (5-char fragment in _VIZ_HINT_KEYWORDS) — typo tolerance."""
-        assert self._check("sunbrust olarak goster") is True
-
-    def test_turkish_grafik(self):
-        """'grafik' is a generic viz keyword — triggers LLM regardless of chart type."""
-        assert self._check("bunu grafik ver") is True
-
-    def test_chart_english(self):
-        assert self._check("show as pie chart") is True
-
-    def test_turkish_harita(self):
-        assert self._check("ısı haritası olarak göster") is True
-
-    def test_diagram(self):
-        assert self._check("diagram olarak goster") is True
-
-    def test_cubuk(self):
-        assert self._check("çubuk grafik göster") is True
-
-    def test_treemap(self):
-        assert self._check("treemap ver") is True
-
-    def test_plot(self):
-        assert self._check("scatter plot goster") is True
-
-    # --- Should NOT detect preference (no chart type signal) ---
-    def test_plain_data_query(self):
-        assert self._check("son 3 aydaki satislari goster") is False
-
-    def test_empty(self):
-        assert self._check("") is False
-
-    def test_none(self):
-        assert self._check(None) is False
-
-    def test_filter_query(self):
-        assert self._check("sadece espresso kategorisini filtrele") is False
+    def test_rule_based_ranking_unchanged(self):
+        """No requested_chart_type → bar_chart for RANKING."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+        profile = {
+            "dimension_columns": ["BranchName"],
+            "metric_columns": ["RowAmount"],
+            "time_column": None,
+            "row_count": 5,
+        }
+        result = _rule_based_decision("RANKING", True, profile)
+        assert result["chart_type"] == "bar_chart"
 
 
-class TestShouldUseLLM:
-    """_should_use_llm decides when to skip rule-based and route to LLM."""
+class TestRequestedChartTypeModel:
+    """IntentClassificationResult.requested_chart_type field validation."""
 
-    def _check(self, viz_request, user_query):
-        from src.graphs.report_agent.subagents.visualization_v2.nodes import _should_use_llm
-        return _should_use_llm(viz_request, user_query)
+    def test_valid_chart_type(self):
+        from src.graphs.report_agent.prompts import IntentClassificationResult
+        result = IntentClassificationResult(
+            intent_type="NEW_QUERY",
+            query_type="TIME_SERIES_COMPARISON",
+            confidence=0.95,
+            wants_visualization=True,
+            requested_chart_type="heatmap",
+        )
+        assert result.requested_chart_type == "heatmap"
 
-    def test_viz_request_set_always_triggers_llm(self):
-        """REVISUALIZE (viz_request set) always goes to LLM."""
-        assert self._check("sunburst olarak ver", "sunburst olarak ver") is True
+    def test_none_chart_type(self):
+        from src.graphs.report_agent.prompts import IntentClassificationResult
+        result = IntentClassificationResult(
+            intent_type="NEW_QUERY",
+            query_type="SINGLE",
+            confidence=0.9,
+            wants_visualization=False,
+        )
+        assert result.requested_chart_type is None
 
-    def test_viz_request_with_any_text(self):
-        """Any non-empty viz_request triggers LLM."""
-        assert self._check("baska turlu goster", "baska turlu goster") is True
+    def test_invalid_chart_type_rejected(self):
+        from src.graphs.report_agent.prompts import IntentClassificationResult
+        with pytest.raises(Exception):
+            IntentClassificationResult(
+                intent_type="NEW_QUERY",
+                query_type="SINGLE",
+                confidence=0.9,
+                requested_chart_type="invalid_chart",
+            )
 
-    def test_user_query_with_chart_keyword(self):
-        """user_query with chart keyword -> LLM."""
-        assert self._check(None, "kategorileri heatmap grafik olarak goster") is True
-
-    def test_plain_query_uses_rule_based(self):
-        """No chart preference -> rule-based path."""
-        assert self._check(None, "son 3 aydaki satislari goster") is False
-
-    def test_typo_sunbrust_triggers_llm(self):
-        """'sunbrust' contains 'sunbur' fragment -> LLM."""
-        assert self._check(None, "sunbrust grafik ver") is True
-
-    def test_none_query_uses_rule_based(self):
-        assert self._check(None, "") is False
+    def test_sunburst_chart_type(self):
+        from src.graphs.report_agent.prompts import IntentClassificationResult
+        result = IntentClassificationResult(
+            intent_type="USE_RESULT",
+            query_type="TIME_SERIES_COMPARISON",
+            confidence=0.98,
+            wants_visualization=True,
+            use_result_type="revisualize",
+            requested_chart_type="sunburst",
+        )
+        assert result.requested_chart_type == "sunburst"
 
 
 class TestValidatorHeatmapCompletion:
@@ -121,58 +113,43 @@ class TestValidatorHeatmapCompletion:
         assert validated["series_field"] == "CategoryName"
 
 
-class TestEndToEndLLMRouting:
-    """Verify routing + rule-based still works for non-preference queries."""
-
-    def test_plain_query_still_gets_rule_based_line_chart(self):
-        """No chart keyword -> rule-based -> line_chart for TIME_SERIES_COMPARISON."""
-        from src.graphs.report_agent.subagents.visualization_v2.nodes import (
-            _should_use_llm,
-            _rule_based_decision,
-        )
-        assert _should_use_llm(None, "son 3 aydaki satislari goster") is False
-
-        profile = {
-            "dimension_columns": ["CategoryName", "Ay"],
-            "metric_columns": ["ToplamCiro"],
-            "time_column": "Ay",
-            "row_count": 49,
-        }
-        result = _rule_based_decision(
-            "TIME_SERIES_COMPARISON", True, profile,
-            time_granularity="monthly", comparison_dimension="CategoryName",
-        )
-        assert result["chart_type"] == "line_chart"
+class TestEndToEndIntentRouting:
+    """Verify the full routing: requested_chart_type -> viz_decider override."""
 
     @pytest.mark.asyncio
-    async def test_validator_still_fills_fields_for_sunburst(self):
-        """Validator field completion works regardless of routing path."""
-        from src.graphs.report_agent.subagents.visualization_v2.nodes import spec_validator_node
+    async def test_requested_chart_type_used_in_viz_decision(self):
+        """When requested_chart_type is set, viz_decider should produce that chart type."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import (
+            data_analyzer_node,
+            spec_validator_node,
+        )
+        results = [
+            {"CategoryName": "ESPRESSO", "Ay": "2026-01", "ToplamCiro": 50000},
+            {"CategoryName": "CAYLAR", "Ay": "2026-01", "ToplamCiro": 30000},
+            {"CategoryName": "ESPRESSO", "Ay": "2026-02", "ToplamCiro": 60000},
+        ]
 
-        state = {
-            "results": [
-                {"CategoryName": "ESPRESSO", "Ay": "2026-01", "ToplamCiro": 50000},
-                {"CategoryName": "CAYLAR", "Ay": "2026-01", "ToplamCiro": 30000},
-            ],
-            "viz_decision": {
-                "needs_graph": True,
-                "chart_type": "sunburst",
-                "x_field": "Ay",
-                "y_field": "ToplamCiro",
-                "series_field": "CategoryName",
-                "hierarchy_fields": ["CategoryName", "Ay"],
-            },
-            "data_profile": {
-                "dimension_columns": ["CategoryName", "Ay"],
-                "metric_columns": ["ToplamCiro"],
-                "time_column": "Ay",
-                "columns": [
-                    {"name": "CategoryName", "role": "dimension", "type": "text"},
-                    {"name": "Ay", "role": "time", "type": "text"},
-                    {"name": "ToplamCiro", "role": "metric", "type": "numeric"},
-                ],
-            },
+        state = {"results": results}
+        analyzer_result = await data_analyzer_node(state)
+        profile = analyzer_result["data_profile"]
+
+        requested = "heatmap"
+        spec = {
+            "needs_graph": True,
+            "chart_type": requested,
+            "x_field": None,
+            "y_field": None,
+            "series_field": None,
+            "reason": f"User requested {requested}",
         }
-        result = await spec_validator_node(state)
-        validated = result["viz_decision"]
-        assert validated["chart_type"] == "sunburst"
+
+        full_state = {
+            "results": results,
+            "viz_decision": spec,
+            "data_profile": profile,
+        }
+        validated_result = await spec_validator_node(full_state)
+        validated = validated_result["viz_decision"]
+        assert validated["chart_type"] == "heatmap"
+        assert validated["x_field"] is not None
+        assert validated["y_field"] is not None
