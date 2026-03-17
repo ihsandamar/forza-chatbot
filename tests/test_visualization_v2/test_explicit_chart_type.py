@@ -155,3 +155,36 @@ class TestExplicitChartTypeOverride:
             explicit_chart_type="heatmap",
         )
         assert result["series_field"] == "CategoryName"
+
+
+class TestValidatorHeatmapCompletion:
+    """Validator should fill series_field for heatmap before downgrading."""
+
+    def test_heatmap_gets_series_field_from_remaining_dims(self):
+        from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
+        spec = {
+            "needs_graph": True,
+            "chart_type": "heatmap",
+            "x_field": "Ay",
+            "y_field": "ToplamCiro",
+            "series_field": None,  # Missing! Should be filled by validator
+        }
+        results = [
+            {"CategoryName": "ESPRESSO", "Ay": "2026-01", "ToplamCiro": 50000},
+            {"CategoryName": "CAYLAR", "Ay": "2026-01", "ToplamCiro": 30000},
+            {"CategoryName": "ESPRESSO", "Ay": "2026-02", "ToplamCiro": 60000},
+            {"CategoryName": "CAYLAR", "Ay": "2026-02", "ToplamCiro": 35000},
+        ]
+        profile = {
+            "dimension_columns": ["CategoryName", "Ay"],
+            "metric_columns": ["ToplamCiro"],
+            "time_column": "Ay",
+            "columns": [
+                {"name": "CategoryName", "role": "dimension", "type": "text"},
+                {"name": "Ay", "role": "time", "type": "text"},
+                {"name": "ToplamCiro", "role": "metric", "type": "numeric"},
+            ],
+        }
+        validated = validate_spec(spec, results, profile)
+        assert validated["chart_type"] == "heatmap", f"Expected heatmap, got {validated['chart_type']}"
+        assert validated["series_field"] == "CategoryName"

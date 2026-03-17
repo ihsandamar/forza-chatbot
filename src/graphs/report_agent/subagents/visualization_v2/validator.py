@@ -4,9 +4,10 @@ Visualization V2 — ChartSpec Validator
 Pure Python, LLM yok. 5 kural sirayla calisir:
 1. Kolon varlik kontrolu (fuzzy match results kolonlarina karsi)
 2. Rol uyumu (x=dimension, y=metric; ters ise swap)
-3. Chart-data uyumu (pie+30 kategori, line+zaman yok, vb.)
-4. Eksik field tamamlama (profile'dan doldur)
-5. Multi-metric dogrulama (y_fields gecerli mi?)
+3. Eksik field tamamlama (profile'dan doldur)
+4. Series field tamamlama (remaining dims'ten doldur)
+5. Chart-data uyumu (pie+30 kategori, line+zaman yok, vb.)
+6. Multi-metric dogrulama (y_fields gecerli mi?)
 """
 import logging
 from typing import Any, Dict, List, Optional
@@ -63,6 +64,52 @@ def validate_spec(
             spec["x_field"], spec["y_field"] = y, x
             logger.info(f"[VALIDATOR] Rule 2: Swapped x/y ({x} <-> {y})")
 
+    # Rule 4: Missing field completion
+    if spec.get("needs_graph") and not spec.get("x_field"):
+        spec["x_field"] = time_col or (dimension_cols[0] if dimension_cols else None)
+        if spec["x_field"]:
+            logger.info(f"[VALIDATOR] Rule 4: x_field filled -> '{spec['x_field']}'")
+
+    if spec.get("needs_graph") and not spec.get("y_field") and not spec.get("y_fields"):
+        spec["y_field"] = metric_cols[0] if metric_cols else None
+        if spec["y_field"]:
+            logger.info(f"[VALIDATOR] Rule 4: y_field filled -> '{spec['y_field']}'")
+
+    if spec.get("needs_graph") and (not spec.get("x_field") or not spec.get("y_field")):
+        if not spec.get("y_fields"):
+            spec["needs_graph"] = False
+            spec["chart_type"] = "table"
+            logger.warning("[VALIDATOR] Rule 4: Cannot determine axes -> table fallback")
+            return spec
+
+    # Rule 6: Series field completion
+    _SERIES_COMPATIBLE = {"line_chart", "bar_chart", "comparison", "scatter_chart", "heatmap"}
+    if (
+        spec.get("needs_graph")
+        and spec.get("chart_type") in _SERIES_COMPATIBLE
+        and not spec.get("series_field")
+        and spec.get("x_field")
+        and spec.get("y_field")
+    ):
+        x = spec["x_field"]
+        y = spec["y_field"]
+        remaining_dims = [
+            d for d in dimension_cols
+            if d != x and d != y
+        ]
+        if remaining_dims:
+            best = None
+            best_unique = 999
+            for dim in remaining_dims:
+                if dim in actual_columns:
+                    unique = len(set(row.get(dim) for row in results))
+                    if unique > 1 and unique < best_unique:
+                        best = dim
+                        best_unique = unique
+            if best is not None and best_unique <= 50:
+                spec["series_field"] = best
+                logger.info(f"[VALIDATOR] Rule 6: series_field filled -> '{best}' ({best_unique} unique)")
+
     # Rule 3: Chart-data compatibility
     chart_type = spec.get("chart_type")
 
@@ -94,23 +141,6 @@ def validate_spec(
             spec["chart_type"] = "bar_chart"
             logger.info("[VALIDATOR] Rule 3: heatmap without series_field -> bar_chart")
 
-    # Rule 4: Missing field completion
-    if spec.get("needs_graph") and not spec.get("x_field"):
-        spec["x_field"] = time_col or (dimension_cols[0] if dimension_cols else None)
-        if spec["x_field"]:
-            logger.info(f"[VALIDATOR] Rule 4: x_field filled -> '{spec['x_field']}'")
-
-    if spec.get("needs_graph") and not spec.get("y_field") and not spec.get("y_fields"):
-        spec["y_field"] = metric_cols[0] if metric_cols else None
-        if spec["y_field"]:
-            logger.info(f"[VALIDATOR] Rule 4: y_field filled -> '{spec['y_field']}'")
-
-    if spec.get("needs_graph") and (not spec.get("x_field") or not spec.get("y_field")):
-        if not spec.get("y_fields"):
-            spec["needs_graph"] = False
-            spec["chart_type"] = "table"
-            logger.warning("[VALIDATOR] Rule 4: Cannot determine axes -> table fallback")
-
     # Rule 5: Multi-metric validation
     y_fields = spec.get("y_fields")
     if y_fields:
@@ -124,34 +154,6 @@ def validate_spec(
             logger.info(f"[VALIDATOR] Rule 5: Single y_field '{valid[0]}', moved to y_field")
         else:
             spec["y_fields"] = valid
-
-    # Rule 6: Series field completion
-    _SERIES_COMPATIBLE = {"line_chart", "bar_chart", "comparison", "scatter_chart", "heatmap"}
-    if (
-        spec.get("needs_graph")
-        and spec.get("chart_type") in _SERIES_COMPATIBLE
-        and not spec.get("series_field")
-        and spec.get("x_field")
-        and spec.get("y_field")
-    ):
-        x = spec["x_field"]
-        y = spec["y_field"]
-        remaining_dims = [
-            d for d in dimension_cols
-            if d != x and d != y
-        ]
-        if remaining_dims:
-            best = None
-            best_unique = 999
-            for dim in remaining_dims:
-                if dim in actual_columns:
-                    unique = len(set(row.get(dim) for row in results))
-                    if unique > 1 and unique < best_unique:
-                        best = dim
-                        best_unique = unique
-            if best is not None and best_unique <= 50:
-                spec["series_field"] = best
-                logger.info(f"[VALIDATOR] Rule 6: series_field filled -> '{best}' ({best_unique} unique)")
 
     return spec
 
