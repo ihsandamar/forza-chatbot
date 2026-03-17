@@ -15,6 +15,7 @@ class ReportState(TypedDict):
     query_type: Optional[str]          # SINGLE | RANKING | COMPARISON | TIME_SERIES_COMPARISON
     intent_confidence: Optional[float]
     wants_visualization: Optional[bool]  # Kullanıcı açıkça grafik istedi mi?
+    requested_chart_type: Optional[str]  # "heatmap", "sunburst" etc. — intent LLM'den gelir
     use_result_type: Optional[str]     # "new_query" | "revisualize" | "compute" | "modify_context"
     compute_operation: Optional[str]   # "sum" | "avg" | "count" | "min" | "max" (compute için)
 
@@ -56,6 +57,7 @@ def create_initial_state() -> ReportState:
         query_type=None,
         intent_confidence=None,
         wants_visualization=None,
+        requested_chart_type=None,
         use_result_type=None,
         compute_operation=None,
         active_sql=None,

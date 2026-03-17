@@ -69,6 +69,7 @@ def create_classify_intent_node(llm) -> Callable:
                 "query_type": "SINGLE",
                 "intent_confidence": 1.0,
                 "wants_visualization": False,
+                "requested_chart_type": None,
                 "use_result_type": None,
                 "compute_operation": None,
                 "visualization_output": None,
@@ -144,6 +145,7 @@ def create_classify_intent_node(llm) -> Callable:
             "query_type": result.query_type,
             "intent_confidence": result.confidence,
             "wants_visualization": wants_viz,
+            "requested_chart_type": result.requested_chart_type,
             "use_result_type": result.use_result_type,
             "compute_operation": result.compute_operation,  # compute path için (avg/sum/count/min/max)
             "visualization_output": None,  # önceki tur çıktısını temizle
