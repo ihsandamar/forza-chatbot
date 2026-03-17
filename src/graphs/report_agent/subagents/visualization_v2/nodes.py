@@ -14,6 +14,7 @@ CIZIM KATMANI: template_renderer, response_builder
 import datetime as _dt
 import json
 import logging
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.runnables import RunnableConfig
@@ -28,6 +29,50 @@ from src.graphs.report_agent.subagents.text2sql.nodes import AGGREGATE_PERIOD_GR
 logger = logging.getLogger(__name__)
 
 NO_GRAPH_TYPES = {"single_value", "simple_list", "table"}
+
+# Explicit chart type keywords — order matters (longer patterns first to avoid partial matches)
+# Turkish "grafik" inflections: grafik, grafiği, grafiğini, grafigi, grafigi, etc.
+# Also covers ASCII-normalized forms like "grafigi" (from "grafiği")
+_GRAFIK = r"grafi(?:k\w*|[gğ]\w*)"
+_CHART_TYPE_PATTERNS: list[tuple[str, str]] = [
+    # Heatmap
+    (r"\bheatmap\b", "heatmap"),
+    (r"\b[ıi]s[ıi]\s*haritas[ıi]\b", "heatmap"),
+    # Pie
+    (r"\bpasta\s*" + _GRAFIK, "pie_chart"),
+    (r"\bpie\s*chart\b", "pie_chart"),
+    (r"\bpasta\b", "pie_chart"),
+    # Bar
+    (r"\b[cç]ubuk\s*" + _GRAFIK, "bar_chart"),
+    (r"\bbar\s*(?:" + _GRAFIK + r"|chart)\b", "bar_chart"),
+    # Line
+    (r"\b[cç]izgi\s*" + _GRAFIK, "line_chart"),
+    (r"\bline\s*chart\b", "line_chart"),
+    (r"\btrend\s*" + _GRAFIK, "line_chart"),
+    # Scatter
+    (r"\bscatter\b", "scatter_chart"),
+    (r"\bda[gğ][ıi]l[ıi]m\s*" + _GRAFIK, "scatter_chart"),
+    # Sunburst
+    (r"\bsunburst\b", "sunburst"),
+    # Treemap
+    (r"\btreemap\b", "treemap"),
+]
+
+
+def _detect_explicit_chart_type(user_query: str) -> Optional[str]:
+    """
+    Detect explicit chart type request from user query.
+
+    Scans for Turkish/English chart type keywords.
+    Returns chart_type string or None if no explicit type found.
+    """
+    if not user_query:
+        return None
+    q = user_query.lower()
+    for pattern, chart_type in _CHART_TYPE_PATTERNS:
+        if re.search(pattern, q):
+            return chart_type
+    return None
 
 
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
