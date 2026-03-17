@@ -14,7 +14,6 @@ CIZIM KATMANI: template_renderer, response_builder
 import datetime as _dt
 import json
 import logging
-import re
 from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.runnables import RunnableConfig
@@ -30,49 +29,48 @@ logger = logging.getLogger(__name__)
 
 NO_GRAPH_TYPES = {"single_value", "simple_list", "table"}
 
-# Explicit chart type keywords — order matters (longer patterns first to avoid partial matches)
-# Turkish "grafik" inflections: grafik, grafiği, grafiğini, grafigi, grafigi, etc.
-# Also covers ASCII-normalized forms like "grafigi" (from "grafiği")
-_GRAFIK = r"grafi(?:k\w*|[gğ]\w*)"
-_CHART_TYPE_PATTERNS: list[tuple[str, str]] = [
-    # Heatmap
-    (r"\bheatmap\b", "heatmap"),
-    (r"\b[ıi]s[ıi]\s*haritas[ıi]\b", "heatmap"),
-    # Pie
-    (r"\bpasta\s*" + _GRAFIK, "pie_chart"),
-    (r"\bpie\s*chart\b", "pie_chart"),
-    (r"\bpasta\b", "pie_chart"),
-    # Bar
-    (r"\b[cç]ubuk\s*" + _GRAFIK, "bar_chart"),
-    (r"\bbar\s*(?:" + _GRAFIK + r"|chart)\b", "bar_chart"),
-    # Line
-    (r"\b[cç]izgi\s*" + _GRAFIK, "line_chart"),
-    (r"\bline\s*chart\b", "line_chart"),
-    (r"\btrend\s*" + _GRAFIK, "line_chart"),
-    # Scatter
-    (r"\bscatter\b", "scatter_chart"),
-    (r"\bda[gğ][ıi]l[ıi]m\s*" + _GRAFIK, "scatter_chart"),
-    # Sunburst
-    (r"\bsunburst\b", "sunburst"),
-    # Treemap
-    (r"\btreemap\b", "treemap"),
-]
+# Broad visualization keywords — NOT chart type detection.
+# Just a signal that user has a chart preference worth consulting the LLM about.
+# The LLM does the actual chart type understanding (handles typos, Turkish, creative expressions).
+# Note: "pasta" is excluded to avoid false positives on food category queries —
+# "pasta grafik" is caught by "grafik" anyway.
+_VIZ_HINT_KEYWORDS = {
+    # Chart type names (English + partial fragments for typo tolerance)
+    # "sunbr" catches both "sunburst" and typo "sunbrust" (common 5-char prefix)
+    "heatmap", "sunbr", "treemap", "scatter", "pie",
+    # Chart type names (Turkish fragments)
+    "cubuk", "çubuk", "cizgi", "çizgi",
+    # Generic visualization terms (these catch "X grafik ver" for any X)
+    "grafik", "grafig", "grafiğ", "chart", "plot", "diagram",
+    "harita", "haritas",
+}
 
 
-def _detect_explicit_chart_type(user_query: str) -> Optional[str]:
+def _has_viz_preference(user_query: str) -> bool:
     """
-    Detect explicit chart type request from user query.
+    Check if user query contains any visualization-related keyword.
 
-    Scans for Turkish/English chart type keywords.
-    Returns chart_type string or None if no explicit type found.
+    This is NOT chart type detection — just a broad signal that the user
+    mentioned something about chart types. The LLM handles actual understanding.
+    Intentionally broad to catch typos like 'sunbrust' (contains 'sunbur').
     """
     if not user_query:
-        return None
+        return False
     q = user_query.lower()
-    for pattern, chart_type in _CHART_TYPE_PATTERNS:
-        if re.search(pattern, q):
-            return chart_type
-    return None
+    return any(kw in q for kw in _VIZ_HINT_KEYWORDS)
+
+
+def _should_use_llm(viz_request: Optional[str], user_query: str) -> bool:
+    """
+    Decide whether to skip rule-based path and use LLM for chart type decision.
+
+    Returns True when:
+    1. viz_request is set (REVISUALIZE — user explicitly wants different visualization)
+    2. user_query contains visualization-hint keywords (user mentioned a chart type)
+    """
+    if viz_request:
+        return True
+    return _has_viz_preference(user_query)
 
 
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
@@ -178,7 +176,6 @@ def _rule_based_decision(
     profile: dict,
     time_granularity: Optional[str] = None,
     comparison_dimension: Optional[str] = None,
-    explicit_chart_type: Optional[str] = None,
 ) -> Optional[dict]:
     """
     Deterministic chart type selection.
@@ -195,18 +192,6 @@ def _rule_based_decision(
 
     if not metric_cols:
         return None
-
-    # --- Explicit chart type override (user said "heatmap", "pasta grafik", etc.) ---
-    if explicit_chart_type:
-        logger.info(f"[V2:RULE] Explicit chart type override: {explicit_chart_type}")
-        return {
-            "needs_graph": True,
-            "chart_type": explicit_chart_type,
-            "x_field": None,
-            "y_field": None,
-            "series_field": comparison_dimension,
-            "reason": f"User explicitly requested {explicit_chart_type}",
-        }
 
     if query_type == "LISTING":
         return {
@@ -364,24 +349,25 @@ def create_viz_decider_node(llm) -> Callable:
         _time_gran = state.get("time_granularity")
         _comp_dim = state.get("comparison_dimension")
 
-        # Detect explicit chart type from user query
-        effective_query = state.get("viz_request") or state.get("user_query", "")
-        _explicit = _detect_explicit_chart_type(effective_query)
-        if _explicit:
-            logger.info(f"[V2:VIZ_DECIDER] Explicit chart type detected: {_explicit} from query")
+        # Check if user has a chart type preference → LLM should decide
+        _viz_request = state.get("viz_request")
+        _user_query = state.get("user_query", "")
+        _use_llm = _should_use_llm(_viz_request, _user_query)
 
-        # Rule-based fast path (includes aggregate period routing)
-        rule_decision = _rule_based_decision(
-            query_type=state.get("query_type", ""),
-            wants_viz=state.get("wants_visualization", False),
-            profile=data_profile or {},
-            time_granularity=_time_gran,
-            comparison_dimension=_comp_dim,
-            explicit_chart_type=_explicit,
-        )
-        if rule_decision is not None:
-            logger.info(f"[V2:VIZ_DECIDER] Rule-based: {rule_decision['chart_type']}")
-            return {"viz_decision": rule_decision}
+        if _use_llm:
+            logger.info("[V2:VIZ_DECIDER] User has viz preference → skipping rule-based, using LLM")
+        else:
+            # Rule-based fast path (no user chart preference)
+            rule_decision = _rule_based_decision(
+                query_type=state.get("query_type", ""),
+                wants_viz=state.get("wants_visualization", False),
+                profile=data_profile or {},
+                time_granularity=_time_gran,
+                comparison_dimension=_comp_dim,
+            )
+            if rule_decision is not None:
+                logger.info(f"[V2:VIZ_DECIDER] Rule-based: {rule_decision['chart_type']}")
+                return {"viz_decision": rule_decision}
 
         # LLM fallback
         wants_viz = state.get("wants_visualization", False)
