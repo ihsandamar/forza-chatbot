@@ -81,3 +81,77 @@ class TestDetectExplicitChartType:
     def test_partial_word_no_match(self):
         """'barcin' should not match 'bar'."""
         assert self._detect("barcin satis raporu") is None
+
+
+class TestExplicitChartTypeOverride:
+    """viz_decider should use explicit chart type when user requests one."""
+
+    def test_rule_based_overridden_by_explicit_heatmap(self):
+        """TIME_SERIES_COMPARISON normally -> line_chart, but user says heatmap -> heatmap."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+        profile = {
+            "dimension_columns": ["CategoryName", "Ay"],
+            "metric_columns": ["ToplamCiro"],
+            "time_column": "Ay",
+            "row_count": 49,
+        }
+        # Without explicit -> line_chart (existing behavior)
+        result = _rule_based_decision(
+            "TIME_SERIES_COMPARISON", True, profile,
+            time_granularity="monthly", comparison_dimension="CategoryName",
+        )
+        assert result["chart_type"] == "line_chart"
+
+        # With explicit -> heatmap
+        result = _rule_based_decision(
+            "TIME_SERIES_COMPARISON", True, profile,
+            time_granularity="monthly", comparison_dimension="CategoryName",
+            explicit_chart_type="heatmap",
+        )
+        assert result["chart_type"] == "heatmap"
+
+    def test_explicit_pie_overrides_bar(self):
+        """RANKING normally -> bar_chart, but user says pie -> pie_chart."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+        profile = {
+            "dimension_columns": ["BranchName"],
+            "metric_columns": ["RowAmount"],
+            "time_column": None,
+            "row_count": 5,
+        }
+        result = _rule_based_decision(
+            "RANKING", True, profile,
+            explicit_chart_type="pie_chart",
+        )
+        assert result["chart_type"] == "pie_chart"
+
+    def test_explicit_none_preserves_default(self):
+        """No explicit type -> default rule-based behavior unchanged."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+        profile = {
+            "dimension_columns": ["BranchName"],
+            "metric_columns": ["RowAmount"],
+            "time_column": None,
+            "row_count": 5,
+        }
+        result = _rule_based_decision(
+            "RANKING", True, profile,
+            explicit_chart_type=None,
+        )
+        assert result["chart_type"] == "bar_chart"
+
+    def test_explicit_heatmap_sets_series_field(self):
+        """Heatmap with comparison_dimension should set series_field."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+        profile = {
+            "dimension_columns": ["CategoryName", "Ay"],
+            "metric_columns": ["ToplamCiro"],
+            "time_column": "Ay",
+            "row_count": 49,
+        }
+        result = _rule_based_decision(
+            "TIME_SERIES_COMPARISON", True, profile,
+            time_granularity="monthly", comparison_dimension="CategoryName",
+            explicit_chart_type="heatmap",
+        )
+        assert result["series_field"] == "CategoryName"

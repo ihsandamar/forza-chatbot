@@ -178,6 +178,7 @@ def _rule_based_decision(
     profile: dict,
     time_granularity: Optional[str] = None,
     comparison_dimension: Optional[str] = None,
+    explicit_chart_type: Optional[str] = None,
 ) -> Optional[dict]:
     """
     Deterministic chart type selection.
@@ -194,6 +195,18 @@ def _rule_based_decision(
 
     if not metric_cols:
         return None
+
+    # --- Explicit chart type override (user said "heatmap", "pasta grafik", etc.) ---
+    if explicit_chart_type:
+        logger.info(f"[V2:RULE] Explicit chart type override: {explicit_chart_type}")
+        return {
+            "needs_graph": True,
+            "chart_type": explicit_chart_type,
+            "x_field": None,
+            "y_field": None,
+            "series_field": comparison_dimension,
+            "reason": f"User explicitly requested {explicit_chart_type}",
+        }
 
     if query_type == "LISTING":
         return {
@@ -351,6 +364,12 @@ def create_viz_decider_node(llm) -> Callable:
         _time_gran = state.get("time_granularity")
         _comp_dim = state.get("comparison_dimension")
 
+        # Detect explicit chart type from user query
+        effective_query = state.get("viz_request") or state.get("user_query", "")
+        _explicit = _detect_explicit_chart_type(effective_query)
+        if _explicit:
+            logger.info(f"[V2:VIZ_DECIDER] Explicit chart type detected: {_explicit} from query")
+
         # Rule-based fast path (includes aggregate period routing)
         rule_decision = _rule_based_decision(
             query_type=state.get("query_type", ""),
@@ -358,6 +377,7 @@ def create_viz_decider_node(llm) -> Callable:
             profile=data_profile or {},
             time_granularity=_time_gran,
             comparison_dimension=_comp_dim,
+            explicit_chart_type=_explicit,
         )
         if rule_decision is not None:
             logger.info(f"[V2:VIZ_DECIDER] Rule-based: {rule_decision['chart_type']}")
