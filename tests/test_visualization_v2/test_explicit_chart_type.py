@@ -188,3 +188,67 @@ class TestValidatorHeatmapCompletion:
         validated = validate_spec(spec, results, profile)
         assert validated["chart_type"] == "heatmap", f"Expected heatmap, got {validated['chart_type']}"
         assert validated["series_field"] == "CategoryName"
+
+
+class TestEndToEndExplicitHeatmap:
+    """Full pipeline: user asks for heatmap -> system produces heatmap."""
+
+    @pytest.mark.asyncio
+    async def test_heatmap_request_produces_heatmap_chart(self):
+        """Reproduce the exact failing scenario from the bug report."""
+        from src.graphs.report_agent.subagents.visualization_v2.nodes import (
+            data_analyzer_node,
+            spec_validator_node,
+            _detect_explicit_chart_type,
+            _rule_based_decision,
+        )
+
+        # This is the exact data shape from the failing state
+        results = [
+            {"CategoryName": "ESPRESSO", "Ay": "2025-12", "ToplamCiro": 2975597.967},
+            {"CategoryName": "ESPRESSO", "Ay": "2026-01", "ToplamCiro": 51522465.1855},
+            {"CategoryName": "ESPRESSO", "Ay": "2026-02", "ToplamCiro": 87212170.671},
+            {"CategoryName": "CAYLAR", "Ay": "2025-12", "ToplamCiro": 700527.06},
+            {"CategoryName": "CAYLAR", "Ay": "2026-01", "ToplamCiro": 10818175.6485},
+            {"CategoryName": "CAYLAR", "Ay": "2026-02", "ToplamCiro": 19362311.808},
+            {"CategoryName": "PASTALAR", "Ay": "2025-12", "ToplamCiro": 1137962.053},
+            {"CategoryName": "PASTALAR", "Ay": "2026-01", "ToplamCiro": 12142220.20563},
+            {"CategoryName": "PASTALAR", "Ay": "2026-02", "ToplamCiro": 20071334.934232},
+        ]
+
+        user_query = "Son 3 aydaki satislari karsilastir ve bunlar icinde hangi kategoriler ne kadar satmis onu da gosteren heatmap grafik ver"
+
+        # Step 1: Detect explicit chart type
+        explicit = _detect_explicit_chart_type(user_query)
+        assert explicit == "heatmap"
+
+        # Step 2: Get data profile
+        state = {"results": results}
+        analyzer_result = await data_analyzer_node(state)
+        profile = analyzer_result["data_profile"]
+
+        # Step 3: Rule-based decision with explicit override
+        decision = _rule_based_decision(
+            query_type="TIME_SERIES_COMPARISON",
+            wants_viz=True,
+            profile=profile,
+            time_granularity="monthly",
+            comparison_dimension="CategoryName",
+            explicit_chart_type=explicit,
+        )
+        assert decision is not None
+        assert decision["chart_type"] == "heatmap"
+        assert decision["series_field"] == "CategoryName"
+
+        # Step 4: Validate spec
+        full_state = {
+            "results": results,
+            "viz_decision": decision,
+            "data_profile": profile,
+        }
+        validated_result = await spec_validator_node(full_state)
+        validated = validated_result["viz_decision"]
+        assert validated["chart_type"] == "heatmap", f"Expected heatmap, got {validated['chart_type']}"
+        assert validated["series_field"] == "CategoryName"
+        assert validated["x_field"] is not None
+        assert validated["y_field"] is not None
