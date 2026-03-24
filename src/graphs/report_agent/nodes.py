@@ -147,6 +147,21 @@ def create_classify_intent_node(llm) -> Callable:
         )
 
         result: IntentClassificationResult = await structured_llm.ainvoke(prompt)
+
+        # Post-LLM fallback: LLM structured output typo/edge-case'lerde
+        # requested_chart_type=None döndürebilir (non-deterministic, OpenAI backend-dependent).
+        # Kullanıcı vizualizasyon istiyorsa ve LLM chart type'ı çözemediyse,
+        # deterministic keyword lookup ile override et.
+        # revisualize path'ini de kapsar (nodes.py wants_viz hesabını yansıtır).
+        _wants_viz_effective = result.wants_visualization or (result.use_result_type == "revisualize")
+        if _wants_viz_effective and result.requested_chart_type is None:
+            _detected = _detect_chart_type_from_query(user_query)
+            if _detected:
+                result = result.model_copy(update={"requested_chart_type": _detected})
+                logger.info(
+                    f"[CLASSIFY] Fallback chart type detected: '{_detected}' from query"
+                )
+
         logger.info(
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
             f"conf={result.confidence:.2f} wants_viz={result.wants_visualization}"

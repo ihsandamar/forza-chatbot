@@ -80,3 +80,107 @@ def test_empty_string_returns_none():
 
 def test_only_whitespace_returns_none():
     assert _fn("   ") is None
+
+
+# ---------------------------------------------------------------------------
+# Integration: classify_intent_node fallback path (LLM mock ile)
+# Projedeki pattern: @pytest.mark.asyncio + async def (test_extract_entity_node.py)
+# ---------------------------------------------------------------------------
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+
+def _make_mock_llm(
+    intent_type="NEW_QUERY",
+    query_type="COMPARISON",
+    confidence=0.9,
+    wants_visualization=True,
+    use_result_type=None,
+    requested_chart_type=None,
+):
+    """Structured LLM mock: ainvoke → IntentClassificationResult döner."""
+    from src.graphs.report_agent.prompts import IntentClassificationResult
+
+    mock_result = IntentClassificationResult(
+        intent_type=intent_type,
+        query_type=query_type,
+        confidence=confidence,
+        wants_visualization=wants_visualization,
+        use_result_type=use_result_type,
+        requested_chart_type=requested_chart_type,
+    )
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=mock_result)
+    mock_llm.with_structured_output = MagicMock(return_value=structured)
+    return mock_llm
+
+
+@pytest.mark.asyncio
+async def test_fallback_sets_sunburst_when_llm_returns_none():
+    """Root cause: LLM None döndüğünde 'sunbrust' fallback ile sunburst olmalı."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(wants_visualization=True, requested_chart_type=None)
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="son 3 aydaki satışları sunbrust grafik ile göster")]}
+    result = await node(state)
+    assert result["requested_chart_type"] == "sunburst"
+
+
+@pytest.mark.asyncio
+async def test_fallback_does_not_override_when_llm_returns_value():
+    """LLM zaten bir değer döndürdüyse fallback override etmemeli."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(wants_visualization=True, requested_chart_type="bar_chart")
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="sunburst grafik ver")]}
+    result = await node(state)
+    assert result["requested_chart_type"] == "bar_chart"
+
+
+@pytest.mark.asyncio
+async def test_fallback_inactive_when_no_visualization():
+    """wants_visualization=False ve use_result_type=None ise fallback çalışmamalı."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(wants_visualization=False, use_result_type=None, requested_chart_type=None)
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="sunbrust grafik ver")]}
+    result = await node(state)
+    assert result["requested_chart_type"] is None
+
+
+@pytest.mark.asyncio
+async def test_fallback_active_on_revisualize_path():
+    """use_result_type=revisualize + LLM None → fallback devreye girmeli."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(
+        intent_type="USE_RESULT",
+        wants_visualization=False,   # revisualize path'inde LLM bunu False bırakabilir
+        use_result_type="revisualize",
+        requested_chart_type=None,
+    )
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="bunu sunbrust olarak göster")]}
+    result = await node(state)
+    assert result["requested_chart_type"] == "sunburst"
+
+
+@pytest.mark.asyncio
+async def test_fallback_returns_none_when_no_keyword():
+    """Keyword yoksa fallback None bırakmalı."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(wants_visualization=True, requested_chart_type=None)
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="son 3 aydaki satışları karşılaştır")]}
+    result = await node(state)
+    assert result["requested_chart_type"] is None
