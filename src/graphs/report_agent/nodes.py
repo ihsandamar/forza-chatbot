@@ -28,6 +28,60 @@ _DATE_EQ_RE = re.compile(
 CONFIDENCE_THRESHOLD = 0.70
 MODIFY_AMBIGUITY_THRESHOLD = 0.85  # MODIFY_QUERY için ayrı eşik — daha yüksek güven gerekir
 
+# ---------------------------------------------------------------------------
+# Chart type keyword detection — deterministic fallback for LLM structured output.
+#
+# LLM with structured Literal fields can return None for typos like "sunbrust".
+# This pure function covers that gap without touching the LLM call.
+#
+# Design: bare English single-words ("bar", "line", "pie") intentionally excluded
+# — they are collision-prone substrings in Turkish text (e.g. "kabartma" contains
+# "bar"). Only compound English forms and clearly chart-specific Turkish keywords
+# are included.
+# ---------------------------------------------------------------------------
+_CHART_KEYWORD_MAP: dict[str, str] = {
+    # sunburst — includes the common typo that triggered this fix
+    "sunburst": "sunburst",
+    "sunbrust": "sunburst",
+    # heatmap
+    "heatmap": "heatmap",
+    "ısıharitası": "heatmap",   # Turkish: "ısı haritası" → stripped spaces
+    # treemap
+    "treemap": "treemap",
+    # bar chart — compound only (bare "bar" is a collision risk in Turkish)
+    "barchart": "bar_chart",
+    "çubuk": "bar_chart",
+    "cubuk": "bar_chart",
+    # line chart — compound only
+    "linechart": "line_chart",
+    "çizgi": "line_chart",
+    "cizgi": "line_chart",
+    # pie chart — compound only
+    "piechart": "pie_chart",
+    "pasta": "pie_chart",
+    # scatter chart — compound only
+    "scatterchart": "scatter_chart",
+}
+
+
+def _detect_chart_type_from_query(text: str) -> Optional[str]:
+    """Deterministic chart type extraction from user query text.
+
+    Normalizes input (lowercase, collapse whitespace/hyphens/underscores) then
+    checks for substrings against _CHART_KEYWORD_MAP.
+
+    Returns canonical chart type string (e.g. "sunburst") or None if no keyword found.
+    Pure function — no LLM, no I/O, safe to call from any context.
+    """
+    if not text or not text.strip():
+        return None
+    # Normalize: lowercase, strip whitespace/separators (keep Turkish chars like ı, ş, ç)
+    normalized = re.sub(r"[\s_\-]", "", text.lower())
+    for keyword, chart_type in _CHART_KEYWORD_MAP.items():
+        if keyword in normalized:
+            return chart_type
+    return None
+
 
 def create_classify_intent_node(llm) -> Callable:
     """Intent Classifier: user_query → intent_type + query_type.
