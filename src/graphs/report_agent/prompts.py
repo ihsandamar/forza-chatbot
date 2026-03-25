@@ -16,10 +16,6 @@ class IntentClassificationResult(BaseModel):
     wants_visualization: bool = False           # Kullanıcı açıkça grafik/chart istedi mi?
     use_result_type: Optional[Literal["new_query", "revisualize", "compute", "modify_context"]] = None
     compute_operation: Optional[Literal["sum", "avg", "count", "min", "max"]] = None
-    requested_chart_type: Optional[Literal[
-        "bar_chart", "line_chart", "pie_chart", "scatter_chart",
-        "heatmap", "sunburst", "treemap",
-    ]] = None  # Kullanıcı açıkça istediği grafik tipi (typo toleranslı)
     modification_action: Optional[str] = None   # "add_filter" | "remove_filter" | "change_limit" | "change_order"
     modification_target: Optional[str] = None   # "şehir", "tarih", "limit"
     modification_value: Optional[str] = None    # "Ankara", "2024-01", "50"
@@ -30,6 +26,14 @@ class IntentClassificationResult(BaseModel):
         if not 0.0 <= v <= 1.0:
             raise ValueError("confidence must be between 0.0 and 1.0")
         return v
+
+
+class ChartTypeResult(BaseModel):
+    """Dedicated chart type detection — classify_intent ile paralel çalışır."""
+    chart_type: Optional[Literal[
+        "bar_chart", "line_chart", "pie_chart", "scatter_chart",
+        "heatmap", "sunburst", "treemap",
+    ]] = None
 
 
 class ModificationHint(BaseModel):
@@ -66,6 +70,30 @@ class QueryClarificationResult(BaseModel):
 # =============================================================================
 # PROMPTS
 # =============================================================================
+
+CHART_TYPE_PROMPT = """Kullanıcı sorgusuna göre en uygun grafik tipini belirle.
+
+Sorgu: {user_query}
+
+## KURALLAR
+
+Aşağıdaki öncelik sırasıyla karar ver:
+
+1. Kullanıcı açıkça bir grafik tipi belirttiyse → o tipi döndür (typo toleranslı: "sunbrust"→sunburst, "hetmap"→heatmap)
+
+2. Grafik tipi belirtilmemişse, sorgu yapısına göre:
+   - Zaman + kategori/boyut karşılaştırması (hiyerarşik, çok boyutlu: "aylık kategoriler", "dönemsel kırılım") → sunburst
+   - Hiyerarşik part-of-whole, zaman boyutu yok ("kategorilerin alt kırılımı", "grup içi dağılım") → treemap
+   - Saf zaman serisi / trend (tek metrik: "aylık ciro", "günlük satış trendi") → line_chart
+   - Kategoriler arası flat karşılaştırma ("en çok satan", "şubeleri karşılaştır") → bar_chart
+   - Oran / pay / yüzdesel dağılım ("payı nedir", "yüzde dağılım") → pie_chart
+   - İki boyutlu dağılım matrisi (entity × periyot: "saatlere göre günler") → heatmap
+   - İki sayısal değişken korelasyonu ("X arttıkça Y") → scatter_chart
+
+3. Grafik talebi belirsizse veya sadece veri/tablo isteniyorsa → null
+
+Yalnızca chart_type alanını doldur. Açıklama yapma.
+"""
 
 INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesajını analiz edip intent'ini belirle.
 
@@ -142,19 +170,6 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
   → Hem sorgu hem grafik istiyorsa (ör: "satışları bar chart olarak göster") True
 - False: Sadece veri/tablo istiyor, grafik talep etmiyor (DEFAULT)
   → "şube satışları nedir?", "top 10 ürün" gibi salt veri sorguları → False
-
-**requested_chart_type:**
-Kullanıcı belirli bir grafik tipi istiyorsa, wants_visualization=True olmalı ve requested_chart_type doldurulmalı.
-Typo'lara toleranslı ol (ör: "sunbrust" → sunburst, "hetmap" → heatmap).
-- "bar grafik", "çubuk grafik", "bar chart" → bar_chart
-- "çizgi grafik", "line chart", "trend grafik" → line_chart
-- "pasta grafik", "pie chart", "daire grafik" → pie_chart
-- "scatter", "dağılım grafiği" → scatter_chart
-- "heatmap", "ısı haritası", "heat map" → heatmap
-- "sunburst", "güneş patlaması" → sunburst
-- "treemap", "ağaç haritası" → treemap
-- Grafik tipi belirtilmemişse → null (viz_decider otomatik seçer)
-- ⚠️ SADECE kullanıcı açıkça bir grafik tipi belirttiğinde doldur. "grafik ver" tek başına yetmez.
 
 **confidence:** 0.0-1.0 güven skoru.
 - 0.90+: Kesin
