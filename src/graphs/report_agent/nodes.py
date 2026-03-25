@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -7,10 +8,12 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import interrupt
 
 from src.graphs.report_agent.prompts import (
+    ChartTypeResult,
     EntityExtractionResult,
     IntentClassificationResult,
     QueryClarificationResult,
     SqlModificationResult,
+    CHART_TYPE_PROMPT,
     ENTITY_EXTRACTOR_PROMPT,
     INTENT_CLASSIFIER_PROMPT,
     QUERY_CLARIFICATION_PROMPT,
@@ -88,6 +91,7 @@ def create_classify_intent_node(llm) -> Callable:
     Confidence < 0.70 ise interrupt() ile kullanıcıya sorar.
     """
     structured_llm = llm.with_structured_output(IntentClassificationResult)
+    chart_llm = llm.with_structured_output(ChartTypeResult)
 
     async def classify_intent_node(state: dict) -> dict:
         logger.info(f"[REPORT_AGENT] ===== classify_intent_node ENTERED ===== query: {state.get('messages', [{}])[-1].content[:80] if state.get('messages') else 'NO_MESSAGES'}")
@@ -146,21 +150,33 @@ def create_classify_intent_node(llm) -> Callable:
             result_count=len(active_results),
         )
 
-        result: IntentClassificationResult = await structured_llm.ainvoke(prompt)
+        results = await asyncio.gather(
+            structured_llm.ainvoke(prompt),
+            chart_llm.ainvoke(CHART_TYPE_PROMPT.format(user_query=user_query)),
+            return_exceptions=True,
+        )
+        intent_raw, chart_raw = results[0], results[1]
 
-        # Post-LLM fallback: LLM structured output typo/edge-case'lerde
-        # requested_chart_type=None döndürebilir (non-deterministic, OpenAI backend-dependent).
-        # Kullanıcı vizualizasyon istiyorsa ve LLM chart type'ı çözemediyse,
-        # deterministic keyword lookup ile override et.
-        # revisualize path'ini de kapsar (nodes.py wants_viz hesabını yansıtır).
+        # intent_llm hatası: normal exception mekanizmasına bırak
+        if isinstance(intent_raw, Exception):
+            raise intent_raw
+
+        result: IntentClassificationResult = intent_raw
+
+        # chart_llm hatası → graceful degrade, deterministic fallback'e düşer
+        chart_type_from_llm: Optional[str] = None
+        if not isinstance(chart_raw, Exception) and chart_raw is not None:
+            chart_type_from_llm = chart_raw.chart_type
+
+        # Merge: chart_type sadece visualization isteklerinde kullanılır
         _wants_viz_effective = result.wants_visualization or (result.use_result_type == "revisualize")
-        if _wants_viz_effective and result.requested_chart_type is None:
-            _detected = _detect_chart_type_from_query(user_query)
-            if _detected:
-                result = result.model_copy(update={"requested_chart_type": _detected})
-                logger.info(
-                    f"[CLASSIFY] Fallback chart type detected: '{_detected}' from query"
-                )
+        chart_type: Optional[str] = None
+        if _wants_viz_effective:
+            chart_type = chart_type_from_llm
+            if chart_type is None:
+                chart_type = _detect_chart_type_from_query(user_query)
+                if chart_type:
+                    logger.info(f"[CLASSIFY] Fallback chart type: '{chart_type}' from query keywords")
 
         logger.info(
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
@@ -214,7 +230,7 @@ def create_classify_intent_node(llm) -> Callable:
             "query_type": result.query_type,
             "intent_confidence": result.confidence,
             "wants_visualization": wants_viz,
-            "requested_chart_type": result.requested_chart_type,
+            "requested_chart_type": chart_type,
             "use_result_type": result.use_result_type,
             "compute_operation": result.compute_operation,  # compute path için (avg/sum/count/min/max)
             "visualization_output": None,  # önceki tur çıktısını temizle
