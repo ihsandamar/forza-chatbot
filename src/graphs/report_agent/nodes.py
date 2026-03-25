@@ -168,16 +168,6 @@ def create_classify_intent_node(llm) -> Callable:
         if not isinstance(chart_raw, Exception) and chart_raw is not None:
             chart_type_from_llm = chart_raw.chart_type
 
-        # Merge: chart_type sadece visualization isteklerinde kullanılır
-        _wants_viz_effective = result.wants_visualization or (result.use_result_type == "revisualize")
-        chart_type: Optional[str] = None
-        if _wants_viz_effective:
-            chart_type = chart_type_from_llm
-            if chart_type is None:
-                chart_type = _detect_chart_type_from_query(user_query)
-                if chart_type:
-                    logger.info(f"[CLASSIFY] Fallback chart type: '{chart_type}' from query keywords")
-
         logger.info(
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
             f"conf={result.confidence:.2f} wants_viz={result.wants_visualization}"
@@ -219,6 +209,17 @@ def create_classify_intent_node(llm) -> Callable:
 
         # revisualize her zaman görselleştirme talebidir
         wants_viz = result.wants_visualization or (result.use_result_type == "revisualize")
+
+        # Merge: chart_type sadece visualization isteklerinde kullanılır.
+        # Bu blok interrupt+resolve SONRASINDA hesaplanır; revisualize path'inde
+        # wants_viz doğru şekilde True gelir.
+        chart_type: Optional[str] = None
+        if wants_viz:
+            chart_type = chart_type_from_llm
+            if chart_type is None:
+                chart_type = _detect_chart_type_from_query(user_query)
+                if chart_type:
+                    logger.info(f"[CLASSIFY] Fallback chart type: '{chart_type}' from query keywords")
 
         # revisualize'da user_query SQL semantic query'yi kirletmemesi için
         # viz_request ayrı bir alana yazılır; diğer pathlerde None (reset).
