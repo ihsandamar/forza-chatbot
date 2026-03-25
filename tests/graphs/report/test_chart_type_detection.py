@@ -96,23 +96,39 @@ def _make_mock_llm(
     confidence=0.9,
     wants_visualization=True,
     use_result_type=None,
-    requested_chart_type=None,
+    chart_type=None,
+    chart_llm_raises=None,
 ):
-    """Structured LLM mock: ainvoke → IntentClassificationResult döner."""
-    from src.graphs.report_agent.prompts import IntentClassificationResult
+    """Mock LLM for parallel chart type detection tests.
 
-    mock_result = IntentClassificationResult(
+    with_structured_output is called twice:
+      1st call → IntentClassificationResult chain
+      2nd call → ChartTypeResult chain
+    """
+    from src.graphs.report_agent.prompts import IntentClassificationResult, ChartTypeResult
+
+    mock_intent = IntentClassificationResult(
         intent_type=intent_type,
         query_type=query_type,
         confidence=confidence,
         wants_visualization=wants_visualization,
         use_result_type=use_result_type,
-        requested_chart_type=requested_chart_type,
     )
+    mock_chart = ChartTypeResult(chart_type=chart_type)
+
+    intent_chain = MagicMock()
+    intent_chain.ainvoke = AsyncMock(return_value=mock_intent)
+
+    chart_chain = MagicMock()
+    if chart_llm_raises:
+        chart_chain.ainvoke = AsyncMock(side_effect=chart_llm_raises)
+    else:
+        chart_chain.ainvoke = AsyncMock(return_value=mock_chart)
+
     mock_llm = MagicMock()
-    structured = MagicMock()
-    structured.ainvoke = AsyncMock(return_value=mock_result)
-    mock_llm.with_structured_output = MagicMock(return_value=structured)
+    mock_llm.with_structured_output = MagicMock(
+        side_effect=[intent_chain, chart_chain]
+    )
     return mock_llm
 
 
@@ -122,7 +138,7 @@ async def test_fallback_sets_sunburst_when_llm_returns_none():
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
-    llm = _make_mock_llm(wants_visualization=True, requested_chart_type=None)
+    llm = _make_mock_llm(wants_visualization=True, chart_type=None)
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="son 3 aydaki satışları sunbrust grafik ile göster")]}
     result = await node(state)
@@ -135,7 +151,7 @@ async def test_fallback_does_not_override_when_llm_returns_value():
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
-    llm = _make_mock_llm(wants_visualization=True, requested_chart_type="bar_chart")
+    llm = _make_mock_llm(wants_visualization=True, chart_type="bar_chart")
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="sunburst grafik ver")]}
     result = await node(state)
@@ -148,7 +164,7 @@ async def test_fallback_inactive_when_no_visualization():
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
-    llm = _make_mock_llm(wants_visualization=False, use_result_type=None, requested_chart_type=None)
+    llm = _make_mock_llm(wants_visualization=False, use_result_type=None, chart_type=None)
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="sunbrust grafik ver")]}
     result = await node(state)
@@ -165,7 +181,7 @@ async def test_fallback_active_on_revisualize_path():
         intent_type="USE_RESULT",
         wants_visualization=False,   # revisualize path'inde LLM bunu False bırakabilir
         use_result_type="revisualize",
-        requested_chart_type=None,
+        chart_type=None,
     )
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="bunu sunbrust olarak göster")]}
@@ -179,8 +195,50 @@ async def test_fallback_returns_none_when_no_keyword():
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
-    llm = _make_mock_llm(wants_visualization=True, requested_chart_type=None)
+    llm = _make_mock_llm(wants_visualization=True, chart_type=None)
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="son 3 aydaki satışları karşılaştır")]}
+    result = await node(state)
+    assert result["requested_chart_type"] is None
+
+
+@pytest.mark.asyncio
+async def test_chart_llm_exception_falls_back_to_keyword_detection():
+    """chart_llm Exception fırlatırsa keyword fallback devreye girmeli, node çökmemeli."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(
+        wants_visualization=True,
+        chart_llm_raises=RuntimeError("OpenAI rate limit"),
+    )
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="sunburst grafik ver")]}
+    result = await node(state)
+    assert result["requested_chart_type"] == "sunburst"
+
+
+@pytest.mark.asyncio
+async def test_parallel_chart_llm_value_used_when_wants_viz():
+    """chart LLM sonucu doğrudan kullanılmalı."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(wants_visualization=True, chart_type="treemap")
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="kategorilerin alt kırılımını göster")]}
+    result = await node(state)
+    assert result["requested_chart_type"] == "treemap"
+
+
+@pytest.mark.asyncio
+async def test_chart_type_none_when_no_viz_requested():
+    """wants_visualization=False olduğunda chart LLM sonucu kullanılmamalı."""
+    from langchain_core.messages import HumanMessage
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_mock_llm(wants_visualization=False, chart_type="sunburst")
+    node = create_classify_intent_node(llm)
+    state = {"messages": [HumanMessage(content="son 3 aydaki satışlar")]}
     result = await node(state)
     assert result["requested_chart_type"] is None
