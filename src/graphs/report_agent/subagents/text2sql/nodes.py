@@ -41,7 +41,6 @@ from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql,
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
 from src.graphs.report_agent.subagents.text2sql.term_vector_store import TermVectorStore
-from src.graphs.generic_text2sql.table_registry import get_table_registry
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +84,25 @@ _table_init_event = threading.Event()
 _table_init_error: Optional[str] = "not_started"
 _table_init_table_name: Optional[str] = None
 _table_init_started = False  # Guard: background init only runs once
+_table_verified: bool = False  # True = table confirmed in DB; reset on process restart
+
+
+def _check_table_exists_in_db(pyodbc_conn_str: str, table_name: str) -> bool:
+    """
+    DB'de tablonun varlığını senkron olarak kontrol et.
+    get_pooled_connection kullanır — run_in_executor ile çağrılır.
+    """
+    conn = get_pooled_connection(pyodbc_conn_str)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_NAME = ? AND TABLE_TYPE = 'BASE TABLE'",
+            table_name
+        )
+        return cursor.fetchone() is not None
+    finally:
+        cursor.close()  # connection pool'da kalır, kapatılmaz
 
 
 def init_master_table_background(connection_string: str, table_name: str, sql_script: str) -> None:
@@ -93,7 +111,7 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
     Sets _table_init_event when done (success or failure).
     Only runs once per process lifetime (guarded by _table_init_started).
     """
-    global _table_init_error, _table_init_table_name, _table_init_started
+    global _table_init_error, _table_init_table_name, _table_init_started, _table_verified
     if _table_init_started:
         logger.info(f"[TABLE_INIT] Background init already started, skipping")
         return
@@ -103,6 +121,7 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
         logger.info(f"[TABLE_INIT] Background table creation started for '{table_name}'")
         _execute_script_sync(connection_string, sql_script)
         _table_init_error = None
+        _table_verified = True
         logger.info(f"[TABLE_INIT] Background table creation completed for '{table_name}'")
     except Exception as e:
         _table_init_error = str(e)
@@ -1351,59 +1370,24 @@ def _execute_script_sync(connection_string: str, sql_script: str) -> None:
 
 def create_create_table_node(connection_string: str, default_table_name: str) -> Callable:
     """
-    Registry-aware table creation node.
+    DB-check-aware table creation node.
 
     Flow:
-    1. force_refresh → DROP + recreate + register
-    2. Registry hit (any session with same table) → skip (0 sec)
-    3. Background init running → wait, then register
-    4. Background init succeeded → register (no DB call)
-    5. Fallback → create from config query
+    1. _table_verified == True → skip (0 DB call)
+    2. Background init hâlâ çalışıyorsa → bekle (max 180s)
+    3. DB'de INFORMATION_SCHEMA.TABLES kontrolü
+       - Var → _table_verified = True, skip
+       - Yok → SQL script çalıştır, _table_verified = True
     """
 
     async def create_table_node(state: dict, *, config: RunnableConfig = None) -> dict:
-        force_refresh = state.get("_force_table_refresh", False)
+        global _table_verified
         table_name = _get_configurable(config, "table_name", default_table_name)
-        session_id = _get_configurable(config, "thread_id", "__global__")
-        registry = get_table_registry()
 
-        # --- Force refresh: DROP + recreate from scratch ---
-        if force_refresh:
-            logger.info(f"[CREATE_TABLE] Force refresh requested, dropping '{table_name}'")
-            drop_sql = f"DROP TABLE IF EXISTS [{table_name}];"
-            loop = asyncio.get_event_loop()
-            try:
-                await loop.run_in_executor(_db_executor, _execute_script_sync, connection_string, drop_sql)
-            except Exception as e:
-                logger.warning(f"[CREATE_TABLE] Drop failed (may not exist): {e}")
-
-            # Unregister ALL sessions for this table
-            all_tables = await registry.get_all_tables()
-            for meta in all_tables:
-                if meta.table_name == table_name:
-                    await registry.unregister_table(meta.session_id)
-
-            # Create from SQL file
-            return await _create_and_register(connection_string, table_name, session_id, registry, config)
-
-        # --- Registry check: any session has this table? ---
-        # First check own session
-        metadata = await registry.check_table_exists(session_id)
-        if metadata:
-            logger.info(
-                f"[CREATE_TABLE] Table '{table_name}' found in registry for session "
-                f"(queries={metadata.query_count}, ttl={metadata.ttl_remaining():.0f}s), skipping"
-            )
+        # --- Fast path: already verified this process lifetime ---
+        if _table_verified:
+            logger.info(f"[CREATE_TABLE] '{table_name}' already verified, skipping")
             return {}
-
-        # Check if another session already has this table registered
-        all_tables = await registry.get_all_tables()
-        for meta in all_tables:
-            if meta.table_name == table_name and not meta.is_expired():
-                # Table exists from another session — register for this session too
-                await registry.register_table(session_id, table_name)
-                logger.info(f"[CREATE_TABLE] Table '{table_name}' exists (from session {meta.session_id}), registered for {session_id}")
-                return {}
 
         # --- Wait for background init if still running ---
         if not _table_init_event.is_set():
@@ -1411,38 +1395,39 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, _table_init_event.wait, 180)
 
-        # --- Background init succeeded? Just register, no DB call ---
-        if _table_init_error is None:
-            await registry.register_table(session_id, table_name)
-            logger.info(f"[CREATE_TABLE] Registered '{table_name}' from background init (0 DB calls)")
-            return {}
+        try:
+            loop = asyncio.get_event_loop()
+            pyodbc_conn_str = _parse_connection_string(connection_string)
 
-        # --- Fallback: background init failed or never ran → create now ---
-        logger.warning(f"[CREATE_TABLE] Background init status: {_table_init_error}, falling back to direct creation")
-        return await _create_and_register(connection_string, table_name, session_id, registry, config)
-
-    async def _create_and_register(connection_string, table_name, session_id, registry, config):
-        """Helper: load SQL, execute, register."""
-        query = _get_configurable(config, "query", "")
-        if not query or not query.strip():
-            sql_file = Path(__file__).parent.parent.parent.parent / "generic_text2sql" / "master_table_creation.sql"
-            if sql_file.exists():
-                query = sql_file.read_text(encoding="utf-8")
-                logger.info(f"[CREATE_TABLE] Loaded SQL from file ({len(query)} chars)")
-            else:
-                logger.warning("[CREATE_TABLE] No query available, skipping table creation")
+            # --- DB existence check ---
+            exists = await loop.run_in_executor(
+                _db_executor, _check_table_exists_in_db, pyodbc_conn_str, table_name
+            )
+            if exists:
+                _table_verified = True
+                logger.info(f"[CREATE_TABLE] '{table_name}' exists in DB, skipping creation")
                 return {}
 
-        logger.info(f"[CREATE_TABLE] Creating table '{table_name}' ({len(query)} chars)")
-        loop = asyncio.get_event_loop()
-        try:
+            # --- Table does not exist → create ---
+            query = _get_configurable(config, "query", "")
+            if not query or not query.strip():
+                sql_file = Path(__file__).parent.parent.parent.parent / "generic_text2sql" / "master_table_creation.sql"
+                if sql_file.exists():
+                    query = sql_file.read_text(encoding="utf-8")
+                    logger.info(f"[CREATE_TABLE] Loaded SQL from file ({len(query)} chars)")
+                else:
+                    logger.warning("[CREATE_TABLE] No query available, skipping table creation")
+                    return {}
+
+            logger.info(f"[CREATE_TABLE] Creating table '{table_name}' ({len(query)} chars)")
             await loop.run_in_executor(_db_executor, _execute_script_sync, connection_string, query)
-            await registry.register_table(session_id, table_name)
-            logger.info(f"[CREATE_TABLE] '{table_name}' created and registered successfully")
+            _table_verified = True
+            logger.info(f"[CREATE_TABLE] '{table_name}' created successfully")
+            return {}
+
         except Exception as e:
             logger.error(f"[CREATE_TABLE] Error: {e}")
-            return {"error": f"Tablo oluşturulamadı: {e}"}
-        return {}
+            return {"error": f"Tablo kontrol/oluşturma hatası: {e}"}
 
     return create_table_node
 
@@ -1452,25 +1437,9 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
 # =============================================================================
 
 def create_cleanup_table_node(connection_string: str, default_table_name: str) -> Callable:
-    """
-    Registry-aware cleanup: refresh TTL instead of DROP.
-    Table cleanup is handled by TTL expiry / session end / background cleanup.
-    """
+    """No-op: table is permanent, no cleanup performed."""
 
     async def cleanup_table_node(state: dict, *, config: RunnableConfig = None) -> dict:
-        table_name = _get_configurable(config, "table_name", default_table_name)
-        session_id = _get_configurable(config, "thread_id", "__global__")
-        registry = get_table_registry()
-
-        metadata = await registry.check_table_exists(session_id)
-        if metadata:
-            logger.info(
-                f"[CLEANUP_TABLE] Refreshed TTL for '{table_name}' "
-                f"(queries={metadata.query_count}, ttl={metadata.ttl_remaining():.0f}s)"
-            )
-        else:
-            logger.info(f"[CLEANUP_TABLE] No registry entry for '{table_name}', nothing to refresh")
-
         return {}
 
     return cleanup_table_node
