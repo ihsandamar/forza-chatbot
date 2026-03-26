@@ -28,6 +28,7 @@ def _make_mock_llm(modified_sql: str):
 
     class FakeResult:
         explanation = "test"
+        confidence = 0.9
         modification_hints = []
 
     FakeResult.modified_sql = modified_sql

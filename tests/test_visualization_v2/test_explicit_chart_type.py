@@ -34,50 +34,27 @@ class TestVizDeciderWithRequestedChartType:
 
 
 class TestRequestedChartTypeModel:
-    """IntentClassificationResult.requested_chart_type field validation."""
+    """ChartTypeResult model validation (chart type is now a separate parallel LLM call)."""
 
     def test_valid_chart_type(self):
-        from src.graphs.report_agent.prompts import IntentClassificationResult
-        result = IntentClassificationResult(
-            intent_type="NEW_QUERY",
-            query_type="TIME_SERIES_COMPARISON",
-            confidence=0.95,
-            wants_visualization=True,
-            requested_chart_type="heatmap",
-        )
-        assert result.requested_chart_type == "heatmap"
+        from src.graphs.report_agent.prompts import ChartTypeResult
+        result = ChartTypeResult(chart_type="heatmap")
+        assert result.chart_type == "heatmap"
 
     def test_none_chart_type(self):
-        from src.graphs.report_agent.prompts import IntentClassificationResult
-        result = IntentClassificationResult(
-            intent_type="NEW_QUERY",
-            query_type="SINGLE",
-            confidence=0.9,
-            wants_visualization=False,
-        )
-        assert result.requested_chart_type is None
+        from src.graphs.report_agent.prompts import ChartTypeResult
+        result = ChartTypeResult(chart_type=None)
+        assert result.chart_type is None
 
     def test_invalid_chart_type_rejected(self):
-        from src.graphs.report_agent.prompts import IntentClassificationResult
+        from src.graphs.report_agent.prompts import ChartTypeResult
         with pytest.raises(Exception):
-            IntentClassificationResult(
-                intent_type="NEW_QUERY",
-                query_type="SINGLE",
-                confidence=0.9,
-                requested_chart_type="invalid_chart",
-            )
+            ChartTypeResult(chart_type="invalid_chart")
 
     def test_sunburst_chart_type(self):
-        from src.graphs.report_agent.prompts import IntentClassificationResult
-        result = IntentClassificationResult(
-            intent_type="USE_RESULT",
-            query_type="TIME_SERIES_COMPARISON",
-            confidence=0.98,
-            wants_visualization=True,
-            use_result_type="revisualize",
-            requested_chart_type="sunburst",
-        )
-        assert result.requested_chart_type == "sunburst"
+        from src.graphs.report_agent.prompts import ChartTypeResult
+        result = ChartTypeResult(chart_type="sunburst")
+        assert result.chart_type == "sunburst"
 
 
 class TestValidatorHeatmapCompletion:

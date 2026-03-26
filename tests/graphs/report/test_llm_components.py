@@ -419,6 +419,7 @@ def test_sql_modification_result_has_modification_hints():
     result = SqlModificationResult(
         modified_sql="SELECT * FROM T WHERE [CategoryName] = 'DURUMLER'",
         explanation="Kategori filtresi eklendi",
+        confidence=0.9,
         modification_hints=[
             ModificationHint(column="CategoryName", embedded_value="dürümler")
         ],
@@ -435,6 +436,7 @@ def test_sql_modification_result_hints_default_empty():
     result = SqlModificationResult(
         modified_sql="SELECT * FROM T",
         explanation="test",
+        confidence=0.9,
     )
     assert result.modification_hints == []
 
@@ -448,6 +450,7 @@ def test_modify_sql_node_returns_modification_hints():
     mock_result = SqlModificationResult(
         modified_sql="SELECT * FROM T WHERE [CategoryName] = 'dürümler'",
         explanation="test",
+        confidence=0.9,
         modification_hints=[ModificationHint(column="CategoryName", embedded_value="dürümler")],
     )
     mock_llm = MagicMock()
