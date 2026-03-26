@@ -1,14 +1,7 @@
-from functools import lru_cache
 from src.api.services.chat_service import ChatService
 from src.core.chatbot import Chatbot
 from src.models.llm import LLM
-from src.services.config_loader import ConfigLoader
-from src.services.container import ServiceContainer
-from src.graphs.graph_repository import GraphRepository
-from src.builders.chatbot_builder import ChatbotBuilder
-from src.builders.dependency_factory import DependencyFactory
-from src.builders.adapter_factory import AdapterFactory
-from src.factories.llm_factory import LLMFactory
+from src.graphs.graph_entrypoints import supervisor_graph, _get_config
 
 
 # Singleton instances
@@ -18,35 +11,36 @@ _chatbot_instance = None
 
 def get_chatbot() -> Chatbot:
     """
-    Dependency to get Chatbot instance
+    Dependency to get Chatbot instance.
+
+    Uses graph_entrypoints.supervisor_graph() directly — same code path as LangGraph dev.
 
     Returns:
         Chatbot: Singleton instance of chatbot
     """
     global _chatbot_instance
     if _chatbot_instance is None:
-        # Load config
-        config = ConfigLoader.load_config("config/config.yaml")
+        config = _get_config()
 
-        # Create builders with config
-        dependency_factory = DependencyFactory(config=config)
-        adapter_factory = AdapterFactory()
+        # LLM: Chatbot wrapper metadata için (get_config_for_ui).
+        # supervisor_graph() kendi LLM instance'ını dahili oluşturur.
+        llm = LLM(
+            provider=config.llm.provider,
+            model=config.llm.model,
+            temperature=config.llm.temperature,
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+        )
 
-        # Build chatbot
-        _chatbot_instance = (
-            ChatbotBuilder(dependency_factory, adapter_factory)
-            .with_model(
-                config.llm.model,
-                config.llm.temperature,
-                config.llm.api_key,
-                config.llm.provider,
-                config.llm.base_url
-            )
-            .with_graph(config.chatbot.graph_type)
-            # Note: thread_id is passed at runtime via adapter_kwargs (session_id)
-            # No need to set it here as default config
-            .with_assistant_configuration(getattr(config, 'sql_agent_configuration', None))
-            .build()
+        # LangGraph dev ile birebir aynı kod yolu.
+        # Kasıtlı olarak supervisor_graph() hardcode edilmiştir —
+        # config.yaml: graph_type=supervisor, bu FastAPI deployment'ı supervisor-only'dir.
+        compiled = supervisor_graph()
+
+        _chatbot_instance = Chatbot(
+            llm=llm,
+            graph=compiled,
+            config={"configurable": {"thread_id": "1"}},  # ChatService runtime'da session_id ile override eder
         )
 
     return _chatbot_instance
