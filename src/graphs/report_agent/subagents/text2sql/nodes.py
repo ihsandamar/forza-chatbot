@@ -85,6 +85,7 @@ _table_init_error: Optional[str] = "not_started"
 _table_init_table_name: Optional[str] = None
 _table_init_started = False  # Guard: background init only runs once
 _table_verified: bool = False  # True = table confirmed in DB; reset on process restart
+_verified_table_name: Optional[str] = None  # which table was verified
 
 
 def _check_table_exists_in_db(pyodbc_conn_str: str, table_name: str) -> bool:
@@ -111,7 +112,7 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
     Sets _table_init_event when done (success or failure).
     Only runs once per process lifetime (guarded by _table_init_started).
     """
-    global _table_init_error, _table_init_table_name, _table_init_started, _table_verified
+    global _table_init_error, _table_init_table_name, _table_init_started, _table_verified, _verified_table_name
     if _table_init_started:
         logger.info(f"[TABLE_INIT] Background init already started, skipping")
         return
@@ -122,6 +123,7 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
         _execute_script_sync(connection_string, sql_script)
         _table_init_error = None
         _table_verified = True
+        _verified_table_name = table_name
         logger.info(f"[TABLE_INIT] Background table creation completed for '{table_name}'")
     except Exception as e:
         _table_init_error = str(e)
@@ -1381,11 +1383,11 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
     """
 
     async def create_table_node(state: dict, *, config: RunnableConfig = None) -> dict:
-        global _table_verified
+        global _table_verified, _verified_table_name
         table_name = _get_configurable(config, "table_name", default_table_name)
 
-        # --- Fast path: already verified this process lifetime ---
-        if _table_verified:
+        # --- Fast path: already verified this process lifetime for this table ---
+        if _table_verified and _verified_table_name == table_name:
             logger.info(f"[CREATE_TABLE] '{table_name}' already verified, skipping")
             return {}
 
@@ -1394,6 +1396,11 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
             logger.info("[CREATE_TABLE] Waiting for background init to complete...")
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, _table_init_event.wait, 180)
+
+        # Background init may have set _table_verified — re-check before DB call
+        if _table_verified and _verified_table_name == table_name:
+            logger.info(f"[CREATE_TABLE] '{table_name}' verified by background init, skipping")
+            return {}
 
         try:
             loop = asyncio.get_event_loop()
@@ -1405,6 +1412,7 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
             )
             if exists:
                 _table_verified = True
+                _verified_table_name = table_name
                 logger.info(f"[CREATE_TABLE] '{table_name}' exists in DB, skipping creation")
                 return {}
 
@@ -1422,6 +1430,7 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
             logger.info(f"[CREATE_TABLE] Creating table '{table_name}' ({len(query)} chars)")
             await loop.run_in_executor(_db_executor, _execute_script_sync, connection_string, query)
             _table_verified = True
+            _verified_table_name = table_name
             logger.info(f"[CREATE_TABLE] '{table_name}' created successfully")
             return {}
 
