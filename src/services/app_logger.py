@@ -74,11 +74,15 @@ def _init_logger(
     app_logger = logging.getLogger("dynamic-reporting")
     app_logger.setLevel(app_level)
 
-    # 4) Gürültülü kütüphaneleri sustur (opsiyonel)
+    # 4) Uygulama graph modülleri → INFO+ görünür olsun
+    logging.getLogger("src.graphs").setLevel(app_level)
+    logging.getLogger("src.api").setLevel(app_level)
+
+    # 5) Gürültülü kütüphaneleri sustur (opsiyonel)
     for noisy in ["langchain", "sqlalchemy", "httpx", "urllib3"]:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    # 5) structlog konfigürasyonu
+    # 6) structlog konfigürasyonu
     processors: list = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.TimeStamper(fmt="iso"),
