@@ -114,28 +114,6 @@ def create_classify_intent_node(llm) -> Callable:
             user_query = state.get("user_query", "")
             extracted_from_messages = False
 
-        # --- Table refresh detection (before LLM call) ---
-        _REFRESH_KEYWORDS = {"verileri güncelle", "tabloyu güncelle", "verileri yenile", "tabloyu yenile", "veriyi güncelle", "veriyi yenile"}
-        user_lower = user_query.lower().strip()
-        is_refresh_request = any(kw in user_lower for kw in _REFRESH_KEYWORDS)
-
-        if is_refresh_request:
-            logger.info(f"[CLASSIFY] Table refresh detected: '{user_query}'")
-            return {
-                "user_query": user_query,
-                "intent_type": "NEW_QUERY",
-                "query_type": "SINGLE",
-                "intent_confidence": 1.0,
-                "wants_visualization": False,
-                "requested_chart_type": None,
-                "use_result_type": None,
-                "compute_operation": None,
-                "visualization_output": None,
-                "pre_built_sql": None,
-                "modification_hints": None,
-                "_force_table_refresh": True,
-            }
-
         history_parts = []
         for msg in messages[-4:]:
             if isinstance(msg, HumanMessage):
@@ -238,7 +216,6 @@ def create_classify_intent_node(llm) -> Callable:
             "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
             "time_granularity": None,       # her turda temizle — stale state önle
             "modification_hints": None,   # her turda temizle
-            "_force_table_refresh": False,
             "_clarification_count": 0 if result.intent_type != "VAGUE_QUERY" else state.get("_clarification_count", 0),
             "_skip_vague_check": False,
         }

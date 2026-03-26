@@ -29,7 +29,6 @@ class ReportState(TypedDict):
     pre_built_sql: Optional[str]        # modify_sql çıktısı — sql_generator bunu görünce yeniden üretmez
     time_granularity: Optional[str]      # text2sql → viz subgraph (hour_of_day, day_of_week, etc.)
     comparison_dimension: Optional[str]   # text2sql → viz subgraph (DB column: "CategoryName", "ProductName" etc.)
-    _force_table_refresh: Optional[bool]  # True = DROP + recreate master table
     modification_hints: Optional[List[Dict[str, Any]]]  # modify_sql → value_resolver (MODIFY_QUERY value resolution)
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
