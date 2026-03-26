@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import re
@@ -128,27 +127,23 @@ def create_classify_intent_node(llm) -> Callable:
             result_count=len(active_results),
         )
 
-        results = await asyncio.gather(
-            structured_llm.ainvoke(prompt),
-            chart_llm.ainvoke(CHART_TYPE_PROMPT.format(user_query=user_query)),
-            return_exceptions=True,
-        )
-        intent_raw, chart_raw = results[0], results[1]
+        result: IntentClassificationResult = await structured_llm.ainvoke(prompt)
 
-        # intent_llm hatası: normal exception mekanizmasına bırak
-        if isinstance(intent_raw, Exception):
-            raise intent_raw
-
-        result: IntentClassificationResult = intent_raw
-
-        # chart_llm hatası → graceful degrade, deterministic fallback'e düşer
+        # chart_llm ayrı çağrı — graceful degrade, deterministic fallback
         chart_type_from_llm: Optional[str] = None
-        if not isinstance(chart_raw, Exception) and chart_raw is not None:
-            chart_type_from_llm = chart_raw.chart_type
+        try:
+            chart_raw = await chart_llm.ainvoke(CHART_TYPE_PROMPT.format(user_query=user_query))
+            if chart_raw is not None:
+                chart_type_from_llm = chart_raw.chart_type
+        except Exception as chart_exc:
+            logger.warning(
+                f"[CLASSIFY] chart_llm failed ({type(chart_exc).__name__}): {chart_exc}"
+            )
 
         logger.info(
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
-            f"conf={result.confidence:.2f} wants_viz={result.wants_visualization}"
+            f"conf={result.confidence:.2f} wants_viz={result.wants_visualization} "
+            f"chart_type_llm={chart_type_from_llm}"
         )
 
         # Max clarification tur aşıldıysa VAGUE_QUERY'yi NEW_QUERY'ye zorla
