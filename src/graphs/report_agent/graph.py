@@ -24,6 +24,7 @@ from src.graphs.report_agent.nodes import (
     create_extract_entity_node,
     create_modify_sql_node,
     create_report_chat_node,
+    hitl_check_node,
 )
 from src.graphs.report_agent.state import ReportState
 from src.graphs.report_agent.subagents.text2sql.graph import build_text2sql_graph
@@ -57,6 +58,13 @@ def _after_extract_entity_router(state: dict) -> str:
 def _visualization_router(state: dict) -> str:
     """text2sql sonrası: grafik istendiyse visualization, istenmemişse direkt build_response."""
     return "visualization" if state.get("wants_visualization", False) else "build_response"
+
+
+def _after_hitl_check_router(state: dict) -> str:
+    """hitl_check sonrası: cevap verildi → text2sql tekrar, değilse normal akış."""
+    if state.get("_hitl_answered"):
+        return "text2sql"
+    return _visualization_router(state)
 
 
 def build_report_agent_graph(
@@ -93,6 +101,7 @@ def build_report_agent_graph(
     graph.add_node("text2sql", text2sql)
     graph.add_node("visualization", visualization)
     graph.add_node("build_response", build_response_node)
+    graph.add_node("hitl_check", hitl_check_node)
 
     graph.add_edge(START, "classify_intent")
     graph.add_conditional_edges(
@@ -118,10 +127,15 @@ def build_report_agent_graph(
         },
     )
     graph.add_edge("compute_results", "build_response")
+    graph.add_edge("text2sql", "hitl_check")
     graph.add_conditional_edges(
-        "text2sql",
-        _visualization_router,
-        {"visualization": "visualization", "build_response": "build_response"},
+        "hitl_check",
+        _after_hitl_check_router,
+        {
+            "text2sql":       "text2sql",
+            "visualization":  "visualization",
+            "build_response": "build_response",
+        },
     )
     graph.add_edge("visualization", "build_response")
     graph.add_edge("build_response", END)

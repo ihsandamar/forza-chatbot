@@ -241,6 +241,9 @@ def create_classify_intent_node(llm) -> Callable:
             "modification_hints": None,   # her turda temizle
             "_clarification_count": 0 if result.intent_type != "VAGUE_QUERY" else state.get("_clarification_count", 0),
             "_skip_vague_check": False,
+            "text2sql_clarification": None,   # each turn: clear
+            "text2sql_answers": None,           # each turn: clear
+            "_hitl_answered": False,            # each turn: clear
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:
