@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -127,18 +128,34 @@ def create_classify_intent_node(llm) -> Callable:
             result_count=len(active_results),
         )
 
-        result: IntentClassificationResult = await structured_llm.ainvoke(prompt)
-
-        # chart_llm ayrı çağrı — graceful degrade, deterministic fallback
-        chart_type_from_llm: Optional[str] = None
+        # chart prompt — user_query'de { } varsa format hatası; güvenli fallback
         try:
-            chart_raw = await chart_llm.ainvoke(CHART_TYPE_PROMPT.format(user_query=user_query))
-            if chart_raw is not None:
-                chart_type_from_llm = chart_raw.chart_type
-        except Exception as chart_exc:
+            chart_prompt_str = CHART_TYPE_PROMPT.format(user_query=user_query)
+        except (KeyError, ValueError):
+            chart_prompt_str = CHART_TYPE_PROMPT.format(user_query="")
+
+        # Paralel çağrı — return_exceptions=True: chart_llm hatası intent çağrısını öldürmez
+        gather_results = await asyncio.gather(
+            structured_llm.ainvoke(prompt),
+            chart_llm.ainvoke(chart_prompt_str),
+            return_exceptions=True,
+        )
+        intent_raw, chart_raw = gather_results[0], gather_results[1]
+
+        # intent_llm hatası: node'un normal exception mekanizmasına bırak
+        if isinstance(intent_raw, Exception):
+            raise intent_raw
+
+        result: IntentClassificationResult = intent_raw
+
+        # chart_llm hatası → graceful degrade, deterministic fallback'e düşer
+        chart_type_from_llm: Optional[str] = None
+        if isinstance(chart_raw, Exception):
             logger.warning(
-                f"[CLASSIFY] chart_llm failed ({type(chart_exc).__name__}): {chart_exc}"
+                f"[CLASSIFY] chart_llm failed ({type(chart_raw).__name__}): {chart_raw}"
             )
+        elif chart_raw is not None:
+            chart_type_from_llm = chart_raw.chart_type
 
         logger.info(
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
@@ -180,8 +197,19 @@ def create_classify_intent_node(llm) -> Callable:
             })
             result = _resolve_intent_from_answer(result, answer)
 
-        # revisualize her zaman görselleştirme talebidir
-        wants_viz = result.wants_visualization or (result.use_result_type == "revisualize")
+        # Keyword detection — LLM'den bağımsız çalışır (wants_viz gate'inden önce)
+        explicit_chart = _detect_chart_type_from_query(user_query)
+
+        # revisualize her zaman görselleştirme talebidir.
+        # Açık chart keyword'ü de wants_viz'i zorla True yapar —
+        # intent LLM supervisor context'i nedeniyle False dönse bile.
+        wants_viz = (
+            result.wants_visualization
+            or (result.use_result_type == "revisualize")
+            or bool(explicit_chart)
+        )
+        if explicit_chart and not (result.wants_visualization or result.use_result_type == "revisualize"):
+            logger.info(f"[CLASSIFY] wants_viz overridden True by explicit keyword: '{explicit_chart}'")
 
         # Merge: chart_type sadece visualization isteklerinde kullanılır.
         # Bu blok interrupt+resolve SONRASINDA hesaplanır; revisualize path'inde
@@ -190,9 +218,9 @@ def create_classify_intent_node(llm) -> Callable:
         if wants_viz:
             chart_type = chart_type_from_llm
             if chart_type is None:
-                chart_type = _detect_chart_type_from_query(user_query)
+                chart_type = explicit_chart  # pre-computed, ikinci _detect çağrısı yok
                 if chart_type:
-                    logger.info(f"[CLASSIFY] Fallback chart type: '{chart_type}' from query keywords")
+                    logger.info(f"[CLASSIFY] Keyword fallback chart type: '{chart_type}'")
 
         # revisualize'da user_query SQL semantic query'yi kirletmemesi için
         # viz_request ayrı bir alana yazılır; diğer pathlerde None (reset).
@@ -686,4 +714,27 @@ async def build_response_node(state: dict) -> dict:
     return {
         "final_response": response,
         "messages": [AIMessage(content=response)],
+    }
+
+
+async def hitl_check_node(state: dict) -> dict:
+    """
+    text2sql subgraph'tan gelen clarification sinyalini yakalar.
+    Varsa report_agent seviyesinde interrupt() çağırır.
+    Bu seviyede MemorySaver checkpointer çalışır — interrupt propagate eder.
+    """
+    clarification = state.get("text2sql_clarification")
+
+    if not clarification:
+        return {"_hitl_answered": False}
+
+    answer = interrupt(clarification)
+
+    answers = list(state.get("text2sql_answers") or [])
+    answers.append({"source": clarification["source"], "answer": answer})
+
+    return {
+        "text2sql_clarification": None,
+        "text2sql_answers": answers,
+        "_hitl_answered": True,
     }
