@@ -46,6 +46,20 @@ class ReportState(TypedDict):
     # Response
     final_response: Optional[str]
 
+    # HITL subgraph clarification pipeline
+    text2sql_clarification: Optional[dict]
+    # Payload: {"type","question","options","source"}
+    # text2sql node set eder → hitl_check okur → None'a resetler
+
+    text2sql_answers: Optional[list]
+    # Birikimli cevaplar: [{"source": str, "answer": str}, ...]
+    # hitl_check append eder → text2sql node'ları okur
+    # classify_intent her turda None'a resetler
+
+    _hitl_answered: bool
+    # True → hitl_check'ten sonra text2sql tekrar çalıştır
+    # False → normal visualization/build_response akışı
+
 
 def create_initial_state() -> ReportState:
     return ReportState(
@@ -76,4 +90,7 @@ def create_initial_state() -> ReportState:
         _clarification_count=0,
         _skip_vague_check=False,
         final_response=None,
+        text2sql_clarification=None,
+        text2sql_answers=None,
+        _hitl_answered=False,
     )

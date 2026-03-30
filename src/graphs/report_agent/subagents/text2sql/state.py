@@ -27,6 +27,8 @@ class Text2SQLState(TypedDict, total=False):
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
     active_results: Optional[List[Dict[str, Any]]]
+    text2sql_clarification: Optional[dict]   # node → parent (sinyal)
+    text2sql_answers: Optional[list]         # parent → node (cevaplar)
 
     # --- Internal ---
     query_schema:      Optional[Dict[str, Any]]       # QuerySchema.model_dump()
