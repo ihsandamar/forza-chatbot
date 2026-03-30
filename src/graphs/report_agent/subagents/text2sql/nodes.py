@@ -79,6 +79,26 @@ def get_pooled_connection(pyodbc_conn_str: str):
 MAX_RETRY = 2
 _MANUAL_ENTRY_OPTION = "Başka bir değer girin"
 
+# --- HITL subgraph clarification cache key prefixes ---
+# Her interrupt noktası için benzersiz prefix.
+# Tam key = prefix + value/term string'i (ör. "vr_new_choice__istanbul")
+_KEY_PREFIX_TERM            = "term__"
+_KEY_PREFIX_VR_NEW_NF       = "vr_new_not_found__"
+_KEY_PREFIX_VR_NEW_CHOICE   = "vr_new_choice__"
+_KEY_PREFIX_VR_NEW_MANUAL   = "vr_new_manual__"
+_KEY_PREFIX_VR_MOD_NF       = "vr_mod_not_found__"
+_KEY_PREFIX_VR_MOD_CHOICE   = "vr_mod_choice__"
+_KEY_PREFIX_VR_MOD_MANUAL   = "vr_mod_manual__"
+
+
+def _get_cached_answer(answers: list | None, source_key: str) -> str | None:
+    """text2sql_answers listesinde source_key'e ait cevabı döndürür. Yoksa None."""
+    return next(
+        (a["answer"] for a in (answers or []) if a["source"] == source_key),
+        None,
+    )
+
+
 # Background table init state
 _table_init_event = threading.Event()
 _table_init_error: Optional[str] = "not_started"
@@ -378,16 +398,29 @@ def create_term_resolver_node(term_vector_store: TermVectorStore) -> Callable:
         term_filters = list(result.term_filters)
         metric_choice_hints: list[str] = []
 
+        answers = state.get("text2sql_answers") or []
+
         for amb in result.ambiguous:
+            source_key = _KEY_PREFIX_TERM + amb.term
             option_labels = [
                 f"{opt['column']}: {opt.get('description', '')}"
                 for opt in amb.options
             ]
-            answer = interrupt({
-                "type": "choice",
-                "question": f'"{amb.term}" için hangi ölçütü kastetdiniz?',
-                "options": option_labels,
-            })
+            cached = _get_cached_answer(answers, source_key)
+
+            if cached is None:
+                # Cevap yok → sinyal ver, subgraph'tan erken çık
+                return {
+                    "text2sql_clarification": {
+                        "type": "choice",
+                        "question": f'"{amb.term}" için hangi ölçütü kastetdiniz?',
+                        "options": option_labels,
+                        "source": source_key,
+                    }
+                }
+
+            # Cevap var → işle
+            answer = cached
             for opt in amb.options:
                 key = f"{opt['column']}: {opt.get('description', '')}"
                 if key == answer:
