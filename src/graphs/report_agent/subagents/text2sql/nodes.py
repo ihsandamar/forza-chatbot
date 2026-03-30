@@ -818,6 +818,8 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
 
         resolved_any = False
 
+        answers = state.get("text2sql_answers") or []
+
         for f in filters:
             column     = f.get("column", "")
             value_hint = f.get("value_hint", "")
@@ -833,11 +835,17 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
             result = await value_resolver.resolve(value_hint, column)
 
             if not result:
-                answer = interrupt({
-                    "type": "input",
-                    "question": f"'{value_hint}' veritabanında bulunamadı. Lütfen tam adı girin:",
-                })
-                f["resolved_value"] = answer
+                source_nf = _KEY_PREFIX_VR_NEW_NF + value_hint
+                cached_nf = _get_cached_answer(answers, source_nf)
+                if cached_nf is None:
+                    return {
+                        "text2sql_clarification": {
+                            "type": "input",
+                            "question": f"'{value_hint}' veritabanında bulunamadı. Lütfen tam adı girin:",
+                            "source": source_nf,
+                        }
+                    }
+                f["resolved_value"] = cached_nf
                 resolved_any = True
                 continue
 
@@ -850,18 +858,32 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
                 resolved_any = True
                 logger.info(f"[VALUE_RESOLVER] '{value_hint}' → '{candidate}' (conf={confidence})")
             else:
-                label = candidate if confidence >= 50 else f"{candidate} (%{confidence:.0f} eşleşme)"
-                answer = interrupt({
-                    "type": "choice",
-                    "question": f"'{value_hint}' için ne kullanılmalı?",
-                    "options": [label, _MANUAL_ENTRY_OPTION],
-                })
-                if answer == _MANUAL_ENTRY_OPTION:
-                    manual = interrupt({
-                        "type": "input",
-                        "question": f"'{value_hint}' için doğru değeri girin:",
-                    })
-                    f["resolved_value"] = manual
+                source_choice = _KEY_PREFIX_VR_NEW_CHOICE + value_hint
+                cached_choice = _get_cached_answer(answers, source_choice)
+
+                if cached_choice is None:
+                    label = candidate if confidence >= 50 else f"{candidate} (%{confidence:.0f} eşleşme)"
+                    return {
+                        "text2sql_clarification": {
+                            "type": "choice",
+                            "question": f"'{value_hint}' için ne kullanılmalı?",
+                            "options": [label, _MANUAL_ENTRY_OPTION],
+                            "source": source_choice,
+                        }
+                    }
+
+                if cached_choice == _MANUAL_ENTRY_OPTION:
+                    source_manual = _KEY_PREFIX_VR_NEW_MANUAL + value_hint
+                    cached_manual = _get_cached_answer(answers, source_manual)
+                    if cached_manual is None:
+                        return {
+                            "text2sql_clarification": {
+                                "type": "input",
+                                "question": f"'{value_hint}' için doğru değeri girin:",
+                                "source": source_manual,
+                            }
+                        }
+                    f["resolved_value"] = cached_manual
                     f["resolution_confidence"] = 100
                 else:
                     f["resolved_value"] = candidate
