@@ -399,6 +399,10 @@ def create_term_resolver_node(term_vector_store: TermVectorStore) -> Callable:
 
         answers = state.get("text2sql_answers") or []
 
+        # Source key is keyed on term string (not position): "term__<amb.term>"
+        # result.ambiguous is sorted deterministically by (similarity * specificity) in _apply_conflict_resolution(),
+        # so ordering is stable across identical queries. Even if order changed, cache lookup uses term string,
+        # not position, so correctness is preserved (worst case: one extra re-run if non-deterministic order occurred).
         for amb in result.ambiguous:
             source_key = _KEY_PREFIX_TERM + amb.term
             option_labels = [
