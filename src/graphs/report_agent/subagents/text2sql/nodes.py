@@ -25,7 +25,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pyodbc
 from langchain_core.runnables import RunnableConfig
-from langgraph.types import interrupt
 
 from src.graphs.report_agent.subagents.text2sql.prompts import (
     QuerySchema,
@@ -761,6 +760,8 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
         if pre_built_sql and modification_hints:
             resolved_sql = pre_built_sql
 
+            answers_list = state.get("text2sql_answers") or []
+
             for hint in modification_hints:
                 column       = hint.get("column", "")
                 embedded_val = hint.get("embedded_value", "")
@@ -776,11 +777,17 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
                 result = await value_resolver.resolve(embedded_val, column)
 
                 if not result:
-                    answer = interrupt({
-                        "type": "input",
-                        "question": f"'{embedded_val}' veritabanında bulunamadı. Doğru değeri girin:",
-                    })
-                    resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, answer)
+                    source_nf = _KEY_PREFIX_VR_MOD_NF + embedded_val
+                    cached_nf = _get_cached_answer(answers_list, source_nf)
+                    if cached_nf is None:
+                        return {
+                            "text2sql_clarification": {
+                                "type": "input",
+                                "question": f"'{embedded_val}' veritabanında bulunamadı. Doğru değeri girin:",
+                                "source": source_nf,
+                            }
+                        }
+                    resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, cached_nf)
                     continue
 
                 confidence = result.get("confidence", 0)
@@ -792,18 +799,34 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
                         f"[VALUE_RESOLVER/MODIFY] '{embedded_val}' → '{candidate}' (conf={confidence})"
                     )
                 else:
-                    label = candidate if confidence >= 50 else f"{candidate} (%{confidence:.0f} eşleşme)"
-                    answer = interrupt({
-                        "type": "choice",
-                        "question": f"'{embedded_val}' için ne kullanılmalı?",
-                        "options": [label, _MANUAL_ENTRY_OPTION],
-                    })
-                    if answer == _MANUAL_ENTRY_OPTION:
-                        answer = interrupt({
-                            "type": "input",
-                            "question": f"'{embedded_val}' için doğru değeri girin:",
-                        })
-                    resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, answer)
+                    source_choice = _KEY_PREFIX_VR_MOD_CHOICE + embedded_val
+                    cached_choice = _get_cached_answer(answers_list, source_choice)
+
+                    if cached_choice is None:
+                        label = candidate if confidence >= 50 else f"{candidate} (%{confidence:.0f} eşleşme)"
+                        return {
+                            "text2sql_clarification": {
+                                "type": "choice",
+                                "question": f"'{embedded_val}' için ne kullanılmalı?",
+                                "options": [label, _MANUAL_ENTRY_OPTION],
+                                "source": source_choice,
+                            }
+                        }
+
+                    if cached_choice == _MANUAL_ENTRY_OPTION:
+                        source_manual = _KEY_PREFIX_VR_MOD_MANUAL + embedded_val
+                        cached_manual = _get_cached_answer(answers_list, source_manual)
+                        if cached_manual is None:
+                            return {
+                                "text2sql_clarification": {
+                                    "type": "input",
+                                    "question": f"'{embedded_val}' için doğru değeri girin:",
+                                    "source": source_manual,
+                                }
+                            }
+                        resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, cached_manual)
+                    else:
+                        resolved_sql = _replace_in_sql(resolved_sql, column, embedded_val, cached_choice)
 
             return {"pre_built_sql": resolved_sql, "modification_hints": None}
 
