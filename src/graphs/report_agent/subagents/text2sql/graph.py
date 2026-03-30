@@ -134,9 +134,14 @@ def build_text2sql_graph(
     graph.add_edge("business_rules",    "term_resolver")
 
     # Fan-out: term_resolver → sql_architect + schema_validator + term_validator (paralel)
-    graph.add_edge("term_resolver",     "sql_architect")
-    graph.add_edge("term_resolver",     "schema_validator")
-    graph.add_edge("term_resolver",     "term_validator")
+    # With early-exit for text2sql_clarification signal
+    def _route_after_term_resolver(state: dict):
+        """Clarification sinyali varsa END, yoksa fan-out."""
+        if state.get("text2sql_clarification"):
+            return END
+        return ["sql_architect", "schema_validator", "term_validator"]
+
+    graph.add_conditional_edges("term_resolver", _route_after_term_resolver)
 
     # Fan-in: üçü tamamlandığında → schema_merge
     graph.add_edge("sql_architect",     "schema_merge")
@@ -144,7 +149,18 @@ def build_text2sql_graph(
     graph.add_edge("term_validator",    "schema_merge")
 
     graph.add_edge("schema_merge",      "value_resolver")
-    graph.add_edge("value_resolver",    "sql_generator")
+
+    def _route_after_value_resolver(state: dict):
+        """Clarification sinyali varsa END, yoksa sql_generator."""
+        if state.get("text2sql_clarification"):
+            return END
+        return "sql_generator"
+
+    graph.add_conditional_edges(
+        "value_resolver",
+        _route_after_value_resolver,
+        {END: END, "sql_generator": "sql_generator"},
+    )
     graph.add_edge("sql_generator",     "sql_executor")
     graph.add_conditional_edges(
         "sql_executor",
