@@ -160,13 +160,14 @@ async def test_fallback_does_not_override_when_llm_returns_value():
 
 @pytest.mark.asyncio
 async def test_fallback_inactive_when_no_visualization():
-    """wants_visualization=False ve use_result_type=None ise fallback çalışmamalı."""
+    """wants_visualization=False, use_result_type=None ve chart keyword yok → None beklenir."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
     llm = _make_mock_llm(wants_visualization=False, use_result_type=None, chart_type=None)
     node = create_classify_intent_node(llm)
-    state = {"messages": [HumanMessage(content="sunbrust grafik ver")]}
+    # Sorguda chart keyword YOK — explicit_chart=None → wants_viz=False → chart_type=None
+    state = {"messages": [HumanMessage(content="son 3 aydaki satışları karşılaştır")]}
     result = await node(state)
     assert result["requested_chart_type"] is None
 

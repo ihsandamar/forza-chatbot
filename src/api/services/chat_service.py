@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from typing import Optional, Dict
 from langgraph.errors import GraphInterrupt, GraphBubbleUp
+from langchain_core.messages import HumanMessage
 from src.api.models.requests.chat import SessionStartRequest, ChatMessageRequest
 from src.api.models.responses.chat import (
     SessionStartResponse,
@@ -317,7 +318,7 @@ class ChatService:
             # MemorySaver checkpointer (keyed by session_id/thread_id) already
             # retains full conversation history. Sending all messages causes
             # the add_messages reducer to re-process N messages instead of 1.
-            new_message = {"role": "user", "content": request.message}
+            new_message = HumanMessage(content=request.message)
             state = {"messages": [new_message]}
 
             logger.info(f"[CHAT] Normal message received: {request.message[:50]}...")

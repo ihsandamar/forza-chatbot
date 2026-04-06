@@ -338,6 +338,13 @@ class Chatbot:
                     full_config
                 )
 
+            # Subgraphs compiled with checkpointer=True swallow interrupt() — the parent's
+            # ainvoke returns normally and stores the interrupt value under '__interrupt__'.
+            # Re-raise as GraphInterrupt so chat_service's existing handler fires correctly.
+            pending_interrupts = graph_output.get('__interrupt__') if isinstance(graph_output, dict) else None
+            if pending_interrupts:
+                raise GraphInterrupt(tuple(pending_interrupts))
+
             return graph_output
         except (InvalidGraphStateException, ConfigurationException, GraphInterrupt, GraphBubbleUp):
             raise

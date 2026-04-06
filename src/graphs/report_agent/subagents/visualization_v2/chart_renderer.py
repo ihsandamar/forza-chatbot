@@ -229,9 +229,24 @@ def _build_scatter(df: pd.DataFrame, spec: dict) -> go.Figure:
 def _build_sunburst(df: pd.DataFrame, spec: dict) -> go.Figure:
     path = spec.get("hierarchy_fields")
     if not path:
-        s = spec.get("series_field")
         x = spec.get("x_field")
-        path = [p for p in [s, x] if p]
+        s = spec.get("series_field")
+        y = spec.get("y_field")
+        # x_field is outer level, series_field is inner — deduplicate to prevent
+        # plotly DuplicateError when LLM sets both to the same column
+        seen: set = set()
+        path = [p for p in [x, s] if p and p not in seen and not seen.add(p)]  # type: ignore[func-returns-value]
+        if not path:
+            path = [c for c in df.columns if c != y][:3]
+    if not path:
+        return None
+    # Drop rows with None/NaN in path columns — Plotly raises
+    # "None entries cannot have not-None children" on NULL hierarchy values
+    valid_path_cols = [c for c in path if c in df.columns]
+    if valid_path_cols:
+        df = df.dropna(subset=valid_path_cols)
+    if df.empty:
+        return None
     return px.sunburst(df, path=path, values=spec.get("y_field"), title=spec.get("title") or "")
 
 

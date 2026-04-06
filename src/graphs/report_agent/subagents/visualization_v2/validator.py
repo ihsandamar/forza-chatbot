@@ -136,6 +136,26 @@ def validate_spec(
             spec["chart_type"] = "bar_chart"
             logger.info("[VALIDATOR] Rule 3: scatter with <2 metrics -> bar_chart")
 
+    if chart_type == "sunburst" and not spec.get("hierarchy_fields"):
+        # Auto-build hierarchy_fields: x_field is outer level, remaining dims are inner.
+        # This prevents duplicate-column crashes when series_field == x_field.
+        x = spec.get("x_field")
+        if x:
+            remaining = [d for d in dimension_cols if d != x and d in actual_columns]
+            if remaining:
+                spec["hierarchy_fields"] = [x] + remaining[:2]
+                logger.info(f"[VALIDATOR] Sunburst: hierarchy_fields <- {spec['hierarchy_fields']}")
+
+    if chart_type == "sunburst" and time_col:
+        # Sunburst doesn't support time axis — rule-based path already guards with `not time_col`
+        # but LLM-requested sunburst bypasses that. Downgrade to an appropriate chart.
+        if spec.get("series_field"):
+            spec["chart_type"] = "heatmap"
+            logger.info("[VALIDATOR] Rule 3: sunburst with time axis + series_field -> heatmap")
+        else:
+            spec["chart_type"] = "bar_chart"
+            logger.info("[VALIDATOR] Rule 3: sunburst with time axis -> bar_chart")
+
     if chart_type == "heatmap":
         if not spec.get("series_field"):
             spec["chart_type"] = "bar_chart"
