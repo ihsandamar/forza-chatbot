@@ -9,7 +9,7 @@ from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql
 
 def _load_default_rules() -> list:
     """Load business rules and return only default rules (matching sql_generator behavior)."""
-    rules_path = Path(__file__).parents[3] / "src" / "graphs" / "generic_text2sql" / "business_rules.json"
+    rules_path = Path(__file__).parents[3] / "src" / "graphs" / "report_agent" / "data" / "business_rules.json"
     with open(rules_path, encoding="utf-8") as f:
         data = json.load(f)
     return [r for r in data["business_logic_rules"] if r.get("is_default")]

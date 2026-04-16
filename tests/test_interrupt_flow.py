@@ -35,7 +35,7 @@ def _make_chatbot_mock() -> Chatbot:
     """Create a Chatbot mock with the attributes ChatService relies on."""
     chatbot = MagicMock(spec=Chatbot)
     chatbot.get_graph_output_async = AsyncMock()
-    chatbot._from_graph_state = MagicMock(return_value="Bot response text")
+    chatbot.extract_response = MagicMock(return_value="Bot response text")
     return chatbot
 
 
@@ -233,7 +233,7 @@ class TestHITLResumeUsesCommand:
         chatbot.get_graph_output_async.return_value = {
             "messages": [{"role": "assistant", "content": "Rapor hazır."}]
         }
-        chatbot._from_graph_state.return_value = "Rapor hazır."
+        chatbot.extract_response.return_value = "Rapor hazır."
 
         req2 = ChatMessageRequest(session_id=session_id, message="A")
         response = await chat_service.send_message(req2)

@@ -16,7 +16,7 @@ def chat_service():
             {"role": "assistant", "content": "here are sales"},
         ]
     })
-    mock_chatbot._from_graph_state = MagicMock(return_value="here are sales")
+    mock_chatbot.extract_response = MagicMock(return_value="here are sales")
     return ChatService(mock_chatbot)
 
 

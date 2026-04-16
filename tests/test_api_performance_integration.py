@@ -20,7 +20,7 @@ def service_with_tracking():
 
     mock_chatbot = MagicMock()
     mock_chatbot.get_graph_output_async = AsyncMock(side_effect=track_invoke)
-    mock_chatbot._from_graph_state = MagicMock(return_value="response")
+    mock_chatbot.extract_response = MagicMock(return_value="response")
 
     service = ChatService(mock_chatbot)
     return service, received_states

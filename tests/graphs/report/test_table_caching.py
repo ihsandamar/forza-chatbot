@@ -1,7 +1,7 @@
 """Tests for session-based table caching in report_agent/text2sql."""
 import pytest
 
-from src.graphs.generic_text2sql.table_registry import TableRegistry
+from src.graphs.report_agent.table_registry import TableRegistry
 
 
 # ── TableRegistry unit tests ──
