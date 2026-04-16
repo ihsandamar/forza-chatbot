@@ -1,8 +1,6 @@
 import asyncio
 from pathlib import Path
 from src.graphs.base_graph import BaseGraph
-from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
-from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
 from src.graphs.graph_repository import GraphRepository
 from src.graphs.routing.graph import RoutingGraph
 from src.graphs.supervisor.graph import create_supervisor_graph
@@ -85,19 +83,6 @@ def routing_graph() :
     graph = RoutingGraph(llm=llm)
     return graph.build_graph()
 
-
-
-def generic_text2sql_graph() -> BaseGraph:
-    """
-    Create and return the generic text2sql graph.
-
-    Note: Configuration is pre-loaded by API startup event to avoid
-    blocking I/O in async contexts (LangGraph detection).
-    """
-    config = _get_config()
-    llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-    graph = GenericText2SQLGraph(llm=llm)
-    return graph.build_graph()
 
 
 def report_agent_graph():
