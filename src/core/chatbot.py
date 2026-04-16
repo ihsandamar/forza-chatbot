@@ -103,7 +103,7 @@ class Chatbot:
                 context={"original_error": str(e)}
             ) from e
 
-    def _from_graph_state(self, graph_output: Any) -> str:
+    def extract_response(self, graph_output: Any) -> str:
         """
         Extract response from message-based graph output.
 
@@ -142,7 +142,7 @@ class Chatbot:
         Returns:
             API-friendly response dict
         """
-        text_response = self._from_graph_state(graph_output)
+        text_response = self.extract_response(graph_output)
 
         return {
             "text": text_response,
@@ -259,7 +259,7 @@ class Chatbot:
         """
         try:
             graph_output = self._process_message(state, **adapter_kwargs)
-            response_text = self._from_graph_state(graph_output)
+            response_text = self.extract_response(graph_output)
             return response_text
         except (MessageProcessingException, GraphExecutionException, ConfigurationException, GraphInterrupt, GraphBubbleUp):
             raise
@@ -427,7 +427,7 @@ class Chatbot:
         """
         try:
             graph_output = await self._process_message_async(state, **adapter_kwargs)
-            response_text = self._from_graph_state(graph_output)
+            response_text = self.extract_response(graph_output)
             return response_text
         except (MessageProcessingException, GraphExecutionException, ConfigurationException):
             raise

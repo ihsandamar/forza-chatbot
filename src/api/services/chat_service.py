@@ -431,7 +431,7 @@ class ChatService:
 
         # Extract text response from graph output (last message)
         # Don't invoke graph again - use the output we already have
-        bot_response_text = self.chatbot._from_graph_state(graph_output)
+        bot_response_text = self.chatbot.extract_response(graph_output)
 
         # Only scan CURRENT TURN messages for detection (not full history)
         # graph_messages contains ALL turns from MemorySaver; scanning all of them
