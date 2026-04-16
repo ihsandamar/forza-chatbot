@@ -1,7 +1,6 @@
 import asyncio
 from pathlib import Path
 from src.graphs.base_graph import BaseGraph
-from src.graphs.data_visualization.graph import build_visualization_graph
 from src.graphs.generic_text2sql.graph import GenericText2SQLGraph
 from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
 from src.graphs.graph_repository import GraphRepository
@@ -99,20 +98,6 @@ def generic_text2sql_graph() -> BaseGraph:
     llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
     graph = GenericText2SQLGraph(llm=llm)
     return graph.build_graph()
-
-
-def data_visualization_graph() -> BaseGraph:
-    """
-    Create and return the data visualization graph.
-
-    Note: Configuration is pre-loaded by API startup event to avoid
-    blocking I/O in async contexts (LangGraph detection).
-    """
-    config = _get_config()
-    llm = LLM(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, api_key=config.llm.api_key)
-
-    return build_visualization_graph(llm=llm)
-
 
 
 def report_agent_graph():
