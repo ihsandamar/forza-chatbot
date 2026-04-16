@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from src.graphs.base_graph import BaseGraph
+from src.graphs.base.base_graph import BaseGraph
 from src.graphs.graph_repository import GraphRepository
 from src.graphs.routing.graph import RoutingGraph
 from src.graphs.supervisor.graph import create_supervisor_graph

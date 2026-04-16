@@ -2,7 +2,7 @@
 Enhanced BaseGraph with configuration and metadata support.
 
 Extends the abstract base class with:
-- Configuration management (GraphConfig)
+- Configuration management with type safety
 - Metadata tracking (GraphMetadata)
 - Type-safe state definitions
 - Input/output validation
@@ -10,16 +10,19 @@ Extends the abstract base class with:
 
 Usage:
     from src.graphs.base.base_graph import BaseGraph
-    from src.graphs.base.graph_config import GraphConfig
     from src.graphs.base.graph_metadata import GraphMetadata
-    from src.graphs.base.graph_types import GraphState
-    from src.models.models import LLM
+    from src.models.llm import LLM
+    from src.models.base_assistant_configuration import BaseAssistantConfiguration
+    from typing import TypedDict
 
-    class MyGraphState(GraphState):
+    class MyGraphState(TypedDict):
         custom_field: str
 
-    class MyGraph(BaseGraph):
-        def __init__(self, llm: LLM, config: GraphConfig = None):
+    class MyAssistantConfig(BaseAssistantConfiguration):
+        pass
+
+    class MyGraph(BaseGraph[MyAssistantConfig]):
+        def __init__(self, llm: LLM, config: MyAssistantConfig = None):
             super().__init__(
                 llm=llm,
                 state_class=MyGraphState,
@@ -44,9 +47,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.models.base_assistant_configuration import BaseAssistantConfiguration
 from src.models.llm import LLM
-from src.graphs.base.graph_config import GraphConfig
 from src.graphs.base.graph_metadata import GraphMetadata
-from src.graphs.base.graph_types import GraphState
 
 # Generic type variable for configuration
 ConfigT = TypeVar('ConfigT', bound=BaseAssistantConfiguration)
@@ -75,7 +76,7 @@ class BaseGraph(ABC, Generic[ConfigT]):
     def __init__(
         self,
         llm: LLM,
-        state_class: Type[GraphState],
+        state_class: Type[Dict],
         config: Optional[ConfigT] = None,
         metadata: Optional[GraphMetadata] = None,
         memory: Optional[MemorySaver] = None
@@ -85,7 +86,7 @@ class BaseGraph(ABC, Generic[ConfigT]):
 
         Args:
             llm: Language model instance
-            state_class: GraphState subclass for this graph
+            state_class: TypedDict subclass for this graph's state
             config: Agent configuration instance (optional, uses _get_default_config if None)
             metadata: GraphMetadata instance (optional)
             memory: MemorySaver for state checkpointing (optional)
@@ -266,7 +267,7 @@ class BaseGraph(ABC, Generic[ConfigT]):
         # Try to get attribute from config
         return getattr(self.config, key, default)
 
-    def get_state_class(self) -> Type[GraphState]:
+    def get_state_class(self) -> Type[Dict]:
         """Get state class for this graph."""
         return self.state_class
 
