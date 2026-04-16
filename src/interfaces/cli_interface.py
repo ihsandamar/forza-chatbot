@@ -56,7 +56,7 @@ class CLIInterface:
             True if successful, False otherwise
         """
         try:
-            response = await self.chat_service.start_session_async(
+            response = await self.chat_service.start_session(
                 SessionStartRequest(user_id=None, token=None)
             )
             self.session_id = response.session_id
@@ -96,7 +96,7 @@ Type your message and press Enter to send.
             return
 
         try:
-            response = await self.chat_service.get_history_async(self.session_id)
+            response = await self.chat_service.get_session_history(self.session_id)
 
             if not response.messages:
                 print("(No messages yet)\n")
@@ -124,7 +124,7 @@ Type your message and press Enter to send.
             return
 
         try:
-            cleared_count = await self.chat_service.clear_history_async(self.session_id)
+            cleared_count = self.chat_service.clear_conversation(self.session_id)
             print(f"[OK] Cleared {cleared_count} messages\n")
         except Exception as e:
             print(f"[FAIL] Error clearing history: {str(e)}\n")
@@ -221,7 +221,7 @@ Type your message and press Enter to send.
             return True
 
         try:
-            response = await self.chat_service.send_message_async(
+            response = await self.chat_service.send_message(
                 ChatMessageRequest(
                     session_id=self.session_id,
                     message=user_input.strip()

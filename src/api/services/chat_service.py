@@ -63,18 +63,6 @@ class ChatService:
             created_at=created_at
         )
 
-    async def start_session_async(self, request: SessionStartRequest) -> SessionStartResponse:
-        """
-        Async wrapper for start_session (alias for compatibility)
-
-        Args:
-            request: SessionStartRequest with optional user_id and token
-
-        Returns:
-            SessionStartResponse with session_id and metadata
-        """
-        return await self.start_session(request)
-
     def get_session(self, session_id: str) -> Optional[dict]:
         """Get session data by session_id"""
         return self.sessions.get(session_id)
@@ -500,18 +488,6 @@ class ChatService:
             response=response_data
         )
 
-    async def send_message_async(self, request: ChatMessageRequest) -> ChatMessageResponse:
-        """
-        Async wrapper for send_message (alias for compatibility)
-
-        Args:
-            request: ChatMessageRequest with session_id and message
-
-        Returns:
-            ChatMessageResponse with bot response
-        """
-        return await self.send_message(request)
-
     def _filter_messages_by_format(self, messages: list) -> list:
         """
         Filter messages based on LAST_MESSAGE_ONLY format.
@@ -637,18 +613,6 @@ class ChatService:
             messages=messages
         )
 
-    async def get_history_async(self, session_id: str) -> SessionHistoryResponse:
-        """
-        Async wrapper for get_session_history (alias for compatibility)
-
-        Args:
-            session_id: Session identifier
-
-        Returns:
-            SessionHistoryResponse with message history
-        """
-        return await self.get_session_history(session_id)
-
     def clear_conversation(self, session_id: str) -> int:
         """
         Clear conversation history for a session
@@ -669,18 +633,6 @@ class ChatService:
         cleared_count = len(session.get("messages", []))
         session["messages"] = []
         return cleared_count
-
-    async def clear_history_async(self, session_id: str) -> int:
-        """
-        Async wrapper for clear_conversation (alias for compatibility)
-
-        Args:
-            session_id: Session identifier
-
-        Returns:
-            Number of messages cleared
-        """
-        return self.clear_conversation(session_id)
 
     def get_session_stats(self) -> dict:
         """

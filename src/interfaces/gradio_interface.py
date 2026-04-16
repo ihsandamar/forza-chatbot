@@ -75,7 +75,7 @@ class GradioInterface:
             return  # Already initialized
 
         try:
-            response = await self.chat_service.start_session_async(
+            response = await self.chat_service.start_session(
                 SessionStartRequest(user_id=None, token=self.token)
             )
             self.session_id = response.session_id
@@ -118,7 +118,7 @@ class GradioInterface:
 
         try:
             # Send message through ChatService with token
-            response = await self.chat_service.send_message_async(
+            response = await self.chat_service.send_message(
                 ChatMessageRequest(
                     session_id=self.session_id,
                     message=message.strip(),
@@ -148,7 +148,7 @@ class GradioInterface:
             return "No session active"
 
         try:
-            response = await self.chat_service.get_history_async(
+            response = await self.chat_service.get_session_history(
                 self.session_id
             )
 
@@ -177,7 +177,7 @@ class GradioInterface:
             return "No session active"
 
         try:
-            cleared_count = await self.chat_service.clear_history_async(
+            cleared_count = self.chat_service.clear_conversation(
                 self.session_id
             )
             return f"✓ Cleared {cleared_count} messages"
@@ -362,7 +362,7 @@ class GradioInterface:
             self.session_id = session_id
 
             # Get session history
-            history_response = await self.chat_service.get_history_async(session_id)
+            history_response = await self.chat_service.get_session_history(session_id)
 
             # Convert to Gradio messages format (type="messages")
             # Handle tool messages with special metadata format
