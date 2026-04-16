@@ -13,13 +13,10 @@ Features:
 import asyncio
 from typing import Optional
 
-from src.api.chat_service import ChatService
-from src.api.models import (
+from src.api.services.chat_service import ChatService
+from src.api.models.requests.chat import (
     SessionStartRequest,
     ChatMessageRequest,
-    HistoryRequest,
-    ClearHistoryRequest,
-    ReconfigureAssistantRequest
 )
 
 
@@ -99,9 +96,7 @@ Type your message and press Enter to send.
             return
 
         try:
-            response = await self.chat_service.get_history_async(
-                HistoryRequest(session_id=self.session_id)
-            )
+            response = await self.chat_service.get_history_async(self.session_id)
 
             if not response.messages:
                 print("(No messages yet)\n")
@@ -129,10 +124,8 @@ Type your message and press Enter to send.
             return
 
         try:
-            response = await self.chat_service.clear_history_async(
-                ClearHistoryRequest(session_id=self.session_id)
-            )
-            print(f"[OK] Cleared {response.cleared_count} messages\n")
+            cleared_count = await self.chat_service.clear_history_async(self.session_id)
+            print(f"[OK] Cleared {cleared_count} messages\n")
         except Exception as e:
             print(f"[FAIL] Error clearing history: {str(e)}\n")
 
@@ -268,15 +261,8 @@ Type your message and press Enter to send.
             except Exception as e:
                 print(f"[FAIL] Error: {str(e)}\n")
 
-        # Cleanup
-        if self.session_id:
-            try:
-                from src.api.models import SessionEndRequest
-                await self.chat_service.end_session_async(
-                    SessionEndRequest(session_id=self.session_id)
-                )
-            except:
-                pass
+        # Cleanup (no end_session in canonical ChatService)
+        pass
 
 
 def run_cli_interface(chat_service: ChatService, prompt: str = "You"):
