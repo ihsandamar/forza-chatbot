@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import re
 
-from src.graphs.report_agent.subagents.visualization.state import (
+from src.graphs.report_agent.subagents.visualization_v2.state import (
     DataProfile,
     ColumnInfo,
     ColumnType,
