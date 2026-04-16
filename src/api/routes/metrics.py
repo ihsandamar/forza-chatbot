@@ -4,13 +4,11 @@ Metrics API Endpoints
 Phase 4: Real-time performance monitoring and statistics.
 
 Features:
-- Cache statistics (hit rates, levels)
 - Active table tracking
 - Session-level metrics
 - Performance monitoring
 
 Endpoints:
-- GET /metrics/cache/stats: Cache statistics
 - GET /metrics/tables/active: Active tables list
 - GET /metrics/sessions/{session_id}: Session-level metrics
 - GET /metrics/performance/summary: Performance summary
@@ -56,94 +54,6 @@ def store_session_metrics(session_id: str, metrics: Dict[str, Any]):
     # Keep only last 100 queries per session
     if len(_metrics_store[session_id]) > 100:
         _metrics_store[session_id] = _metrics_store[session_id][-100:]
-
-
-# =============================================================================
-# CACHE ENDPOINTS
-# =============================================================================
-
-@router.get("/cache/stats")
-async def get_cache_stats() -> Dict[str, Any]:
-    """
-    Get cache statistics.
-
-    Returns:
-        Cache hit rates, levels, and performance metrics
-    """
-    logger.info("[METRICS_API] Getting cache stats")
-
-    try:
-        cache = None  # TODO: conversational_cache removed with legacy report module
-
-        if not cache:
-            return {
-                "status": "not_initialized",
-                "message": "Conversational cache not initialized"
-            }
-
-        stats = cache.get_stats()
-
-        return {
-            "status": "active",
-            **stats,
-            "thresholds": {
-                "session_threshold": cache.session_threshold,
-                "global_threshold": cache.global_threshold
-            },
-            "ttl": {
-                "session_ttl": cache.session_ttl,
-                "global_ttl": cache.global_ttl
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"[METRICS_API] Error getting cache stats: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get cache stats: {str(e)}"
-        )
-
-
-@router.post("/cache/reset")
-async def reset_cache_stats() -> Dict[str, str]:
-    """
-    Reset cache statistics (not cache contents).
-
-    Returns:
-        Success message
-    """
-    logger.info("[METRICS_API] Resetting cache stats")
-
-    try:
-        cache = None  # TODO: conversational_cache removed with legacy report module
-
-        if not cache:
-            raise HTTPException(
-                status_code=404,
-                detail="Cache not initialized"
-            )
-
-        # Reset stats
-        cache.stats = {
-            "session_exact_hits": 0,
-            "session_semantic_hits": 0,
-            "global_hits": 0,
-            "misses": 0,
-            "total_requests": 0,
-            "invalidations": 0
-        }
-
-        logger.info("[METRICS_API] Cache stats reset successfully")
-        return {"status": "success", "message": "Cache statistics reset"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[METRICS_API] Error resetting cache stats: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reset cache stats: {str(e)}"
-        )
 
 
 # =============================================================================
