@@ -64,7 +64,7 @@ def test_listing_query_gets_table():
 
 
 def test_comparison_query_gets_grouped_bar():
-    """COMPARISON query should produce comparison chart."""
+    """COMPARISON query with multiple dimensions -> sunburst; single dimension -> bar_chart."""
     from src.graphs.report_agent.subagents.visualization_v2.nodes import (
         _rule_based_decision,
     )
@@ -106,3 +106,17 @@ def test_no_metrics_returns_none_for_llm_fallback():
         "time_column": None, "has_time_series": False,
     })
     assert decision is None
+
+
+def test_time_series_comparison_without_dimension_returns_none():
+    """TIME_SERIES_COMPARISON without comparison_dimension should return None (LLM fallback)."""
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+    profile = {
+        "row_count": 10, "column_count": 3,
+        "dimension_columns": ["BranchName"], "metric_columns": ["Total"],
+        "time_column": "DocumentDate", "has_time_series": True,
+    }
+    # No comparison_dimension → should fall through to LLM
+    result = _rule_based_decision("TIME_SERIES_COMPARISON", wants_viz=True, profile=profile)
+    assert result is None

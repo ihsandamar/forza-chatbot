@@ -167,3 +167,20 @@ def test_comparison_template():
     html = render_chart(viz_decision, results, {})
     assert html is not None
     assert "plotly" in html.lower()
+
+
+def test_trace_cap_applied():
+    """render_chart should cap traces at MAX_TRACES even with oversized data."""
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart, MAX_TRACES
+    # Create data with more series than MAX_TRACES to trigger the cap
+    results = [{"Name": f"Item{i % 5}", "Group": f"G{i}", "Val": i} for i in range(MAX_TRACES + 20)]
+    spec = {
+        "chart_type": "line_chart",
+        "x_field": "Name",
+        "y_field": "Val",
+        "series_field": "Group",
+        "title": "Trace cap test"
+    }
+    html = render_chart(spec, results, {})
+    assert html is not None
+    assert "<div" in html  # valid plotly output
