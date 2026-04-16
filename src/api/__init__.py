@@ -3,7 +3,6 @@ API module - HTTP layer and service layer.
 
 Exports:
 - Models: Request/Response models for HTTP layer
-- ChatService: Service layer orchestration
 """
 
 from src.api.models import (
@@ -24,7 +23,6 @@ from src.api.models import (
     # Errors
     ErrorResponse
 )
-from src.api.chat_service import ChatService
 
 __all__ = [
     # Requests
@@ -43,6 +41,4 @@ __all__ = [
     "ReconfigureAssistantResponse",
     # Errors
     "ErrorResponse",
-    # Service
-    "ChatService"
 ]
