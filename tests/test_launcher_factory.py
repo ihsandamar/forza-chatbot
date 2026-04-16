@@ -30,3 +30,35 @@ def test_api_launcher_run_raises_when_api_key_missing():
         launcher = ApiLauncher()
         with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
             launcher.run()
+
+
+# ── get_launcher ───────────────────────────────────────────────────────────────
+
+def test_get_launcher_returns_api_launcher():
+    from src.launch import get_launcher
+    from src.launch.api_launcher import ApiLauncher
+    with patch("src.launch.api_launcher.get_config", return_value=MagicMock()):
+        launcher = get_launcher("api")
+        assert isinstance(launcher, ApiLauncher)
+
+
+def test_get_launcher_returns_gradio_launcher():
+    from src.launch import get_launcher
+    from src.launch.gradio_launcher import GradioLauncher
+    with patch("src.launch.gradio_launcher.get_config", return_value=MagicMock()):
+        launcher = get_launcher("gradio")
+        assert isinstance(launcher, GradioLauncher)
+
+
+def test_get_launcher_returns_cli_launcher():
+    from src.launch import get_launcher
+    from src.launch.cli_launcher import CliLauncher
+    with patch("src.launch.cli_launcher.get_config", return_value=MagicMock()):
+        launcher = get_launcher("cli")
+        assert isinstance(launcher, CliLauncher)
+
+
+def test_get_launcher_raises_on_unknown_interface():
+    from src.launch import get_launcher
+    with pytest.raises(ValueError, match="Bilinmeyen interface"):
+        get_launcher("flask")
