@@ -23,7 +23,9 @@ import logging
 from src.core.chatbot import Chatbot
 from src.interfaces.base_interface import BaseInterface
 from src.models.standard_types import StandardState, StandardResponse, ResponseType
-from src.api.main import app as api_app
+# NOTE: Use ApiLauncher from src.launch instead of importing app directly.
+# src/api/main.py no longer exports a module-level app — use build_fastapi_app(config).
+from src.api.main import build_fastapi_app
 
 
 class FastAPIInterface(BaseInterface):
@@ -81,8 +83,8 @@ class FastAPIInterface(BaseInterface):
         self.version = version
         self.description = description
 
-        # Use the existing FastAPI app from src/api/main.py
-        self.app = api_app
+        # Build the FastAPI app via factory (src/api/main.py no longer exports a module-level app)
+        self.app = build_fastapi_app(config=None)
 
         # Set the chatbot instance in the dependencies so the API uses the same instance
         self._set_api_chatbot_instance(chatbot)

@@ -1,12 +1,4 @@
-"""
-Forza Chatbot — CLI entry point.
-
-Usage:
-    python main.py --interface api      (default, production)
-    python main.py --interface gradio   (demo)
-    python main.py --interface cli      (development)
-    python main.py --interface api --config path/to/config.yaml
-"""
+"""Forza Chatbot — CLI entry point. Usage: python main.py [--interface api|gradio|cli] [--config PATH]"""
 import argparse
 from src.launch import get_launcher
 
