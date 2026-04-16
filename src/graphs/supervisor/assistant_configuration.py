@@ -10,7 +10,7 @@ from pydantic import Field
 from src.models.base_assistant_configuration import BaseAssistantConfiguration
 from src.graphs.routing.assistant_configuration import RoutingAssistantConfiguration
 from src.graphs.chat.assistant_configuration import ChatAssistantConfiguration
-from src.graphs.generic_text2sql.assistant_configuration import GenericSQLAssistantConfiguration
+from src.graphs.report_agent.assistant_configuration import GenericSQLAssistantConfiguration
 from src.graphs.report_agent.configuration import ReportAgentConfiguration
 
 today = datetime.now().strftime("%Y-%m-%d")

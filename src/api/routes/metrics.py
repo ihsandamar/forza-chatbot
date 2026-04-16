@@ -19,7 +19,7 @@ import time
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException
 
-from src.graphs.generic_text2sql.table_registry import get_table_registry
+from src.graphs.report_agent.table_registry import get_table_registry
 
 logger = logging.getLogger(__name__)
 

@@ -32,7 +32,7 @@ def build_fastapi_app(config) -> FastAPI:
         """
         # Preload embedding model to avoid HuggingFace timeouts on first request
         try:
-            from src.graphs.generic_text2sql.business_rules_vector_store import preload_embedding_model
+            from src.graphs.report_agent.business_rules_vector_store import preload_embedding_model
             print("[STARTUP] Preloading embedding model (first run may take 1-2 minutes)...")
             model_loaded = preload_embedding_model()
             if model_loaded:
@@ -45,7 +45,7 @@ def build_fastapi_app(config) -> FastAPI:
         # Start background table cleanup
         try:
             import os
-            from src.graphs.generic_text2sql.table_registry import get_table_registry
+            from src.graphs.report_agent.table_registry import get_table_registry
             db_connection_string = os.getenv("DATABASE_URL")
             if db_connection_string:
                 registry = get_table_registry()

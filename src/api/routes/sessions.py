@@ -17,7 +17,7 @@ import logging
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 
-from src.graphs.generic_text2sql.table_registry import get_table_registry
+from src.graphs.report_agent.table_registry import get_table_registry
 import pyodbc
 
 logger = logging.getLogger(__name__)

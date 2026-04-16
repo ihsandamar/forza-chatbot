@@ -1501,7 +1501,7 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
             # --- Table does not exist → create ---
             query = _get_configurable(config, "query", "")
             if not query or not query.strip():
-                sql_file = Path(__file__).parent.parent.parent.parent / "generic_text2sql" / "master_table_creation.sql"
+                sql_file = Path(__file__).parent / "master_table_creation.sql"
                 if sql_file.exists():
                     query = sql_file.read_text(encoding="utf-8")
                     logger.info(f"[CREATE_TABLE] Loaded SQL from file ({len(query)} chars)")

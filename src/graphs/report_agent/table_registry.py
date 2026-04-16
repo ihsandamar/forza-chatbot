@@ -245,14 +245,20 @@ class TableRegistry:
 
             try:
                 # Drop table from database
-                from src.graphs.generic_text2sql.sql_database_connection import execute_sql
+                import pyodbc
+                import asyncio as _asyncio
 
                 drop_sql = f"DROP TABLE IF EXISTS {table_name};"
-                await execute_sql(
-                    drop_sql,
-                    db_connection_string,
-                    return_direct=True
-                )
+
+                def _drop_table_sync() -> None:
+                    conn = pyodbc.connect(db_connection_string, autocommit=True)
+                    try:
+                        conn.execute(drop_sql)
+                    finally:
+                        conn.close()
+
+                loop = _asyncio.get_event_loop()
+                await loop.run_in_executor(None, _drop_table_sync)
 
                 # Unregister from registry
                 await self.unregister_table(session_id)

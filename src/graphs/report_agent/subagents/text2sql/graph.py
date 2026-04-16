@@ -179,7 +179,7 @@ def build_text2sql_graph(
 
     # --- Background table creation at init time (runs only once per process) ---
     if not _table_init_started:
-        sql_file = Path(__file__).parent.parent.parent.parent / "generic_text2sql" / "master_table_creation.sql"
+        sql_file = Path(__file__).parent / "master_table_creation.sql"
         if sql_file.exists():
             sql_script = sql_file.read_text(encoding="utf-8")
             logger.info(f"[TEXT2SQL] Starting background table creation ({len(sql_script)} chars)")

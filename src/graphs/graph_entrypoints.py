@@ -102,7 +102,7 @@ def report_agent_graph():
 
     # Paths relative to project root
     project_root = Path(__file__).parent.parent.parent
-    business_rules_path = str(project_root / "src" / "graphs" / "generic_text2sql" / "business_rules.json")
+    business_rules_path = str(project_root / "src" / "graphs" / "report_agent" / "data" / "business_rules.json")
     chroma_persist_dir = str(project_root / "data" / "vector_store")
 
     return build_report_agent_graph(
