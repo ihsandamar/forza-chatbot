@@ -5,8 +5,8 @@ import time
 
 def test_viz_decider_skips_llm_for_ranking():
     """RANKING query should not trigger viz_decider LLM — rule-based path."""
-    from src.graphs.report_agent.subagents.visualization.nodes import (
-        _rule_based_viz_decision,
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import (
+        _rule_based_decision,
     )
 
     profile = {
@@ -14,10 +14,9 @@ def test_viz_decider_skips_llm_for_ranking():
         "dimension_columns": ["BranchName"], "metric_columns": ["Total"],
         "time_column": None, "has_time_series": False,
     }
-    results = [{"BranchName": f"B{i}", "Total": i * 100} for i in range(5)]
 
     start = time.perf_counter()
-    decision = _rule_based_viz_decision("RANKING", results, profile, wants_viz=True)
+    decision = _rule_based_decision("RANKING", wants_viz=True, profile=profile)
     duration = time.perf_counter() - start
 
     assert decision is not None
@@ -27,8 +26,8 @@ def test_viz_decider_skips_llm_for_ranking():
 
 def test_chart_template_generates_fast():
     """Chart template should generate HTML in under 500ms (after warm-up)."""
-    from src.graphs.report_agent.subagents.visualization.chart_templates import (
-        build_chart,
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import (
+        render_chart,
     )
 
     results = [{"Category": f"Cat{i}", "Amount": i * 1000} for i in range(10)]
@@ -38,10 +37,10 @@ def test_chart_template_generates_fast():
     }
 
     # Warm-up call to ensure imports/JIT are not counted
-    build_chart(decision, results, {})
+    render_chart(decision, results, {})
 
     start = time.perf_counter()
-    html = build_chart(decision, results, {})
+    html = render_chart(decision, results, {})
     duration = time.perf_counter() - start
 
     assert html is not None
@@ -50,8 +49,8 @@ def test_chart_template_generates_fast():
 
 def test_all_chart_types_produce_html():
     """Every supported chart type should produce valid HTML."""
-    from src.graphs.report_agent.subagents.visualization.chart_templates import (
-        build_chart,
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import (
+        render_chart,
         _BUILDERS,
     )
 
@@ -62,24 +61,26 @@ def test_all_chart_types_produce_html():
     ]
 
     for chart_type in _BUILDERS:
+        # heatmap requires series_field (entity column) to build pivot table
+        needs_series = chart_type in ("comparison", "heatmap")
         decision = {
             "chart_type": chart_type,
             "x_field": "Dim", "y_field": "Val",
-            "series_field": "Dim2" if chart_type in ("comparison",) else None,
+            "series_field": "Dim2" if needs_series else None,
             "title": f"Test {chart_type}",
         }
-        html = build_chart(decision, results, {})
+        html = render_chart(decision, results, {})
         assert html is not None, f"{chart_type} returned None"
         assert "plotly" in html.lower(), f"{chart_type} missing plotly reference"
 
 
 def test_rule_based_and_template_work_together():
     """viz_decider rule path should produce a decision that chart template can render."""
-    from src.graphs.report_agent.subagents.visualization.nodes import (
-        _rule_based_viz_decision,
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import (
+        _rule_based_decision,
     )
-    from src.graphs.report_agent.subagents.visualization.chart_templates import (
-        build_chart,
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import (
+        render_chart,
     )
 
     results = [
@@ -94,11 +95,13 @@ def test_rule_based_and_template_work_together():
     }
 
     # Step 1: Rule-based decision
-    decision = _rule_based_viz_decision("TIME_SERIES", results, profile, wants_viz=True)
+    decision = _rule_based_decision("TIME_SERIES", wants_viz=True, profile=profile)
     assert decision is not None
     assert decision["chart_type"] == "line_chart"
 
-    # Step 2: Template renders the decision
-    html = build_chart(decision, results, {"Month": {"description": "Ay"}, "Revenue": {"description": "Gelir"}})
+    # Step 2: Fill in x/y fields from profile (spec_validator does this in prod)
+    # and render with the chart template
+    full_decision = {**decision, "x_field": "Month", "y_field": "Revenue"}
+    html = render_chart(full_decision, results, {"Month": {"description": "Ay"}, "Revenue": {"description": "Gelir"}})
     assert html is not None
     assert "plotly" in html.lower()

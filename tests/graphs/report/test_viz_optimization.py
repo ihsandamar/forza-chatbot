@@ -6,7 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_response_builder_excludes_full_data():
     """visualization_output should NOT contain full results (memory optimization)."""
-    from src.graphs.report_agent.subagents.visualization.nodes import response_builder_node
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import response_builder_node
 
     state = {
         "results": [{"col": i} for i in range(100)],
@@ -24,39 +24,3 @@ async def test_response_builder_excludes_full_data():
     assert viz["chart_type"] == "bar_chart"
     assert viz["plotly_html_snippet"] == "<div>plotly</div>"
     assert "summary" in viz
-
-
-def test_execute_plotly_code_caps_traces():
-    """_execute_plotly_code should cap traces at MAX_TRACES to prevent HTML bloat."""
-    from src.graphs.report_agent.subagents.visualization.nodes import _execute_plotly_code
-
-    # Generate code that creates 100 individual traces
-    code = """
-fig = go.Figure()
-for i in range(100):
-    fig.add_trace(go.Bar(x=[i], y=[i], name=f"trace_{i}"))
-fig.update_layout(title="Test", autosize=True)
-"""
-    data = [{"x": i, "y": i} for i in range(100)]
-    html = _execute_plotly_code(code, data)
-
-    # HTML should be generated but with capped traces
-    assert "plotly" in html.lower() or "<div" in html
-    # We can't easily check trace count in HTML, but we verify it doesn't error
-    # and the HTML size is reasonable (< 200KB for capped traces)
-    assert len(html) < 200_000, f"HTML too large: {len(html)} chars — traces likely not capped"
-
-
-def test_execute_plotly_code_normal_case():
-    """Normal Plotly code with few traces should work without capping."""
-    from src.graphs.report_agent.subagents.visualization.nodes import _execute_plotly_code
-
-    code = """
-fig = px.bar(pd.DataFrame(data), x='category', y='value', title='Test')
-fig.update_layout(autosize=True)
-"""
-    data = [{"category": f"cat_{i}", "value": i * 10} for i in range(20)]
-    html = _execute_plotly_code(code, data)
-
-    assert "<div" in html
-    assert len(html) > 100  # Sanity check: HTML is not empty
