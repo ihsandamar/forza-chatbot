@@ -33,5 +33,5 @@ def build_chat_service(config=None) -> ChatService:
         base_url=getattr(config.llm, "base_url", None),
     )
     graph = GraphRepository(llm).get(config.chatbot.graph_type)
-    chatbot = Chatbot(llm=llm.get_chat(), graph=graph)
+    chatbot = Chatbot(llm=llm, graph=graph)
     return ChatService(chatbot=chatbot)
