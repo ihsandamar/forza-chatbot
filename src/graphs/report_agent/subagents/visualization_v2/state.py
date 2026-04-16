@@ -2,7 +2,7 @@
 Visualization V2 — State Definition
 
 VisualizationState: LangGraph shared-state pattern ile parent ReportState'e baglanir.
-Mevcut v1 state ile ayni key'ler — parent uyumlu.
+v2, v1'e göre şu 4 ek field içerir: messages, time_granularity, comparison_dimension, requested_chart_type.
 """
 from enum import Enum
 from typing import Any, Dict, List, Optional, TypedDict
@@ -60,7 +60,7 @@ class DataProfile(TypedDict, total=False):
 
 class VisualizationState(TypedDict, total=False):
     # --- ReportState overlapping (auto-sync) ---
-    messages: Optional[list]
+    messages: Optional[list]               # conversation context (LLM prompt'a eklenir)
     results: Optional[List[Dict[str, Any]]]
     user_query: str
     viz_request: Optional[str]
@@ -68,11 +68,11 @@ class VisualizationState(TypedDict, total=False):
     wants_visualization: Optional[bool]
     visualization_output: Optional[Dict[str, Any]]
     error: Optional[str]
-    time_granularity: Optional[str]
-    comparison_dimension: Optional[str]
-    requested_chart_type: Optional[str]
+    time_granularity: Optional[str]       # from text2sql, for chart type decision
+    comparison_dimension: Optional[str]   # from text2sql, entity column for multi-dim charts
+    requested_chart_type: Optional[str]   # from intent classification
 
     # --- Internal ---
-    data_profile: Optional[Dict[str, Any]]
-    viz_decision: Optional[Dict[str, Any]]
+    data_profile: Optional[DataProfile]   # typed — DataProfile defined above
+    viz_decision: Optional[Dict[str, Any]]  # ChartSpec.model_dump()
     plotly_html_snippet: Optional[str]
