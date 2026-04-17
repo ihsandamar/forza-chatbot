@@ -1,6 +1,5 @@
 # tests/api/routes/test_configuration_endpoints.py
 """Tests for GET/POST /api/configuration using RuntimeAgentSettings."""
-import pytest
 from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

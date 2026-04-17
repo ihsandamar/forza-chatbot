@@ -3,7 +3,7 @@ Configuration Response Models.
 
 Simplified: subagents only, no LLM section.
 """
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 from pydantic import BaseModel, Field
 
 

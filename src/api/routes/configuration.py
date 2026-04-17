@@ -13,7 +13,6 @@ from src.api.services.chat_service import ChatService
 from src.api.dependencies import get_chat_service
 from src.api.models.requests.configuration import (
     ConfigurationUpdateRequest,
-    SubAgentConfigUpdateRequest,
 )
 from src.api.models.responses.configuration import (
     ConfigurationView,
@@ -58,7 +57,13 @@ async def get_configuration(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Chatbot not initialized",
         )
-    return _build_view(chat_service.chatbot.get_runtime_settings())
+    settings = chat_service.chatbot.get_runtime_settings()
+    if settings is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Runtime settings not available",
+        )
+    return _build_view(settings)
 
 
 @router.post(
