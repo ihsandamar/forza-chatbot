@@ -195,10 +195,18 @@ class ReportAgentGraph:
         self._chroma_persist_dir = chroma_persist_dir
 
     def build_graph(self):
+        # column_metadata defaults to ReportAgentConfiguration's default (ERP column descriptions).
+        # If the caller passes a custom app_config with a report_column_metadata field
+        # (e.g. from SupervisorAssistantConfiguration), that takes precedence.
+        column_metadata = getattr(
+            self._app_config,
+            "report_column_metadata",
+            ReportAgentConfiguration.model_fields["column_metadata"].default,
+        )
         return build_report_agent_graph(
             llm=self._llm.get_chat(),
             table_name=getattr(self._app_config, "report_table_name", "MasterReportDocumentTable"),
-            column_metadata={},
+            column_metadata=column_metadata,
             connection_string=self._app_config.database.uri,
             business_rules_path=self._business_rules_path,
             chroma_persist_dir=self._chroma_persist_dir,
