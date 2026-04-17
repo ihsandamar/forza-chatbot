@@ -122,6 +122,23 @@ class BaseGraph(ABC, Generic[ConfigT]):
         """
         return BaseAssistantConfiguration()
 
+    @classmethod
+    def create(cls, llm: "LLM", app_config=None) -> "BaseGraph":
+        """
+        Factory classmethod: graph instance'ı oluşturur.
+
+        Varsayılan implementasyon sadece llm geçer.
+        Karmaşık setup gerektiren graph'lar (DB, dosya yolları vb.) bu metodu override eder.
+
+        Args:
+            llm: Language model instance
+            app_config: Uygulama konfigürasyonu (ConfigLoader'dan gelen nesne)
+
+        Returns:
+            BaseGraph instance
+        """
+        return cls(llm=llm)
+
     @abstractmethod
     def _get_default_metadata(self) -> GraphMetadata:
         """
