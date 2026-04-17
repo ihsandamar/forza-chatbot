@@ -1,7 +1,10 @@
+# src/api/dependencies.py
 from src.api.services.chat_service import ChatService
 from src.core.chatbot import Chatbot
+from src.core.runtime_agent_settings import RuntimeAgentSettings
 from src.models.llm import LLM
 from src.graphs.graph_entrypoints import supervisor_graph, _get_config
+from src.graphs.supervisor.assistant_configuration import SupervisorAssistantConfiguration
 
 
 # Singleton instances
@@ -14,16 +17,16 @@ def get_chatbot() -> Chatbot:
     Dependency to get Chatbot instance.
 
     Uses graph_entrypoints.supervisor_graph() directly — same code path as LangGraph dev.
+    RuntimeAgentSettings is initialised from SupervisorAssistantConfiguration defaults,
+    so GET /api/configuration works from the first request.
 
     Returns:
-        Chatbot: Singleton instance of chatbot
+        Chatbot: Singleton instance
     """
     global _chatbot_instance
     if _chatbot_instance is None:
         config = _get_config()
 
-        # LLM: Chatbot wrapper metadata için (get_config_for_ui).
-        # supervisor_graph() kendi LLM instance'ını dahili oluşturur.
         llm = LLM(
             provider=config.llm.provider,
             model=config.llm.model,
@@ -32,15 +35,15 @@ def get_chatbot() -> Chatbot:
             base_url=config.llm.base_url,
         )
 
-        # LangGraph dev ile birebir aynı kod yolu.
-        # Kasıtlı olarak supervisor_graph() hardcode edilmiştir —
-        # config.yaml: graph_type=supervisor, bu FastAPI deployment'ı supervisor-only'dir.
         compiled = supervisor_graph()
 
         _chatbot_instance = Chatbot(
             llm=llm,
             graph=compiled,
-            config={"configurable": {"thread_id": "1"}},  # ChatService runtime'da session_id ile override eder
+            config={"configurable": {"thread_id": "1"}},
+            runtime_agent_settings=RuntimeAgentSettings.from_supervisor_config(
+                SupervisorAssistantConfiguration()
+            ),
         )
 
     return _chatbot_instance
@@ -48,13 +51,12 @@ def get_chatbot() -> Chatbot:
 
 def get_chat_service() -> ChatService:
     """
-    Dependency to get ChatService instance
+    Dependency to get ChatService instance.
 
     Returns:
-        ChatService: Singleton instance of chat service
+        ChatService: Singleton instance
     """
     global _chat_service_instance
     if _chat_service_instance is None:
-        chatbot = get_chatbot()
-        _chat_service_instance = ChatService(chatbot)
+        _chat_service_instance = ChatService(get_chatbot())
     return _chat_service_instance
