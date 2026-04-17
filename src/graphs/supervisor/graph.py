@@ -3,13 +3,11 @@ Supervisor Graph - Multi-agent supervisor with routing and chat agents.
 Routes requests between agents using handoff pattern.
 """
 import logging
-from pathlib import Path
 from typing import Optional
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph import MessagesState
 from langchain.agents import create_agent
-from langchain_core.messages import ToolMessage
 
 from src.models.llm import LLM
 from src.graphs.base.base_graph import BaseGraph
@@ -19,66 +17,36 @@ from src.graphs.base.graph_metadata import (
     InputSpec,
     OutputSpec,
 )
-from src.graphs.registry import register_graph
-from src.graphs.chat.graph import ChatGraph
-from src.graphs.routing.graph import RoutingGraph
+from src.graphs.registry import register_graph, GRAPH_REGISTRY
 from src.graphs.supervisor.assistant_configuration import SupervisorAssistantConfiguration
-
-from src.graphs.supervisor.prompts import SUPERVISOR_SYSTEM_PROMPT
-from src.graphs.supervisor.tools import (
-    get_current_time,
-    get_supervisor_status,
-    assign_to_chat_agent,
-    assign_to_routing_agent,
-    assign_to_report_agent
-)
+from src.graphs.supervisor.prompts import SUPERVISOR_SYSTEM_PROMPT, SUPERVISOR_PROMPT_TEMPLATE
+from src.graphs.supervisor.tools import get_current_time, get_supervisor_status
+from src.graphs.supervisor.utilities import create_handoff_tool, create_forward_tool
 
 logger = logging.getLogger(__name__)
 
 
-def process_routing_output(state: MessagesState) -> MessagesState:
-    """
-    Process routing agent output - mainly for validation and logging.
-
-    URL messages are now created in StateToOutputTransformerNode as proper AIMessage+ToolMessage pairs.
-    This function validates the state and logs for debugging.
-    """
-    try:
-        logger.debug(f"[SUPERVISOR] State keys in process_routing_output: {list(state.keys())}")
-
-        if "navigation_output" in state:
-            navigation_output = state.get("navigation_output")
-            if navigation_output and isinstance(navigation_output, dict):
-                url = navigation_output.get("url")
-                if url:
-                    logger.info(f"[SUPERVISOR] Routing URL found: {url}")
-                    messages = state.get("messages", [])
-                    has_url_message = any(
-                        hasattr(msg, 'content') and url in str(msg.content)
-                        for msg in messages
-                    )
-                    if has_url_message:
-                        logger.debug("[SUPERVISOR] URL confirmed in messages")
-                    else:
-                        logger.warning("[SUPERVISOR] URL not found in messages, but already created by routing graph")
-
-    except Exception as e:
-        logger.warning(f"[SUPERVISOR] Error in process_routing_output: {e}", exc_info=True)
-
-    return state
-
-
-@register_graph("supervisor")
+@register_graph(
+    name="supervisor",
+    description="Orkestratör — kullanıcı mesajlarını doğru agent'a yönlendirir.",
+    state_type="messages",
+    returns_to_supervisor=False,
+)
 class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
     """
     Supervisor graph that routes requests to routing and chat agents.
     Uses multi-destination pattern with handoff tools.
     """
 
+    @classmethod
+    def create(cls, llm: LLM, app_config=None) -> "SupervisorGraph":
+        return cls(llm=llm, app_config=app_config)
+
     def __init__(
         self,
         llm: LLM,
-        config: Optional[SupervisorAssistantConfiguration] = None
+        config: Optional[SupervisorAssistantConfiguration] = None,
+        app_config=None,
     ):
         super().__init__(
             llm=llm,
@@ -86,6 +54,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
             config=config,
             metadata=self._get_default_metadata(),
         )
+        self.app_config = app_config
 
     def _get_default_config(self) -> SupervisorAssistantConfiguration:
         """Get default configuration for supervisor graph."""
@@ -126,108 +95,77 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
     def build_graph(self) -> StateGraph:
         """
         Build and return the compiled supervisor graph.
-
-        Graph Structure:
-            START → supervisor → {routing, chat, report}
-              routing → process_routing_output → supervisor
-              chat → supervisor
-              report → END (passthrough)
-            supervisor → END
+        Reads GRAPH_REGISTRY to discover agents and generates handoff tools dynamically.
         """
-        logger.info("[SUPERVISOR] Creating supervisor graph...")
+        logger.info("[SUPERVISOR] Registry'den agent'lar okunuyor...")
 
-        # Create supervisor agent with handoff tools
+        # All registered agents except supervisor itself
+        agents = {
+            name: desc for name, desc in GRAPH_REGISTRY.items()
+            if name != "supervisor"
+        }
+
+        # Generate handoff/forward tools dynamically
+        handoff_tools = []
+        for name, desc in agents.items():
+            tool_description = desc.description
+            if desc.examples:
+                tool_description += "\n\nÖrnekler:\n" + "\n".join(f"- {ex}" for ex in desc.examples)
+
+            if desc.returns_to_supervisor:
+                tool_fn = create_handoff_tool(
+                    agent_name=name,
+                    description=tool_description,
+                )
+            else:
+                tool_fn = create_forward_tool(
+                    agent_name=name,
+                    description=tool_description,
+                )
+            handoff_tools.append(tool_fn)
+
+        all_tools = [get_current_time, get_supervisor_status] + handoff_tools
+
+        # Build dynamic system prompt
+        agent_descriptions = "\n".join(
+            f"- {name}: {desc.description}" for name, desc in agents.items()
+        )
+        system_prompt = SUPERVISOR_PROMPT_TEMPLATE.format(
+            agent_descriptions=agent_descriptions
+        )
+
         supervisor_agent = create_agent(
             model=self.llm.get_chat(),
-            tools=[
-                get_current_time,
-                get_supervisor_status,
-                assign_to_chat_agent,
-                assign_to_routing_agent,
-                assign_to_report_agent
-            ],
-            system_prompt=SUPERVISOR_SYSTEM_PROMPT,
+            tools=all_tools,
+            system_prompt=system_prompt,
             name="supervisor"
         )
 
-        # Build subagents
-        routing_config = self.config.get_routing_config()
-        routing_agent = RoutingGraph(llm=self.llm, config=routing_config).build_graph()
-        logger.info("[SUPERVISOR] ✓ Routing subgraph built")
-
-        chat_config = self.config.get_chat_config()
-        chat_agent = ChatGraph(llm=self.llm, config=chat_config).build_graph()
-        logger.info("[SUPERVISOR] ✓ Chat subgraph built")
-
-        # Build report agent as direct subgraph (native interrupt propagation)
-        report_agent = None
-        try:
-            report_agent = self._build_report_agent()
-            logger.info("[SUPERVISOR] ✓ Report subgraph built (own checkpointer for context preservation)")
-        except Exception as e:
-            logger.error(f"[SUPERVISOR] Failed to build report agent: {e}")
-            logger.warning("[SUPERVISOR] Report agent disabled due to build error")
-
-        # Build graph
         builder = self.get_graph_builder()
-
-        destinations = ["routing", "chat"]
-        if report_agent:
-            destinations.append("report")
-
+        destinations = list(agents.keys())
         builder.add_node("supervisor", supervisor_agent, destinations=destinations)
-        builder.add_node("routing", routing_agent)
-        builder.add_node("process_routing_output", process_routing_output)
-        builder.add_node("chat", chat_agent)
-        if report_agent:
-            builder.add_node("report", report_agent)
 
-        # Edges
+        for name, desc in agents.items():
+            try:
+                subgraph = desc.cls.create(llm=self.llm, app_config=self.app_config).build_graph()
+                builder.add_node(name, subgraph)
+                if desc.returns_to_supervisor:
+                    builder.add_edge(name, "supervisor")
+                else:
+                    builder.add_edge(name, END)
+                logger.info(f"[SUPERVISOR] ✓ {name} subgraph eklendi")
+            except Exception as e:
+                logger.error(f"[SUPERVISOR] {name} subgraph inşa hatası: {e}")
+
         builder.add_edge(START, "supervisor")
-        builder.add_edge("routing", "process_routing_output")
-        builder.add_edge("process_routing_output", "supervisor")
-        builder.add_edge("chat", "supervisor")
-        if report_agent:
-            builder.add_edge("report", END)
         builder.add_edge("supervisor", END)
 
-        # Compile
-        compiled_graph = builder.compile(
+        compiled = builder.compile(
             checkpointer=self.get_memory(),
             name="supervisor_graph"
         )
-        logger.info("[SUPERVISOR] Supervisor graph compiled successfully ✓")
-
-        return compiled_graph
-
-    def _build_report_agent(self):
-        """Build report agent subgraph with its own checkpointer for context preservation.
-
-        The report agent gets checkpointer=True so it inherits the parent
-        supervisor's checkpointer. This means ReportState fields (active_sql,
-        active_results, active_filters) persist between turns. Without this,
-        the supervisor only sees MessagesState and all other fields are lost.
-
-        Interrupt propagation is unaffected — GraphInterrupt bubbles up via
-        exception chain regardless of checkpointer configuration.
-        """
-        from src.graphs.report_agent.graph import build_report_agent_graph
-        from src.services.config_loader import ConfigLoader
-
-        config = ConfigLoader.load_config()
-        project_root = Path(__file__).parent.parent.parent.parent
-        business_rules_path = str(project_root / "src" / "graphs" / "report_agent" / "data" / "business_rules.json")
-        chroma_persist_dir = str(project_root / "data" / "vector_store")
-
-        return build_report_agent_graph(
-            llm=self.llm.get_chat(),
-            table_name=self.config.report_table_name,
-            column_metadata=self.config.report_column_metadata,
-            connection_string=config.database.uri,
-            business_rules_path=business_rules_path,
-            chroma_persist_dir=chroma_persist_dir,
-            checkpointer=True,
-        )
+        logger.info("[SUPERVISOR] Supervisor graph derlendi ✓")
+        return compiled
 
 
 def create_supervisor_graph(llm):

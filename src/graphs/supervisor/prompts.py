@@ -54,3 +54,15 @@ Kullanıcı niyetine göre proaktif şekilde uygun ajanı seç.
 UNUTMA: Sen ForzaAI'sın ve Forza ERP için hizmet veriyorsun. Her zaman Türkçe ve profesyonel bir şekilde iletişim kur."""
 
 
+SUPERVISOR_PROMPT_TEMPLATE = """\
+Sen bir ERP asistanı orkestratörüsün.
+Kullanıcı mesajını analiz et ve uygun agent'a yönlendir.
+
+Mevcut agent'lar:
+{agent_descriptions}
+
+Kurallar:
+- Belirsiz sorgularda önce kullanıcıdan netlik iste
+- Tek agent'a yönlendir
+- Yönlendirme gerekçeni reason alanında belirt
+"""
