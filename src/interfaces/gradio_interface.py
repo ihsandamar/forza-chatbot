@@ -883,7 +883,7 @@ class GradioInterface:
                 def save_settings(routing_token, routing_prompt, chat_prompt):
                     """Save updated sub-agent settings."""
                     try:
-                        settings = self.runtime_agent_settings or RuntimeAgentSettings()
+                        settings = self.runtime_agent_settings
                         settings = settings.update_subagent(
                             "routing",
                             token=routing_token,
