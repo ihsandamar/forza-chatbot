@@ -85,3 +85,12 @@ class TestResolveAgentLLM:
         graph = _make_supervisor(app_config)
         result = graph._resolve_agent_llm("routing")
         assert result is graph.llm  # fallback, not crash
+
+    def test_report_agent_uses_report_model_field(self):
+        """report_agent registry name maps to 'report_model' Studio field (not 'report_agent_model')."""
+        app_config = MagicMock(spec=["report_model"])
+        app_config.report_model = "openai:gpt-4.1-mini"
+        graph = _make_supervisor(app_config)
+        result = graph._resolve_agent_llm("report_agent")
+        assert result is not graph.llm
+        assert result.model == "gpt-4.1-mini"

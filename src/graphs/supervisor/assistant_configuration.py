@@ -54,6 +54,8 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
     routing_model: Annotated[
         Literal[
             "",                           # Use global LLM (default)
+            "openai:gpt-4.1",
+            "openai:gpt-4.1-mini",
             "anthropic:claude-haiku-4-5",
             "anthropic:claude-sonnet-4-5",
             "openai:gpt-5",
@@ -78,6 +80,8 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
     chat_model: Annotated[
         Literal[
             "",                           # Use global LLM (default)
+            "openai:gpt-4.1",
+            "openai:gpt-4.1-mini",
             "anthropic:claude-haiku-4-5",
             "anthropic:claude-sonnet-4-5",
             "openai:gpt-5",
@@ -138,6 +142,8 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
     report_model: Annotated[
         Literal[
             "",                           # Use global LLM (default)
+            "openai:gpt-4.1",
+            "openai:gpt-4.1-mini",
             "anthropic:claude-haiku-4-5",
             "anthropic:claude-sonnet-4-5",
             "openai:gpt-5",

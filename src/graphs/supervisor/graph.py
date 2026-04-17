@@ -25,6 +25,12 @@ from src.graphs.supervisor.utilities import create_handoff_tool, create_forward_
 
 logger = logging.getLogger(__name__)
 
+# Maps registry agent names to their Studio config field prefix.
+# Needed when registry name differs from the Studio field naming convention.
+_STUDIO_FIELD_MAP: dict[str, str] = {
+    "report_agent": "report",  # registry: "report_agent", field: "report_model"
+}
+
 
 @register_graph(
     name="supervisor",
@@ -109,8 +115,14 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         if self.app_config is None:
             return self.llm
 
-        # 1. Studio override field (e.g. routing_model, chat_model, report_model)
-        studio_field = f"{agent_name}_model"
+        # 1. Studio override field (e.g. routing_model, report_model)
+        # NOTE: This path is only active when app_config is a
+        # SupervisorAssistantConfiguration instance (e.g. injected per-invocation
+        # in future Studio integration). In the current production path, app_config
+        # is always a YAML Config object, so Priority 1 silently passes through
+        # to Priority 2. Do not remove — it is reserved for future use.
+        studio_prefix = _STUDIO_FIELD_MAP.get(agent_name, agent_name)
+        studio_field = f"{studio_prefix}_model"
         model_string = getattr(self.app_config, studio_field, None)
         if model_string:  # non-empty string — never pass "" to from_override
             try:
