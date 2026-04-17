@@ -151,8 +151,8 @@ async def parallel_node(state):
 ```python
 # main.py - Entry point
 config = ConfigLoader.load_config("config/config.yaml")  # YAML with ${ENV_VAR} support
-runtime_config = RuntimeConfiguration.from_config_with_assistant(config, assistant_config, graph_type)
-chatbot = ChatbotBuilder(...).with_runtime_config(runtime_config).build()
+runtime_agent_settings = RuntimeAgentSettings.from_supervisor_config(SupervisorAssistantConfiguration())
+chatbot = Chatbot(llm=..., graph=..., runtime_agent_settings=runtime_agent_settings)
 
 # src/services/config_loader.py - YAML parser
 # config/config.yaml - Config schema (chat.graph_type, report.hitl, embedding.provider, etc.)
@@ -388,7 +388,7 @@ Uses config `database.uri` (PostgreSQL connection string), accessed via connecti
 | `src/graphs/routing/graph.py` | Document/page navigation |
 | `src/graphs/report/hitl_question_builder.py` | HITL question generation |
 | `src/graphs/report/ambiguity_framework.py` | Ambiguity detection engine |
-| `src/core/runtime_config.py` | Dynamic runtime configuration |
+| `src/core/runtime_agent_settings.py` | Sub-agent runtime settings (system_prompt, token) |
 | `main.py` | Entry point (CLI/interface selection) |
 | `config/config.yaml` | Configuration schema |
 | `requirements.txt` | Python dependencies |
