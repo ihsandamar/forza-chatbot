@@ -60,6 +60,8 @@ class RuntimeAgentSettings:
         Initialise from SupervisorAssistantConfiguration defaults.
         Called once at startup to create the live settings object.
         """
+        # "report" subagent intentionally excluded: it has no token field and
+        # is configured through a separate ReportAgentConfiguration pathway.
         return cls(subagents={
             "routing": SubAgentSettings(
                 system_prompt=cfg.routing_system_prompt or None,
