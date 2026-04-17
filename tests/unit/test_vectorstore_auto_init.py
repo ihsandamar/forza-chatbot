@@ -168,14 +168,16 @@ class TestCreateDocumentsFromCatalog:
 class TestSetupVectorstoreAutoInit:
     """Test that _setup_vectorstore auto-creates collection when missing."""
 
-    def _setup_graph_with_mocks(self, mock_config, mock_chromadb):
+    def _setup_graph_with_mocks(self, mock_chromadb):
         """Common setup for _setup_vectorstore tests."""
+        mock_config = MagicMock()
         mock_config.vector_store.persist_directory = "./data/vector_store"
         mock_config.embedding.model = "text-embedding-3-large"
         mock_config.embedding.api_key = "test-key"
         mock_config.embedding.base_url = "https://api.openai.com/v1"
 
         graph = _make_graph_instance()
+        graph._app_config = mock_config
         # _get_base_path -> project root (test file is at tests/unit/test_*.py)
         base_path = Path(__file__).resolve().parent.parent.parent
         graph._get_base_path = MagicMock(return_value=base_path)
@@ -184,17 +186,11 @@ class TestSetupVectorstoreAutoInit:
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
     @patch("src.graphs.routing.graph.OpenAIEmbeddings")
-    @patch("src.graphs.routing.graph.config")
     def test_auto_creates_when_collection_missing(
-        self, mock_config, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
+        self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):
         """When get_collection raises, should attempt auto-creation from forza.json."""
         import tempfile, json as _json
-
-        mock_config.vector_store.persist_directory = "./data/vector_store"
-        mock_config.embedding.model = "text-embedding-3-large"
-        mock_config.embedding.api_key = "test-key"
-        mock_config.embedding.base_url = "https://api.openai.com/v1"
 
         mock_client = MagicMock()
         mock_client.get_collection.side_effect = Exception("Collection forza_web_pages does not exist")
@@ -216,6 +212,12 @@ class TestSetupVectorstoreAutoInit:
             (data_dir / "forza.json").write_text(_json.dumps(catalog), encoding="utf-8")
 
             graph = _make_graph_instance()
+            mock_app_config = MagicMock()
+            mock_app_config.vector_store.persist_directory = "./data/vector_store"
+            mock_app_config.embedding.model = "text-embedding-3-large"
+            mock_app_config.embedding.api_key = "test-key"
+            mock_app_config.embedding.base_url = "https://api.openai.com/v1"
+            graph._app_config = mock_app_config
             graph._get_base_path = MagicMock(return_value=Path(tmp_dir))
 
             result = graph._setup_vectorstore()
@@ -230,12 +232,11 @@ class TestSetupVectorstoreAutoInit:
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
     @patch("src.graphs.routing.graph.OpenAIEmbeddings")
-    @patch("src.graphs.routing.graph.config")
     def test_existing_collection_no_auto_create(
-        self, mock_config, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
+        self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):
         """When collection exists with documents, should NOT auto-create."""
-        graph = self._setup_graph_with_mocks(mock_config, mock_chromadb)
+        graph = self._setup_graph_with_mocks(mock_chromadb)
 
         mock_client = MagicMock()
         mock_collection = MagicMock()
@@ -255,17 +256,11 @@ class TestSetupVectorstoreAutoInit:
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
     @patch("src.graphs.routing.graph.OpenAIEmbeddings")
-    @patch("src.graphs.routing.graph.config")
     def test_returns_none_when_catalog_missing(
-        self, mock_config, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
+        self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):
         """When forza.json doesn't exist, should return None gracefully."""
         import tempfile
-
-        mock_config.vector_store.persist_directory = "./data/vector_store"
-        mock_config.embedding.model = "text-embedding-3-large"
-        mock_config.embedding.api_key = "test-key"
-        mock_config.embedding.base_url = "https://api.openai.com/v1"
 
         mock_client = MagicMock()
         mock_client.get_collection.side_effect = Exception("Collection not found")
@@ -273,6 +268,12 @@ class TestSetupVectorstoreAutoInit:
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             graph = _make_graph_instance()
+            mock_app_config = MagicMock()
+            mock_app_config.vector_store.persist_directory = "./data/vector_store"
+            mock_app_config.embedding.model = "text-embedding-3-large"
+            mock_app_config.embedding.api_key = "test-key"
+            mock_app_config.embedding.base_url = "https://api.openai.com/v1"
+            graph._app_config = mock_app_config
             graph._get_base_path = MagicMock(return_value=Path(tmp_dir))
 
             result = graph._setup_vectorstore()
@@ -282,17 +283,11 @@ class TestSetupVectorstoreAutoInit:
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
     @patch("src.graphs.routing.graph.OpenAIEmbeddings")
-    @patch("src.graphs.routing.graph.config")
     def test_empty_collection_triggers_re_creation(
-        self, mock_config, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
+        self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):
         """When collection exists but is empty, should delete and re-create."""
         import tempfile, json as _json
-
-        mock_config.vector_store.persist_directory = "./data/vector_store"
-        mock_config.embedding.model = "text-embedding-3-large"
-        mock_config.embedding.api_key = "test-key"
-        mock_config.embedding.base_url = "https://api.openai.com/v1"
 
         mock_client = MagicMock()
         mock_collection = MagicMock()
@@ -315,6 +310,12 @@ class TestSetupVectorstoreAutoInit:
             (data_dir / "forza.json").write_text(_json.dumps(catalog), encoding="utf-8")
 
             graph = _make_graph_instance()
+            mock_app_config = MagicMock()
+            mock_app_config.vector_store.persist_directory = "./data/vector_store"
+            mock_app_config.embedding.model = "text-embedding-3-large"
+            mock_app_config.embedding.api_key = "test-key"
+            mock_app_config.embedding.base_url = "https://api.openai.com/v1"
+            graph._app_config = mock_app_config
             graph._get_base_path = MagicMock(return_value=Path(tmp_dir))
 
             result = graph._setup_vectorstore()
