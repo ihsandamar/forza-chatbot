@@ -53,6 +53,7 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
 
     routing_model: Annotated[
         Literal[
+            "",                           # Use global LLM (default)
             "anthropic:claude-haiku-4-5",
             "anthropic:claude-sonnet-4-5",
             "openai:gpt-5",
@@ -60,8 +61,8 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
         ],
         {"__template_metadata__": {"kind": "llm"}},
     ] = Field(
-        default="anthropic:claude-haiku-4-5",
-        description="Language model for routing sub-agent",
+        default="",
+        description="Language model for routing sub-agent (empty = use global LLM)",
         json_schema_extra={"langgraph_nodes": ["routing"]},
     )
 
@@ -76,6 +77,7 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
 
     chat_model: Annotated[
         Literal[
+            "",                           # Use global LLM (default)
             "anthropic:claude-haiku-4-5",
             "anthropic:claude-sonnet-4-5",
             "openai:gpt-5",
@@ -83,8 +85,8 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
         ],
         {"__template_metadata__": {"kind": "llm"}},
     ] = Field(
-        default="anthropic:claude-haiku-4-5",
-        description="Language model for chat sub-agent",
+        default="",
+        description="Language model for chat sub-agent (empty = use global LLM)",
         json_schema_extra={"langgraph_nodes": ["chat"]},
     )
 
@@ -135,6 +137,7 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
 
     report_model: Annotated[
         Literal[
+            "",                           # Use global LLM (default)
             "anthropic:claude-haiku-4-5",
             "anthropic:claude-sonnet-4-5",
             "openai:gpt-5",
@@ -142,8 +145,8 @@ class SupervisorAssistantConfiguration(BaseAssistantConfiguration):
         ],
         {"__template_metadata__": {"kind": "llm"}},
     ] = Field(
-        default="anthropic:claude-sonnet-4-5",
-        description="Language model for report sub-agent (SQL generation)",
+        default="",
+        description="Language model for report sub-agent (empty = use global LLM)",
         json_schema_extra={"langgraph_nodes": ["report"]},
     )
 
