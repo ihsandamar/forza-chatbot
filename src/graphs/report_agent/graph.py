@@ -16,6 +16,7 @@ from typing import Any, Dict
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from src.graphs.registry import register_graph
 from src.graphs.report_agent.configuration import ReportAgentConfiguration
 from src.graphs.report_agent.nodes import (
     build_response_node,
@@ -148,3 +149,58 @@ def build_report_agent_graph(
         compiled = graph.compile(checkpointer=checkpointer or MemorySaver())
     logger.info("[REPORT_AGENT] Built: 8 nodes, report_chat=VAGUE_QUERY loop")
     return compiled
+
+
+@register_graph(
+    name="report_agent",
+    description="ERP veri analizi, satış ve stok raporları, SQL sorguları, grafikler ve görselleştirmeler.",
+    examples=[
+        "geçen ayın satışları",
+        "en çok satan ürünler",
+        "şube bazlı ciro karşılaştırması",
+        "kategori bazlı stok durumu",
+        "günlük satış trendi grafiği",
+    ],
+    state_type="report",
+    returns_to_supervisor=False,
+)
+class ReportAgentGraph:
+    """Registry wrapper for report agent — build_report_agent_graph factory'sini kullanır."""
+
+    @classmethod
+    def create(cls, llm, app_config=None):
+        from pathlib import Path
+        from src.services.config_loader import ConfigLoader
+
+        if app_config is None:
+            app_config = ConfigLoader.load_config()
+
+        project_root = Path(__file__).parent.parent.parent.parent
+        business_rules_path = str(
+            project_root / "src" / "graphs" / "report_agent" / "data" / "business_rules.json"
+        )
+        chroma_persist_dir = str(project_root / "data" / "vector_store")
+
+        return cls(
+            llm=llm,
+            app_config=app_config,
+            business_rules_path=business_rules_path,
+            chroma_persist_dir=chroma_persist_dir,
+        )
+
+    def __init__(self, llm, app_config, business_rules_path, chroma_persist_dir):
+        self._llm = llm
+        self._app_config = app_config
+        self._business_rules_path = business_rules_path
+        self._chroma_persist_dir = chroma_persist_dir
+
+    def build_graph(self):
+        return build_report_agent_graph(
+            llm=self._llm.get_chat(),
+            table_name=getattr(self._app_config, "report_table_name", "MasterReportDocumentTable"),
+            column_metadata={},
+            connection_string=self._app_config.database.uri,
+            business_rules_path=self._business_rules_path,
+            chroma_persist_dir=self._chroma_persist_dir,
+            checkpointer=True,
+        )
