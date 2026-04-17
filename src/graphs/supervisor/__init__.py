@@ -6,7 +6,6 @@ and generates handoff/forward tools dynamically. Adding a new agent requires
 only registering it with @register_graph — no supervisor changes needed.
 """
 
-from src.graphs.supervisor.graph import create_supervisor_graph
 from src.graphs.supervisor.tools import get_current_time, get_supervisor_status
 from src.graphs.supervisor.utilities import create_handoff_tool, create_forward_tool
 
@@ -14,8 +13,6 @@ __all__ = [
     # Tools
     "get_current_time",
     "get_supervisor_status",
-    # Graph
-    "create_supervisor_graph",
     # Utilities
     "create_handoff_tool",
     "create_forward_tool",

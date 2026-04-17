@@ -166,8 +166,3 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         )
         logger.info("[SUPERVISOR] Supervisor graph derlendi ✓")
         return compiled
-
-
-def create_supervisor_graph(llm):
-    """Legacy function for backward compatibility."""
-    return SupervisorGraph(llm=llm).build_graph()
