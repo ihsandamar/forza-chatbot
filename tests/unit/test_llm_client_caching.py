@@ -43,3 +43,47 @@ class TestLLMClientCaching:
         c2 = llm2.get_chat()
 
         assert c1 is not c2, "Different LLM instances should have different clients"
+
+
+class TestLLMFromOverride:
+    """Tests for LLM.from_override() factory method."""
+
+    def test_parses_provider_colon_model_format(self):
+        """'provider:model' string should set both provider and model."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test", base_url="https://api.openai.com/v1")
+        result = LLM.from_override(base, "anthropic:claude-haiku-4-5")
+        assert result.provider == "anthropic"
+        assert result.model == "claude-haiku-4-5"
+
+    def test_plain_model_inherits_provider(self):
+        """Plain model name without ':' should inherit provider from base."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test")
+        result = LLM.from_override(base, "gpt-4.1-mini")
+        assert result.provider == "openai"
+        assert result.model == "gpt-4.1-mini"
+
+    def test_inherits_temperature_and_api_key(self):
+        """Temperature and api_key should always be inherited from base."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.7, api_key="sk-test")
+        result = LLM.from_override(base, "gpt-4.1-mini")
+        assert result.temperature == 0.7
+        assert result.api_key == "sk-test"
+
+    def test_same_provider_inherits_base_url(self):
+        """When provider stays the same, base_url should be inherited."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test", base_url="https://custom.openai.com/v1")
+        result = LLM.from_override(base, "gpt-4.1-mini")
+        assert result.base_url == "https://custom.openai.com/v1"
+
+    def test_different_provider_clears_base_url(self):
+        """When provider changes, base_url should be None (provider-specific)."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test", base_url="https://api.openai.com/v1")
+        result = LLM.from_override(base, "anthropic:claude-haiku-4-5")
+        assert result.base_url is None
+
+    def test_returns_new_instance(self):
+        """from_override() must return a new LLM, not mutate base."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test")
+        result = LLM.from_override(base, "gpt-4.1-mini")
+        assert result is not base
+        assert base.model == "gpt-4.1"  # base unchanged

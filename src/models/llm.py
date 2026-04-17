@@ -24,3 +24,28 @@ class LLM:
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
         return self._chat_instance
+
+    @classmethod
+    def from_override(cls, base: "LLM", model_string: str) -> "LLM":
+        """Create a new LLM inheriting base settings but overriding provider/model.
+
+        Args:
+            base: Base LLM — temperature, api_key, base_url inherited from here.
+            model_string: "provider:model" (e.g. "anthropic:claude-haiku-4-5")
+                          or plain "model" (e.g. "gpt-4.1-mini", provider from base).
+
+        Returns:
+            New LLM instance — base is not mutated.
+        """
+        if ":" in model_string:
+            provider, model = model_string.split(":", 1)
+        else:
+            provider, model = base.provider, model_string
+
+        return cls(
+            provider=provider,
+            model=model,
+            temperature=base.temperature,
+            api_key=base.api_key,
+            base_url=base.base_url if provider == base.provider else None,
+        )
