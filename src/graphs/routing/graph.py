@@ -28,24 +28,17 @@ from src.graphs.registry import register_graph
 from src.services.config_loader import ConfigLoader
 
 from .states import NavigationState
-from .nodes import (
-    extract_user_input_node,
-    extract_category_from_query,
-    find_documents_node,
-    select_most_relevant_document,
-    detect_page_parameters_node,
-    extract_page_parameters_node,
-    update_url_with_parameters_node,
-    format_navigation_output_node,
-    validate_tool_results_node,
-    find_alternative_pages_node,
-)
 
 logger = logging.getLogger(__name__)
-config = ConfigLoader.load_config("config/config.yaml")
 
 
-@register_graph("routing")
+@register_graph(
+    name="routing",
+    description="ERP uygulaması içinde sayfa navigasyonu — kullanıcı belirli bir sayfaya gitmek, bir ekranı açmak veya bir modüle geçmek istediğinde.",
+    examples=["Müşteri kartına git", "Stok hareketlerini aç", "Satış siparişleri ekranı", "Cari hesap listesi"],
+    state_type="messages",
+    returns_to_supervisor=True,
+)
 class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
     """
     Complete Forza navigation graph with parameter extraction and fallback logic.
@@ -68,14 +61,23 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
     - Proper integration with supervisor via tool messages
     """
 
-    def __init__(self, llm: LLM, config: Optional[RoutingAssistantConfiguration] = None):
+    @classmethod
+    def create(cls, llm: LLM, app_config=None) -> "RoutingGraph":
+        return cls(llm=llm, app_config=app_config)
+
+    def __init__(self, llm: LLM, config: Optional[RoutingAssistantConfiguration] = None, app_config=None):
         """
         Initialize RoutingGraph.
 
         Args:
             llm: Language model instance
             config: Optional RoutingAssistantConfiguration instance
+            app_config: Optional application configuration (loaded from config.yaml if not provided)
         """
+        # Store app_config before super().__init__ so _setup_vectorstore can use it
+        from src.services.config_loader import ConfigLoader
+        self._app_config = app_config if app_config is not None else ConfigLoader.load_config("config/config.yaml")
+
         super().__init__(
             llm=llm,
             state_class=NavigationState,
@@ -92,14 +94,11 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
         # Create node kit with config (will hold all node logic)
         # Import here to avoid circular imports
         from src.graphs.routing.nodes import RoutingNodeKit
-        from src.services.config_loader import ConfigLoader
-
-        global_config = ConfigLoader.load_config("config/config.yaml")
         self.node_kit = RoutingNodeKit(
             llm=self.llm,
             config=self.config,
             vectorstore=self.vectorstore,
-            global_config=global_config
+            global_config=self._app_config
         )
         logger.debug("[FORZA] RoutingNodeKit initialized")
 
@@ -237,7 +236,7 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
 
             # Get persist directory from config, resolved relative to project root
             base_path = self._get_base_path()
-            vectorstore_path = (base_path / config.vector_store.persist_directory).resolve()
+            vectorstore_path = (base_path / self._app_config.vector_store.persist_directory).resolve()
 
             logger.debug(f"[FORZA] Vectorstore path: {vectorstore_path}")
 
@@ -246,9 +245,9 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
 
             # Setup embeddings from config
             embeddings = OpenAIEmbeddings(
-                model=config.embedding.model,
-                openai_api_key=config.embedding.api_key,
-                base_url=config.embedding.base_url,
+                model=self._app_config.embedding.model,
+                openai_api_key=self._app_config.embedding.api_key,
+                base_url=self._app_config.embedding.base_url,
             )
 
             # Initialize Chroma client (single instance, reused for both load and create)
