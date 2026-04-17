@@ -32,6 +32,6 @@ def build_chat_service(config=None) -> ChatService:
         api_key=config.llm.api_key,
         base_url=getattr(config.llm, "base_url", None),
     )
-    graph = GraphRepository(llm).get(config.chatbot.graph_type)
+    graph = GraphRepository(llm, app_config=config).get(config.chatbot.graph_type)
     chatbot = Chatbot(llm=llm, graph=graph)
     return ChatService(chatbot=chatbot)
