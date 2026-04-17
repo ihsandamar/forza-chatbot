@@ -5,7 +5,7 @@ Single Responsibility:
 - Generic message processing
 - Graph orchestration
 - Adapter-based state transformation
-- Runtime configuration management
+- Runtime agent settings management (system_prompt, token per sub-agent)
 
 Interface-specific handling moved to interface adapters (GradioAdapter, etc).
 """
