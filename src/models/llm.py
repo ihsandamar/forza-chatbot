@@ -39,7 +39,15 @@ class LLM:
         """
         if ":" in model_string:
             provider, model = model_string.split(":", 1)
+            if not provider or not model:
+                raise ValueError(
+                    f"Invalid model_string {model_string!r}: expected 'provider:model' or plain 'model'"
+                )
         else:
+            if not model_string:
+                raise ValueError(
+                    "model_string must not be empty"
+                )
             provider, model = base.provider, model_string
 
         return cls(

@@ -83,7 +83,35 @@ class TestLLMFromOverride:
 
     def test_returns_new_instance(self):
         """from_override() must return a new LLM, not mutate base."""
-        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test")
-        result = LLM.from_override(base, "gpt-4.1-mini")
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test", base_url="https://api.openai.com/v1")
+        result = LLM.from_override(base, "anthropic:claude-haiku-4-5")
         assert result is not base
-        assert base.model == "gpt-4.1"  # base unchanged
+        assert base.model == "gpt-4.1"       # model not mutated
+        assert base.provider == "openai"     # provider not mutated
+        assert base.base_url == "https://api.openai.com/v1"  # base_url not mutated
+
+    def test_ollama_same_provider_inherits_base_url(self):
+        """Ollama→Ollama override must keep custom base_url."""
+        base = LLM(provider="ollama", model="llama3", temperature=0.0, base_url="http://gpu-box:11434")
+        result = LLM.from_override(base, "mistral")
+        assert result.base_url == "http://gpu-box:11434"
+
+    def test_ollama_to_openai_clears_base_url(self):
+        """Ollama→OpenAI override must clear base_url."""
+        base = LLM(provider="ollama", model="llama3", temperature=0.0, base_url="http://gpu-box:11434")
+        result = LLM.from_override(base, "openai:gpt-4o")
+        assert result.base_url is None
+
+    def test_raises_on_empty_model_string(self):
+        """Empty model_string should raise ValueError."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test")
+        with pytest.raises(ValueError, match="must not be empty"):
+            LLM.from_override(base, "")
+
+    def test_raises_on_malformed_colon_string(self):
+        """'provider:' or ':model' should raise ValueError."""
+        base = LLM(provider="openai", model="gpt-4.1", temperature=0.0, api_key="sk-test")
+        with pytest.raises(ValueError, match="Invalid model_string"):
+            LLM.from_override(base, "anthropic:")
+        with pytest.raises(ValueError, match="Invalid model_string"):
+            LLM.from_override(base, ":claude-haiku-4-5")
