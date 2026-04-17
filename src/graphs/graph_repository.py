@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import sys
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.graphs.registry import GRAPH_REGISTRY
-from src.models.llm import LLM
+
+if TYPE_CHECKING:
+    from src.models.llm import LLM
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +72,20 @@ class GraphRepository:
         PyInstaller build için explicit import listesi.
         Yeni agent eklendiğinde sadece buraya 1 satır import eklenir.
         """
-        try:
-            import src.graphs.chat.graph
-            import src.graphs.supervisor.graph
-            import src.graphs.routing.graph
-            import src.graphs.report_agent.graph
-            logger.info("Tüm graph'lar yüklendi (explicit mode)")
-        except ImportError as e:
-            logger.warning(f"Graph yüklenemedi: {e}")
+        import importlib
+        modules = [
+            "src.graphs.chat.graph",
+            "src.graphs.supervisor.graph",
+            "src.graphs.routing.graph",
+            "src.graphs.report_agent.graph",
+            # YENİ AGENT: "src.graphs.finance_agent.graph"
+        ]
+        loaded = []
+        for mod in modules:
+            try:
+                importlib.import_module(mod)
+                loaded.append(mod.split(".")[-2])  # e.g. "chat"
+            except ImportError as e:
+                logger.warning(f"Graph yüklenemedi: {mod} — {e}")
+        if loaded:
+            logger.info(f"Graph'lar yüklendi (explicit mode): {loaded}")
