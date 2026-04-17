@@ -75,7 +75,6 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
             app_config: Optional application configuration (loaded from config.yaml if not provided)
         """
         # Store app_config before super().__init__ so _setup_vectorstore can use it
-        from src.services.config_loader import ConfigLoader
         self._app_config = app_config if app_config is not None else ConfigLoader.load_config("config/config.yaml")
 
         super().__init__(
