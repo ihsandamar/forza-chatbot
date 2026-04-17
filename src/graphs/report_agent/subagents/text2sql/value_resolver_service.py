@@ -69,7 +69,7 @@ class ValueResolverService:
             List of column names that are string types (varchar, nvarchar, char, nchar, text)
         """
         try:
-            conn = pyodbc.connect(self.db_conn)
+            conn = pyodbc.connect(self.db_conn, timeout=30)
             cursor = conn.cursor()
 
             # Get table schema from INFORMATION_SCHEMA
@@ -105,7 +105,7 @@ class ValueResolverService:
             Dict with strategy config (strategy, max, ttl)
         """
         try:
-            conn = pyodbc.connect(self.db_conn)
+            conn = pyodbc.connect(self.db_conn, timeout=30)
             cursor = conn.cursor()
 
             # Count distinct values - Escape table name for SQL Server
@@ -225,7 +225,7 @@ class ValueResolverService:
     def _fetch_from_db(self, query: str, column: str) -> list:
         """Veritabanından veri çek (synchronous) with error handling"""
         try:
-            conn = pyodbc.connect(self.db_conn)
+            conn = pyodbc.connect(self.db_conn, timeout=30)
             cursor = conn.cursor()
             cursor.execute(query)
             rows = [row[0] for row in cursor.fetchall()]

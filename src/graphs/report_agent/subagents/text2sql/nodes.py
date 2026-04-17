@@ -1430,7 +1430,7 @@ def _execute_script_sync(connection_string: str, sql_script: str) -> None:
     GO ile ayrılmış batch'leri sırayla execute eder.
     """
     pyodbc_conn_str = _parse_connection_string(connection_string)
-    conn = pyodbc.connect(pyodbc_conn_str, autocommit=False)
+    conn = pyodbc.connect(pyodbc_conn_str, timeout=30, autocommit=False)
     cursor = conn.cursor()
     try:
         batches = [b.strip() for b in sql_script.split("GO") if b.strip()]
