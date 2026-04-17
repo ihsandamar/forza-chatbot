@@ -21,7 +21,13 @@ from .nodes import chat_node
 from .assistant_configuration import ChatAssistantConfiguration
 
 
-@register_graph("chat")
+@register_graph(
+    name="chat",
+    description="Genel sohbet, bilgi soruları, ERP dışı konular ve analitik olmayan kullanıcı etkileşimleri.",
+    examples=["merhaba", "nasılsın", "bana yardım et", "ne yapabilirsin"],
+    state_type="messages",
+    returns_to_supervisor=True,
+)
 class ChatGraph(BaseGraph[ChatAssistantConfiguration]):
     """
     Chat graph for conversational interactions.
