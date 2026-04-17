@@ -92,6 +92,38 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
             ],
         )
 
+    def _resolve_agent_llm(self, agent_name: str) -> LLM:
+        """Resolve which LLM to use for a given agent.
+
+        Priority order:
+        1. Studio override: app_config.<agent_name>_model (non-empty string)
+        2. YAML agents section: app_config.agents.<agent_name>.model
+        3. Global LLM (self.llm) — fallback
+
+        Args:
+            agent_name: Registry name of the agent (e.g. "routing", "report_agent").
+
+        Returns:
+            LLM instance — may be self.llm or a new instance with overridden model.
+        """
+        # 1. Studio override field (e.g. routing_model, chat_model, report_model)
+        studio_field = f"{agent_name}_model"
+        model_string = getattr(self.app_config, studio_field, None)
+        if model_string:  # non-empty string — never pass "" to from_override
+            return LLM.from_override(self.llm, model_string)
+
+        # 2. YAML agents.* section
+        agents_cfg = getattr(self.app_config, "agents", None)
+        if agents_cfg is not None:
+            agent_cfg = getattr(agents_cfg, agent_name, None)
+            if agent_cfg is not None:
+                model = getattr(agent_cfg, "model", None)
+                if model:
+                    return LLM.from_override(self.llm, model)
+
+        # 3. Fall back to global LLM
+        return self.llm
+
     def build_graph(self) -> StateGraph:
         """
         Build and return the compiled supervisor graph.
@@ -147,7 +179,8 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
 
         for name, desc in agents.items():
             try:
-                subgraph = desc.cls.create(llm=self.llm, app_config=self.app_config).build_graph()
+                agent_llm = self._resolve_agent_llm(name)
+                subgraph = desc.cls.create(llm=agent_llm, app_config=self.app_config).build_graph()
                 builder.add_node(name, subgraph)
                 if desc.returns_to_supervisor:
                     builder.add_edge(name, "supervisor")

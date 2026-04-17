@@ -16,7 +16,7 @@ agents:
     model: gpt-4.1-mini   # Lighter model for routing decisions
   chat:
     model: gpt-4.1-mini   # Lighter model for chat
-  report:
+  report_agent:
     model: gpt-4.1        # Full model for SQL generation
 
 database:
