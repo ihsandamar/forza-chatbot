@@ -106,11 +106,20 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         Returns:
             LLM instance — may be self.llm or a new instance with overridden model.
         """
+        if self.app_config is None:
+            return self.llm
+
         # 1. Studio override field (e.g. routing_model, chat_model, report_model)
         studio_field = f"{agent_name}_model"
         model_string = getattr(self.app_config, studio_field, None)
         if model_string:  # non-empty string — never pass "" to from_override
-            return LLM.from_override(self.llm, model_string)
+            try:
+                return LLM.from_override(self.llm, model_string)
+            except ValueError:
+                logger.warning(
+                    "[SUPERVISOR] Invalid model_string %r for agent %r (Studio field %r) — using global LLM",
+                    model_string, agent_name, studio_field,
+                )
 
         # 2. YAML agents.* section
         agents_cfg = getattr(self.app_config, "agents", None)
@@ -119,7 +128,13 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
             if agent_cfg is not None:
                 model = getattr(agent_cfg, "model", None)
                 if model:
-                    return LLM.from_override(self.llm, model)
+                    try:
+                        return LLM.from_override(self.llm, model)
+                    except ValueError:
+                        logger.warning(
+                            "[SUPERVISOR] Invalid model_string %r for agent %r (YAML agents.%s) — using global LLM",
+                            model, agent_name, agent_name,
+                        )
 
         # 3. Fall back to global LLM
         return self.llm

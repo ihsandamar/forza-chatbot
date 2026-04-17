@@ -71,3 +71,17 @@ class TestResolveAgentLLM:
         graph = _make_supervisor(app_config)
         result = graph._resolve_agent_llm("routing")
         assert result is graph.llm
+
+    def test_app_config_none_falls_back_to_global(self):
+        """app_config=None should immediately return self.llm."""
+        graph = _make_supervisor(None)
+        result = graph._resolve_agent_llm("routing")
+        assert result is graph.llm
+
+    def test_malformed_studio_model_string_falls_back_to_global(self):
+        """Malformed 'provider:' string should log warning and fall back to global LLM."""
+        app_config = MagicMock(spec=["routing_model"])
+        app_config.routing_model = "openai:"  # malformed — empty model after colon
+        graph = _make_supervisor(app_config)
+        result = graph._resolve_agent_llm("routing")
+        assert result is graph.llm  # fallback, not crash
