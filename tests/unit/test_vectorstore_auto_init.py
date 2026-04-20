@@ -185,7 +185,7 @@ class TestSetupVectorstoreAutoInit:
 
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
-    @patch("src.graphs.routing.graph.OpenAIEmbeddings")
+    @patch("src.factories.embedding_factory.OpenAIEmbeddings")
     def test_auto_creates_when_collection_missing(
         self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):
@@ -231,7 +231,7 @@ class TestSetupVectorstoreAutoInit:
 
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
-    @patch("src.graphs.routing.graph.OpenAIEmbeddings")
+    @patch("src.factories.embedding_factory.OpenAIEmbeddings")
     def test_existing_collection_no_auto_create(
         self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):
@@ -255,7 +255,7 @@ class TestSetupVectorstoreAutoInit:
 
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
-    @patch("src.graphs.routing.graph.OpenAIEmbeddings")
+    @patch("src.factories.embedding_factory.OpenAIEmbeddings")
     def test_returns_none_when_catalog_missing(
         self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):
@@ -282,7 +282,7 @@ class TestSetupVectorstoreAutoInit:
 
     @patch("src.graphs.routing.graph.Chroma")
     @patch("src.graphs.routing.graph.chromadb")
-    @patch("src.graphs.routing.graph.OpenAIEmbeddings")
+    @patch("src.factories.embedding_factory.OpenAIEmbeddings")
     def test_empty_collection_triggers_re_creation(
         self, mock_embeddings_cls, mock_chromadb, mock_chroma_cls
     ):

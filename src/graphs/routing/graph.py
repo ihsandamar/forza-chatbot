@@ -11,7 +11,6 @@ import sys
 
 from langgraph.graph import StateGraph, START, END
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
 import chromadb
 from chromadb.config import Settings
 
@@ -26,6 +25,7 @@ from src.graphs.base.graph_metadata import (
 )
 from src.graphs.registry import register_graph
 from src.services.config_loader import ConfigLoader
+from src.factories.embedding_factory import EmbeddingFactory
 
 from .states import NavigationState
 
@@ -243,9 +243,9 @@ class RoutingGraph(BaseGraph[RoutingAssistantConfiguration]):
             vectorstore_path.mkdir(parents=True, exist_ok=True)
 
             # Setup embeddings from config
-            embeddings = OpenAIEmbeddings(
+            embeddings = EmbeddingFactory.create_openai(
                 model=self._app_config.embedding.model,
-                openai_api_key=self._app_config.embedding.api_key,
+                api_key=self._app_config.embedding.api_key,
                 base_url=self._app_config.embedding.base_url,
             )
 

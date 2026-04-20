@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Optional
 
+from langchain_openai import OpenAIEmbeddings
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -54,8 +56,6 @@ class EmbeddingFactory:
         base_url: Optional[str] = None,
     ):
         """Return a LangChain OpenAIEmbeddings instance for the routing graph."""
-        from langchain_openai import OpenAIEmbeddings
-
         return OpenAIEmbeddings(
             model=model,
             openai_api_key=api_key,
