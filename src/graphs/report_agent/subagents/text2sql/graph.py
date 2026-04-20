@@ -21,8 +21,7 @@ from typing import Any, Dict
 
 from langgraph.graph import END, START, StateGraph
 
-from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
-from src.graphs.report_agent.subagents.text2sql.term_vector_store import TermVectorStore
+from src.graphs.report_agent.subagents.text2sql.stores import BusinessRulesStore, TermStore
 from src.graphs.report_agent.subagents.text2sql.nodes import (
     MAX_RETRY,
     create_business_rules_node,
@@ -64,7 +63,6 @@ def build_text2sql_graph(
     column_metadata: Dict[str, Any],
     connection_string: str,
     business_rules_path: str,
-    chroma_persist_dir: str,
 ):
     """
     Text2SQL subgraph'ı inşa et.
@@ -75,7 +73,6 @@ def build_text2sql_graph(
         column_metadata:     {kolon_adı: açıklama} — runtime config override edebilir
         connection_string:   pyodbc / mssql+pyodbc bağlantı string'i
         business_rules_path: business_rules.json dosya yolu
-        chroma_persist_dir:  ChromaDB persist klasörü
     """
     logger.info(f"[TEXT2SQL] Building subgraph v2.2 for table: {table_name}")
 
@@ -85,27 +82,18 @@ def build_text2sql_graph(
         table_name=table_name,
     )
 
-    vector_store = BusinessRulesVectorStore(
-        rules_file_path=business_rules_path,
-        persist_directory=chroma_persist_dir,
-    )
-    vector_store.initialize_collections()
+    _DATA_DIR = Path(__file__).parent.parent.parent / "data" / "vector"
 
-    # Collections boşsa index'i oluştur (ilk çalışma veya chroma_dir temizlendiyse)
-    if vector_store.rules_collection.count() == 0:
-        logger.info("[TEXT2SQL] ChromaDB collections empty, building index...")
-        vector_store.index_rules()
+    vector_store = BusinessRulesStore(rules_file_path=business_rules_path)
+    vector_store.initialize()
+    business_rules = create_business_rules_node(vector_store, llm=llm)
+
+    term_store = TermStore(dict_path=_DATA_DIR / "term_dictionary.json")
+    term_store.initialize()
+    term_resolver = create_term_resolver_node(term_store)
 
     # --- Node factories ---
     create_table        = create_create_table_node(connection_string, table_name)
-    business_rules      = create_business_rules_node(vector_store, llm=llm)
-    term_vector_store = TermVectorStore(
-        dict_path=Path(__file__).parent / "term_dictionary.json",
-        persist_directory=chroma_persist_dir,
-    )
-    term_vector_store.initialize()
-
-    term_resolver       = create_term_resolver_node(term_vector_store)
     term_validator      = create_term_validator_node(llm)
     sql_architect       = create_sql_architect_node(llm, column_metadata)
     schema_validator    = create_schema_validator_node(llm, column_metadata)
