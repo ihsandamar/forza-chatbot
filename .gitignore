@@ -244,4 +244,4 @@ Chinook.db
 
 # local langgraph_api files
 /.langgraph_api
-nul
+.worktrees/
