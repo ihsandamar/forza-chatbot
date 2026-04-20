@@ -48,22 +48,20 @@ def _create_minimal_rules_file(path: str):
 
 @pytest.fixture(scope="module")
 def vector_store():
-    """Create a BusinessRulesVectorStore with minimal test data."""
-    from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import (
-        BusinessRulesVectorStore,
+    """Create a BusinessRulesStore with minimal test data."""
+    from src.graphs.report_agent.subagents.text2sql.stores.business_rules_store import (
+        BusinessRulesStore,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         rules_path = os.path.join(tmpdir, "business_rules.json")
         _create_minimal_rules_file(rules_path)
 
-        store = BusinessRulesVectorStore(
+        store = BusinessRulesStore(
             rules_file_path=rules_path,
-            persist_directory=os.path.join(tmpdir, "chroma"),
             similarity_threshold=0.3,
         )
-        store.initialize_collections(force_recreate=True)
-        store.index_rules()
+        store.initialize(force_recreate=True)
         yield store
 
 
