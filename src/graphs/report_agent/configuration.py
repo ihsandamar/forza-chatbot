@@ -348,6 +348,6 @@ DROP TABLE #TempProductChoices
     )
 
     business_rules_path: str = Field(
-        default="./src/graphs/report_agent/data/business_rules.json",
+        default="./src/graphs/report_agent/data/vector/business_rules.json",
         description="Business rules JSON dosya yolu. LangGraph Studio'dan runtime'da override edilebilir.",
     )

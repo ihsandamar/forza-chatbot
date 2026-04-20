@@ -74,7 +74,6 @@ def build_report_agent_graph(
     column_metadata: Dict[str, Any],
     connection_string: str,
     business_rules_path: str,
-    chroma_persist_dir: str,
     checkpointer=None,
 ):
     # business_rules_path artık ReportAgentConfiguration.business_rules_path default'u ile
@@ -88,7 +87,6 @@ def build_report_agent_graph(
         column_metadata,
         connection_string,
         effective_business_rules_path,
-        chroma_persist_dir,
     )
     visualization = build_visualization_graph(llm)
 
@@ -177,22 +175,19 @@ class ReportAgentGraph:
 
         project_root = Path(__file__).parent.parent.parent.parent
         business_rules_path = str(
-            project_root / "src" / "graphs" / "report_agent" / "data" / "business_rules.json"
+            project_root / "src" / "graphs" / "report_agent" / "data" / "vector" / "business_rules.json"
         )
-        chroma_persist_dir = str(project_root / "data" / "vector_store")
 
         return cls(
             llm=llm,
             app_config=app_config,
             business_rules_path=business_rules_path,
-            chroma_persist_dir=chroma_persist_dir,
         )
 
-    def __init__(self, llm, app_config, business_rules_path, chroma_persist_dir):
+    def __init__(self, llm, app_config, business_rules_path):
         self._llm = llm
         self._app_config = app_config
         self._business_rules_path = business_rules_path
-        self._chroma_persist_dir = chroma_persist_dir
 
     def build_graph(self):
         # column_metadata defaults to ReportAgentConfiguration's default (ERP column descriptions).
@@ -209,6 +204,5 @@ class ReportAgentGraph:
             column_metadata=column_metadata,
             connection_string=self._app_config.database.uri,
             business_rules_path=self._business_rules_path,
-            chroma_persist_dir=self._chroma_persist_dir,
             checkpointer=True,
         )
