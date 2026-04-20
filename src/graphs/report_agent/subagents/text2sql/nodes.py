@@ -38,8 +38,7 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
 )
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
-from src.graphs.report_agent.subagents.text2sql.business_rules_vector_store import BusinessRulesVectorStore
-from src.graphs.report_agent.subagents.text2sql.term_vector_store import TermVectorStore
+from src.graphs.report_agent.subagents.text2sql.stores import BusinessRulesStore, TermStore
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +376,7 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 # NODE 3: TERM RESOLVER
 # =============================================================================
 
-def create_term_resolver_node(term_vector_store: TermVectorStore) -> Callable:
+def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
     """
     Semantic term resolution + optional interrupt():
     user_query → term_filters (Python-guaranteed WHERE filters)
@@ -931,7 +930,7 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
 # NODE 3: BUSINESS RULES
 # =============================================================================
 
-def create_business_rules_node(vector_store: BusinessRulesVectorStore, llm=None) -> Callable:
+def create_business_rules_node(vector_store: BusinessRulesStore, llm=None) -> Callable:
     """
     Pure Python + optional LLM: user_query → state.auto_rules (resolved rule dicts).
     ChromaDB semantic search. llm sağlanırsa non-default aday kurallar

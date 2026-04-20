@@ -22,7 +22,7 @@ def test_create_sentence_transformer_uses_default_model():
 
 def test_create_openai_passes_correct_args():
     mock_embeddings = MagicMock()
-    with patch("langchain_openai.OpenAIEmbeddings", return_value=mock_embeddings) as mock_cls:
+    with patch("src.factories.embedding_factory.OpenAIEmbeddings", return_value=mock_embeddings) as mock_cls:
         from src.factories.embedding_factory import EmbeddingFactory
         result = EmbeddingFactory.create_openai("text-embedding-3-large", "sk-test", "https://api.openai.com/v1")
     assert result is mock_embeddings
@@ -34,7 +34,7 @@ def test_create_openai_passes_correct_args():
 
 
 def test_create_openai_accepts_none_base_url():
-    with patch("langchain_openai.OpenAIEmbeddings") as mock_cls:
+    with patch("src.factories.embedding_factory.OpenAIEmbeddings") as mock_cls:
         from src.factories.embedding_factory import EmbeddingFactory
         EmbeddingFactory.create_openai("model", "key", None)
     mock_cls.assert_called_once_with(model="model", openai_api_key="key", base_url=None)
