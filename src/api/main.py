@@ -32,7 +32,7 @@ def build_fastapi_app(config) -> FastAPI:
         """
         # Preload embedding model to avoid HuggingFace timeouts on first request
         try:
-            from src.graphs.report_agent.business_rules_vector_store import preload_embedding_model
+            from src.factories.embedding_factory import preload_embedding_model
             print("[STARTUP] Preloading embedding model (first run may take 1-2 minutes)...")
             model_loaded = preload_embedding_model()
             if model_loaded:
