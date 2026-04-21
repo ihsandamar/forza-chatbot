@@ -39,9 +39,10 @@ class EmbeddingFactory:
         from chromadb.utils import embedding_functions
 
         try:
+            _was_already_set = "HF_HUB_OFFLINE" in os.environ
             os.environ.setdefault("HF_HUB_OFFLINE", "1")
             fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model)
-            if os.environ.get("HF_HUB_OFFLINE") == "1":
+            if not _was_already_set and os.environ.get("HF_HUB_OFFLINE") == "1":
                 del os.environ["HF_HUB_OFFLINE"]
             return fn
         except Exception as e:
