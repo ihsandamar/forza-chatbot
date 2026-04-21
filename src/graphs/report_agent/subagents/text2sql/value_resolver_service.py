@@ -70,6 +70,7 @@ class ValueResolverService:
         """
         try:
             conn = pyodbc.connect(self.db_conn, timeout=30)
+            conn.timeout = 30
             cursor = conn.cursor()
 
             # Get table schema from INFORMATION_SCHEMA
@@ -105,8 +106,10 @@ class ValueResolverService:
             Dict with strategy config (strategy, max, ttl)
         """
         try:
-            conn = pyodbc.connect(self.db_conn, timeout=30)
+            conn = pyodbc.connect(self.db_conn, timeout=10)
+            conn.timeout = 20
             cursor = conn.cursor()
+            cursor.execute("SET LOCK_TIMEOUT 3000")  # fail fast if table is locked (3s)
 
             # Count distinct values - Escape table name for SQL Server
             query = f"SELECT COUNT(DISTINCT {column}) FROM [{self.table_name}] WHERE {column} IS NOT NULL"
@@ -209,7 +212,7 @@ class ValueResolverService:
             WHERE {column} IS NOT NULL
         """
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         rows = await loop.run_in_executor(self.executor, self._fetch_from_db, query, column)
 
         values = {row for row in rows if row}
@@ -225,26 +228,22 @@ class ValueResolverService:
     def _fetch_from_db(self, query: str, column: str) -> list:
         """Veritabanından veri çek (synchronous) with error handling"""
         try:
-            conn = pyodbc.connect(self.db_conn, timeout=30)
+            conn = pyodbc.connect(self.db_conn, timeout=10)
+            conn.timeout = 20
             cursor = conn.cursor()
+            cursor.execute("SET LOCK_TIMEOUT 3000")  # fail fast if table is locked (3s)
             cursor.execute(query)
             rows = [row[0] for row in cursor.fetchall()]
             cursor.close()
             conn.close()
             return rows
         except pyodbc.OperationalError as e:
-            # Connection/network errors
             error_msg = str(e)
-            if '08001' in error_msg or 'timeout' in error_msg.lower() or 'connection' in error_msg.lower():
+            if 'HYT00' in error_msg or ('timeout' in error_msg.lower() and '08001' not in error_msg):
+                logger.warning(f"[VALUE_RESOLVER] Query timeout for column '{column}' — table may be large or still loading")
+            elif '08001' in error_msg or 'connection' in error_msg.lower():
                 logger.error(f"[DB CONNECTION ERROR] SQL Server baglantisi yapilamiyor ({column})")
-                logger.error(f"  Hata: Named Pipes/Network hatasi")
                 logger.error(f"  Connection string: {self.db_conn[:60]}...")
-                logger.error(f"  Cozum onerileri:")
-                logger.error(f"    1. SQL Server calistigindan emin olun")
-                logger.error(f"    2. config.yaml dosyasindaki connection string'i kontrol edin")
-                logger.error(f"    3. SQL Server remote connections kabul ediyor olsun")
-                logger.error(f"    4. Firewall ayarlarini kontrol edin (port 1433)")
-                logger.error(f"    5. Network connectivity test edin: ping/telnet server_ip 1433")
             else:
                 logger.error(f"DB operational error for {column}: {e}")
             return []
@@ -267,7 +266,10 @@ class ValueResolverService:
         # Eğer kolon henüz keşfedilmemişse, otomatik olarak strateji belirle
         if column not in self.column_config:
             logger.info(f"Column '{column}' not in config, auto-discovering strategy...")
-            self.column_config[column] = self._determine_cache_strategy(column)
+            loop = asyncio.get_running_loop()
+            self.column_config[column] = await loop.run_in_executor(
+                self.executor, self._determine_cache_strategy, column
+            )
 
             # Eğer full_cache stratejisi seçildiyse, hemen cache'e yükle
             if self.column_config[column]["strategy"] == "full_cache":
@@ -380,7 +382,7 @@ class ValueResolverService:
             WHERE {column} LIKE '%{search_term}%'
         """
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         rows = await loop.run_in_executor(self.executor, self._fetch_from_db, query, column)
 
         if not rows:

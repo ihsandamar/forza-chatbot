@@ -137,6 +137,13 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
     _table_init_started = True
     _table_init_table_name = table_name
     try:
+        pyodbc_conn_str = _parse_connection_string(connection_string)
+        if _check_table_exists_in_db(pyodbc_conn_str, table_name):
+            logger.info(f"[TABLE_INIT] '{table_name}' already exists in DB, skipping creation")
+            _table_init_error = None
+            _table_verified = True
+            _verified_table_name = table_name
+            return
         logger.info(f"[TABLE_INIT] Background table creation started for '{table_name}'")
         _execute_script_sync(connection_string, sql_script)
         _table_init_error = None
@@ -358,10 +365,11 @@ def _parse_connection_string(connection_string: str) -> str:
 async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str, Any]]:
     """SQL'i thread pool'da async çalıştır."""
     pyodbc_conn_str = _parse_connection_string(connection_string)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def _run():
         conn = get_pooled_connection(pyodbc_conn_str)
+        conn.timeout = 90  # reporting queries can be complex; fail if hung for 90s
         cursor = conn.cursor()
         cursor.execute(sql)
         columns = [col[0] for col in cursor.description]
@@ -943,7 +951,7 @@ def create_business_rules_node(vector_store: BusinessRulesStore, llm=None) -> Ca
     async def business_rules_node(state: dict) -> dict:
         user_query = state.get("user_query", "")
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             _db_executor,
             lambda: vector_store.get_relevant_rules_for_query(
@@ -1430,6 +1438,7 @@ def _execute_script_sync(connection_string: str, sql_script: str) -> None:
     """
     pyodbc_conn_str = _parse_connection_string(connection_string)
     conn = pyodbc.connect(pyodbc_conn_str, timeout=30, autocommit=False)
+    conn.timeout = 120  # query execution timeout (seconds)
     cursor = conn.cursor()
     try:
         batches = [b.strip() for b in sql_script.split("GO") if b.strip()]
@@ -1475,8 +1484,11 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
         # --- Wait for background init if still running ---
         if not _table_init_event.is_set():
             logger.info("[CREATE_TABLE] Waiting for background init to complete...")
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _table_init_event.wait, 180)
+            if not _table_init_event.is_set():
+                logger.warning("[CREATE_TABLE] Background init timed out after 180s, proceeding")
+                _table_init_event.set()
 
         # Background init may have set _table_verified — re-check before DB call
         if _table_verified and _verified_table_name == table_name:
@@ -1484,7 +1496,7 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
             return {}
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             pyodbc_conn_str = _parse_connection_string(connection_string)
 
             # --- DB existence check ---
