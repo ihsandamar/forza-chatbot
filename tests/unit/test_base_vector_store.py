@@ -39,3 +39,27 @@ def test_client_created_on_init():
 
         Impl(MagicMock())
         mock_chroma.EphemeralClient.assert_called_once()
+
+
+def test_business_rules_store_rebuilds_when_default_collection_empty():
+    """initialize() must call _build_index() when default_rules_collection is empty even if rules_collection is not."""
+    # Create instance without going through __init__ to avoid import issues
+    from src.graphs.report_agent.subagents.text2sql.stores.business_rules_store import BusinessRulesStore
+
+    store = BusinessRulesStore.__new__(BusinessRulesStore)
+    store._client = MagicMock()
+    store._embedding_fn = MagicMock()
+    store.rules_file_path = MagicMock()
+    store.rules_data = {"business_logic_rules": []}
+
+    mock_rules_col = MagicMock()
+    mock_rules_col.count.return_value = 5  # rules_collection has data
+    mock_default_col = MagicMock()
+    mock_default_col.count.return_value = 0  # default_rules_collection is EMPTY
+
+    store._client.get_or_create_collection.side_effect = [mock_rules_col, mock_default_col]
+    store._build_index = MagicMock()
+
+    store.initialize()
+
+    store._build_index.assert_called_once()

@@ -79,8 +79,8 @@ class BusinessRulesStore(BaseVectorStore):
             metadata={"description": "Default rules applied to all queries"},
         )
 
-        if self.rules_collection.count() == 0:
-            logger.info("[BUSINESS_RULES] Collections empty, building index...")
+        if self.rules_collection.count() == 0 or self.default_rules_collection.count() == 0:
+            logger.info("[BUSINESS_RULES] Collections empty or incomplete, building index...")
             self._build_index()
 
     def _build_index(self) -> None:
