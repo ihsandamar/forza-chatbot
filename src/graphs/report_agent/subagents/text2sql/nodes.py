@@ -102,6 +102,7 @@ _table_init_event = threading.Event()
 _table_init_error: Optional[str] = "not_started"
 _table_init_table_name: Optional[str] = None
 _table_init_started = False  # Guard: background init only runs once
+_table_init_lock = threading.Lock()  # Protects _table_init_started check-then-set
 _table_verified: bool = False  # True = table confirmed in DB; reset on process restart
 _verified_table_name: Optional[str] = None  # which table was verified
 
@@ -131,10 +132,11 @@ def init_master_table_background(connection_string: str, table_name: str, sql_sc
     Only runs once per process lifetime (guarded by _table_init_started).
     """
     global _table_init_error, _table_init_table_name, _table_init_started, _table_verified, _verified_table_name
-    if _table_init_started:
-        logger.info(f"[TABLE_INIT] Background init already started, skipping")
-        return
-    _table_init_started = True
+    with _table_init_lock:
+        if _table_init_started:
+            logger.info(f"[TABLE_INIT] Background init already started, skipping")
+            return
+        _table_init_started = True
     _table_init_table_name = table_name
     try:
         pyodbc_conn_str = _parse_connection_string(connection_string)
