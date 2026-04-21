@@ -63,3 +63,15 @@ def test_business_rules_store_rebuilds_when_default_collection_empty():
     store.initialize()
 
     store._build_index.assert_called_once()
+
+
+def test_business_rules_store_search_rules_raises_if_not_initialized():
+    """search_rules() must raise RuntimeError (not AttributeError) if called before initialize()."""
+    from src.graphs.report_agent.subagents.text2sql.stores.business_rules_store import BusinessRulesStore
+
+    store = BusinessRulesStore.__new__(BusinessRulesStore)
+    store.rules_collection = None
+    store.default_rules_collection = None
+
+    with pytest.raises(RuntimeError, match="initialize"):
+        store.search_rules("test query")

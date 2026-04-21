@@ -165,6 +165,11 @@ class BusinessRulesStore(BaseVectorStore):
         include_defaults: bool = True,
         table_filter: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
+        if self.rules_collection is None or self.default_rules_collection is None:
+            raise RuntimeError(
+                "BusinessRulesStore.initialize() must be called before search_rules()"
+            )
+
         results = []
 
         if include_defaults:
