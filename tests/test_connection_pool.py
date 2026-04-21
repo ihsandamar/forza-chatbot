@@ -1,5 +1,4 @@
 """Test connection pooling for SQL executor."""
-import pytest
 from unittest.mock import patch, MagicMock
 
 
@@ -132,7 +131,6 @@ def test_execute_sql_sets_timeout_on_cursor_not_connection():
         "cursor.timeout must be set AFTER cursor = conn.cursor()"
 
 
-@pytest.mark.skip(reason="OpenTelemetry dependency import issue in test environment - code fix verified manually")
 def test_init_master_table_runs_only_once_under_concurrent_calls():
     """init_master_table_background must execute table creation exactly once even with concurrent calls.
 
@@ -142,8 +140,8 @@ def test_init_master_table_runs_only_once_under_concurrent_calls():
     - Lock protects only the guard check and set, not the whole function
     - This prevents TOCTOU race where 2+ threads both read _table_init_started=False
 
-    This test is skipped due to OpenTelemetry import issues in the test environment,
-    but the fix code is in place and can be verified by code review.
+    chromadb/OpenTelemetry import issues are resolved by tests/conftest.py which
+    injects MagicMock stubs for chromadb and sub-packages before the nodes module loads.
     """
     import threading
     from unittest.mock import patch
