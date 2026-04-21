@@ -15,7 +15,12 @@ class LLM:
         if self._chat_instance is not None:
             return self._chat_instance
         if self.provider == "openai":
-            self._chat_instance = ChatOpenAI(model=self.model, temperature=self.temperature, api_key=self.api_key)
+            self._chat_instance = ChatOpenAI(
+                model=self.model,
+                temperature=self.temperature,
+                api_key=self.api_key,
+                base_url=self.base_url,
+            )
         elif self.provider == "anthropic":
             self._chat_instance = ChatAnthropic(model=self.model, temperature=self.temperature, api_key=self.api_key)
         elif self.provider == "ollama":

@@ -21,6 +21,7 @@ def _make_graph(name: str):
         model=config.llm.model,
         temperature=config.llm.temperature,
         api_key=config.llm.api_key,
+        base_url=getattr(config.llm, "base_url", None),
     )
     repo = GraphRepository(llm=llm, app_config=config)
     return repo.get(name)
