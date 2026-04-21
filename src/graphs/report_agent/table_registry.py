@@ -257,7 +257,7 @@ class TableRegistry:
                     finally:
                         conn.close()
 
-                loop = _asyncio.get_event_loop()
+                loop = _asyncio.get_running_loop()
                 await loop.run_in_executor(None, _drop_table_sync)
 
                 # Unregister from registry
