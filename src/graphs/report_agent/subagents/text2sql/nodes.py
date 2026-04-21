@@ -369,8 +369,8 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 
     def _run():
         conn = get_pooled_connection(pyodbc_conn_str)
-        conn.timeout = 90  # reporting queries can be complex; fail if hung for 90s
         cursor = conn.cursor()
+        cursor.timeout = 90  # reporting queries can be complex; fail if hung for 90s
         cursor.execute(sql)
         columns = [col[0] for col in cursor.description]
         rows = cursor.fetchall()
