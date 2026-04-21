@@ -83,52 +83,29 @@ def test_dead_connection_gets_replaced():
     _connection_pools.clear()
 
 
-def test_execute_sql_sets_timeout_on_cursor_not_connection():
-    """SQL executor must set timeout on cursor, not on shared pooled connection.
+def test_execute_sql_uses_conn_timeout_not_cursor_timeout():
+    """SQL executor must use conn.timeout (valid pyodbc API), not cursor.timeout (doesn't exist).
 
-    Verifies that the code does NOT set conn.timeout (which affects all threads
-    sharing the pooled connection) but DOES set cursor.timeout (which is thread-safe).
+    pyodbc.Cursor has no 'timeout' attribute — only pyodbc.Connection does.
+    All queries use the same 90s timeout so the shared-connection write is safe in practice.
     """
-    import inspect
-
-    # Read the source code of _execute_sql_async from the nodes.py file
     nodes_path = "src/graphs/report_agent/subagents/text2sql/nodes.py"
     with open(nodes_path, "r", encoding="utf-8") as f:
         source = f.read()
 
-    # Check that the function has cursor.timeout = 90 set
-    assert "cursor.timeout = 90" in source, \
-        "cursor.timeout = 90 must be set for thread-safe query timeouts"
-
-    # Check that conn.timeout is NOT set to 90 in _execute_sql_async (it was in old code)
-    # Extract the _execute_sql_async function
     start_idx = source.find("async def _execute_sql_async")
     assert start_idx != -1, "_execute_sql_async function not found"
-
-    # Find the end of the function (next async/def at same indent level)
     end_idx = source.find("\nasync def ", start_idx + 1)
     if end_idx == -1:
         end_idx = source.find("\ndef ", start_idx + 1)
     if end_idx == -1:
         end_idx = len(source)
-
     func_source = source[start_idx:end_idx]
 
-    # The old buggy code would have "conn.timeout = 90"
-    # After the fix, this should NOT be in the function
-    assert "conn.timeout = 90" not in func_source, \
-        "conn.timeout = 90 should NOT be set — pooled connections are shared across threads"
-
-    # Verify the correct sequence: get_pooled_connection → conn.cursor() → cursor.timeout
-    assert "get_pooled_connection(" in func_source
-    assert "cursor = conn.cursor()" in func_source
-    # Check that cursor.timeout comes after cursor = conn.cursor()
-    cursor_create_idx = func_source.find("cursor = conn.cursor()")
-    timeout_idx = func_source.find("cursor.timeout = 90")
-    assert cursor_create_idx != -1 and timeout_idx != -1, \
-        "cursor creation and timeout setting not found"
-    assert cursor_create_idx < timeout_idx, \
-        "cursor.timeout must be set AFTER cursor = conn.cursor()"
+    assert "conn.timeout = 90" in func_source, \
+        "conn.timeout = 90 must be present — it is the only valid pyodbc timeout API"
+    assert "cursor.timeout" not in func_source, \
+        "cursor.timeout does not exist in pyodbc and causes AttributeError at runtime"
 
 
 def test_init_master_table_runs_only_once_under_concurrent_calls():
