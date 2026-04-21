@@ -644,37 +644,3 @@ class ValueResolverService:
             List of semantic aliases
         """
         return self.column_reverse_map.get(db_column, [])
-
-
-# ============================================
-# KULLANIM ÖRNEĞİ
-# ============================================
-
-async def main():
-    # Servis oluştur
-    resolver = ValueResolverService("mssql+pyodbc://sa:Vega1234@DESKTOP-TIEAGO8/harbi?driver=ODBC+Driver+17+for+SQL+Server")
-    
-    # Başlangıçta cache'i doldur
-    await resolver.initialize()
-    
-    # Test
-    tests = [
-        ("dürüm", "CategoryName"),
-        ("durumler", "CategoryName"),
-        ("DÜRÜMLER", "CategoryName"),
-        ("TUNALI", "BranchName"),
-        ("tnali", "BranchName"),
-        ("ankara", "BranchCityName"),
-        ("klasik dürüm", "ProductName"),  # DB'den arayacak
-        ("tavuk döner", "ProductName"),   # DB'den arayacak
-    ]
-    
-    print("\n=== Test Sonuçları ===\n")
-    for user_input, column in tests:
-        result = await resolver.resolve(user_input, column)
-        if result:
-            print(f"'{user_input}' ({column})")
-            print(f"  → '{result['resolved']}' (güven: {result['confidence']}%)")
-        else:
-            print(f"'{user_input}' ({column}) → BULUNAMADI")
-        print()
