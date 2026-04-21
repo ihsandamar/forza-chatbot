@@ -251,7 +251,7 @@ class TableRegistry:
                 drop_sql = f"DROP TABLE IF EXISTS {table_name};"
 
                 def _drop_table_sync() -> None:
-                    conn = pyodbc.connect(db_connection_string, autocommit=True)
+                    conn = pyodbc.connect(db_connection_string, autocommit=True, timeout=30)
                     try:
                         conn.execute(drop_sql)
                     finally:

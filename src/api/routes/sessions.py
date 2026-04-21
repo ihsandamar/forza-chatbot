@@ -76,7 +76,7 @@ async def end_session(session_id: str) -> Dict[str, Any]:
             conn_str = db_connection_string
             if conn_str.startswith("mssql+pyodbc://"):
                 conn_str = conn_str.replace("mssql+pyodbc://", "")
-            conn = pyodbc.connect(conn_str, autocommit=True)
+            conn = pyodbc.connect(conn_str, autocommit=True, timeout=30)
             conn.execute(drop_sql)
             conn.close()
             logger.info(f"[SESSION_API] Dropped table {table_name}")
