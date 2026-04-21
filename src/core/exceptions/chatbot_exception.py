@@ -2,7 +2,7 @@
 Chatbot-specific exception module.
 
 This module defines all chatbot-related exceptions that inherit from ChatbotBaseException.
-ChatbotBaseException is the base class for all chatbot-specific errors and inherits from BaseException.
+ChatbotBaseException is the base class for all chatbot-specific errors and inherits from AppBaseException.
 
 These exceptions are used throughout the chatbot system for:
 - Configuration management
@@ -12,7 +12,7 @@ These exceptions are used throughout the chatbot system for:
 Each exception category handles specific failure scenarios within the chatbot domain.
 
 Exception Hierarchy:
-    BaseException
+    AppBaseException
     └── ChatbotBaseException (base for all chatbot errors)
         ├── ConfigurationException
         ├── MessageProcessingException
@@ -44,14 +44,14 @@ Usage:
 """
 
 from typing import Optional, Dict, Any
-from src.core.exceptions import BaseException
+from src.core.exceptions import AppBaseException
 
 
 # ============================================================================
 # Chatbot Base Exception
 # ============================================================================
 
-class ChatbotBaseException(BaseException):
+class ChatbotBaseException(AppBaseException):
     """
     Base exception for all chatbot-related errors.
 

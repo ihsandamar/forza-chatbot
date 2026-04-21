@@ -2,14 +2,14 @@
 Base exception module for the entire project.
 
 This module defines the base exception class used throughout the entire application.
-All custom exceptions across the project should inherit from BaseException to enable
+All custom exceptions across the project should inherit from AppBaseException to enable
 consistent error handling and standardized error response formatting.
 
 Usage:
     try:
         # some operation
         pass
-    except BaseException as e:
+    except AppBaseException as e:
         # handle any project-related error
         logger.error(f"Error: {e}")
         error_dict = e.to_dict()  # Convert to JSON
@@ -19,7 +19,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 
 
-class BaseException(Exception):
+class AppBaseException(Exception):
     """
     Base exception class for the entire project.
 
@@ -41,7 +41,7 @@ class BaseException(Exception):
         **kwargs
     ):
         """
-        Initialize BaseException.
+        Initialize AppBaseException.
 
         Args:
             message: Descriptive error message

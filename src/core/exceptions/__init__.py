@@ -5,14 +5,14 @@ This module exports all exception classes for easy importing.
 
 Usage:
     from src.core.exceptions import (
-        BaseException,
+        AppBaseException,
         ChatbotBaseException,
         ConfigurationException,
         MessageProcessingException,
     )
 """
 
-from src.core.exceptions.exceptions import BaseException, create_exception_context
+from src.core.exceptions.exceptions import AppBaseException, create_exception_context
 from src.core.exceptions.chatbot_exception import (
     ChatbotBaseException,
     # Configuration Exceptions
@@ -28,7 +28,7 @@ from src.core.exceptions.chatbot_exception import (
 
 __all__ = [
     # Base exceptions
-    "BaseException",
+    "AppBaseException",
     "create_exception_context",
     # Chatbot base exception
     "ChatbotBaseException",
