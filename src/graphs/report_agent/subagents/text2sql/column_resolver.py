@@ -112,6 +112,10 @@ class ColumnResolver:
             if result:
                 logger.debug(f"[COL_RESOLVER] '{raw_text}' unknown, hint '{column_hint}' → '{result}'")
                 return result
+            # Accept hint directly if it names a runtime DB column not in _ALIAS_TABLE
+            if column_hint in self._db_columns:
+                logger.debug(f"[COL_RESOLVER] '{raw_text}' unknown, hint '{column_hint}' accepted as runtime DB col")
+                return column_hint
 
         # 3. Fuzzy match on actual DB column names (last resort)
         if self._db_columns:

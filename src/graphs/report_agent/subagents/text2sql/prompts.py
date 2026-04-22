@@ -837,7 +837,7 @@ Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
 - order_direction: "DESC" varsayılan; "en az", "en düşük", "artan" ifadeleri → "ASC"
 
 ## column_hint
-- **filter_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden gerçek DB kolon adını seç. Uygun kolon bulamazsan, entity_type'ı dimension olarak işaretle.
+- **filter_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden gerçek DB kolon adını seç. Emin değilsen en yakın kolonu seç; Python fuzzy match ile çözecektir.
 - **dimension için ZORUNLU** — MEVCUT KOLON ADLARI listesinden seç.
 - **comparison_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden seç.
 
