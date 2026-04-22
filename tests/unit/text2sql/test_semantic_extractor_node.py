@@ -17,11 +17,10 @@ def test_semantic_extractor_node_writes_semantic_intent():
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(return_value=expected_intent)
 
-    node = create_semantic_extractor_node(mock_llm)
+    node = create_semantic_extractor_node(mock_llm, {})
     state = {
         "user_query": "dürümler ciro",
         "query_type": "SINGLE",
-        "column_metadata": {},
         "messages": [],
         "sql_error": None,
     }
@@ -116,6 +115,43 @@ def test_prompt_mandates_column_hint_for_dimension():
     assert dim_idx != -1
     dim_section = SEMANTIC_EXTRACTOR_PROMPT[dim_idx:dim_idx + 400]
     assert "ZORUNLU" in dim_section, "column_hint must be declared ZORUNLU for dimension entities"
+
+
+def test_semantic_extractor_node_uses_column_metadata_closure():
+    """
+    column_metadata is injected as a closure, not read from state.
+    The LLM prompt must contain the column names from the catalog,
+    so the LLM can produce correct column_hint for unknown terms like 'şube grubu'.
+    """
+    import asyncio
+    from unittest.mock import call as mock_call
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_semantic_extractor_node
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticIntent
+
+    col_meta = {
+        "BranchGroupName": "Şube grubu / grup adı",
+        "BranchName": "Şube adı",
+        "RowAmount": "Satış tutarı",
+    }
+
+    mock_llm = MagicMock()
+    captured_prompts = []
+
+    async def capture_invoke(prompt):
+        captured_prompts.append(prompt)
+        return SemanticIntent(raw_query="test")
+
+    mock_llm.with_structured_output.return_value.ainvoke = capture_invoke
+
+    node = create_semantic_extractor_node(mock_llm, col_meta)
+    state = {"user_query": "şube grubu ciro", "query_type": "SINGLE", "messages": [], "sql_error": None}
+    asyncio.get_event_loop().run_until_complete(node(state))
+
+    assert captured_prompts, "LLM was not invoked"
+    prompt_text = captured_prompts[0]
+    assert "BranchGroupName" in prompt_text, "column_metadata not in prompt — architecture gap still present"
+    assert "BranchName" in prompt_text
+    assert "Bilinmiyor" not in prompt_text
 
 
 def test_prompt_mandates_column_hint_for_comparison_value():

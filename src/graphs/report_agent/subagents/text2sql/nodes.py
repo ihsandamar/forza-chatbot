@@ -1340,22 +1340,23 @@ def create_sql_executor_node(connection_string: str) -> Callable:
 # NODE: SEMANTIC EXTRACTOR
 # =============================================================================
 
-def create_semantic_extractor_node(llm) -> Callable:
+def create_semantic_extractor_node(llm, column_metadata: dict) -> Callable:
     """
     LLM (STRUCTURED OUTPUT): user_query → SemanticIntent.
 
-    Reads:  state["user_query"], state["query_type"], state.get("column_metadata", {}),
-            state.get("messages", []), state.get("sql_error")
+    Reads:  state["user_query"], state["query_type"], state.get("messages", []),
+            state.get("sql_error")
+    Uses:   column_metadata closure — DB column catalog injected at graph-build time
     Writes: {"semantic_intent": SemanticIntent.model_dump()}
 
     No SQL knowledge required — pure "what did the user want?" extraction.
     """
     structured_llm = llm.with_structured_output(SemanticIntent)
+    col_meta = column_metadata or {}
 
     async def semantic_extractor_node(state: dict) -> dict:
         user_query   = state.get("user_query", "")
         query_type   = state.get("query_type", "SINGLE")
-        col_meta     = state.get("column_metadata") or {}
         messages     = state.get("messages") or []
         sql_error    = state.get("sql_error") or "Yok"
 

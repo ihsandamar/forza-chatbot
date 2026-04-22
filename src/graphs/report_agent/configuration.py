@@ -328,8 +328,10 @@ DROP TABLE #TempProductChoices
 
     # Lokasyon
     "BranchName": "Şube adı",
+    "BranchGroupName": "Şube grubu / grup adı",
     "BranchCityName": "Şehir",
     "BranchTownName": "İlçe",
+    "BusinessName": "İşletme adı",
 
     # Satış Tipi
     "DocumentTypeName": "İşlem tipi (Stok Çıkış, Fatura, vb.)",
