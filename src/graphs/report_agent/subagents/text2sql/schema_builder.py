@@ -35,7 +35,7 @@ _METRIC_ALIAS: Dict[str, str] = {
 
 
 def _agg_alias(function: str, column: str) -> str:
-    if column in _METRIC_ALIAS:
+    if function == "SUM" and column in _METRIC_ALIAS:
         return _METRIC_ALIAS[column]
     return f"{function}_{column}"
 

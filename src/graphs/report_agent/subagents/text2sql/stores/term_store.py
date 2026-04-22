@@ -209,16 +209,8 @@ class TermStore(BaseVectorStore):
         candidates = self._semantic_search(user_query)
         return self._apply_conflict_resolution(candidates, user_query)
 
-    def resolve_terms(self, raw_texts: List[str]) -> Dict[str, Optional[TermResolverOutput]]:
-        """
-        Batch wrapper over resolve().
-
-        Takes a list of raw text strings (entity/metric raw_text values) and
-        resolves each one individually.
-
-        Returns a dict mapping raw_text → TermResolverOutput (or None if the
-        text could not be resolved — i.e. resolve() returns None).
-        """
+    def resolve_terms(self, raw_texts: List[str]) -> Dict[str, TermResolverOutput]:
+        """Batch wrapper over resolve(). Returns raw_text → TermResolverOutput for each input."""
         return {text: self.resolve(text) for text in raw_texts}
 
     # ------------------------------------------------------------------

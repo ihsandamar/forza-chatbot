@@ -578,10 +578,8 @@ class ValueResolverService:
     def resolve_column_name(self, semantic_name: str) -> Optional[str]:
         """Delegate to ColumnResolver — single source of truth for column normalization."""
         from src.graphs.report_agent.subagents.text2sql.column_resolver import ColumnResolver
-        if not hasattr(self, "_column_resolver"):
-            db_cols = list(self.column_config.keys()) if self.column_config else []
-            self._column_resolver = ColumnResolver(db_columns=db_cols)
-        return self._column_resolver.resolve(semantic_name)
+        db_cols = list(self.column_config.keys()) if self.column_config else []
+        return ColumnResolver(db_columns=db_cols).resolve(semantic_name)
 
     def get_column_aliases(self, db_column: str) -> List[str]:
         """
