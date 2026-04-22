@@ -408,6 +408,12 @@ def create_term_resolver_node(
 
     Conflict resolution (legacy path): unambiguous high-specificity terms suppress
     ambiguous interrupts for the same column (e.g., 'ciro' suppresses 'ne kadar sattı').
+
+    Args:
+        term_vector_store: ChromaDB-backed term resolution store.
+        value_resolver:    Optional ValueResolverService. When provided and an entity
+                           has no ChromaDB match, resolves entity.column_hint to a real
+                           DB column name and injects a synthetic TermMatch.
     """
 
     def _resolver_output_to_term_match_dict(output) -> Optional[dict]:
@@ -471,6 +477,7 @@ def create_term_resolver_node(
             # When ChromaDB has no match but entity has column_hint,
             # normalize hint to real DB column via ValueResolverService.
             if value_resolver is not None:
+                # Applies to all entity types — filter_value, dimension, comparison_value
                 for entity in intent.entities:
                     if entity.raw_text not in term_resolution and entity.column_hint:
                         resolved_col = value_resolver.resolve_column_name(entity.column_hint)
