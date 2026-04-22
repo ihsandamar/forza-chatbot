@@ -20,6 +20,10 @@ class SemanticMetric(BaseModel):
 class SemanticTime(BaseModel):
     raw_text: str
     breakdown: bool  # True = GROUP BY kırılımı, False = WHERE filtresi
+    granularity: Optional[Literal[
+        "monthly", "weekly", "daily", "yearly", "hourly",
+        "hour_of_day", "day_of_week", "day_of_month",
+    ]] = None
 
 
 class SemanticIntent(BaseModel):

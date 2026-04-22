@@ -69,3 +69,27 @@ def test_prompt_contains_category_example_with_column_hint():
     from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
     assert "CategoryName" in SEMANTIC_EXTRACTOR_PROMPT
     assert "espresso" in SEMANTIC_EXTRACTOR_PROMPT and "dürümler" in SEMANTIC_EXTRACTOR_PROMPT
+
+
+def test_semantic_time_accepts_granularity_field():
+    """SemanticTime granularity alanını kabul etmeli."""
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticTime
+    st = SemanticTime(raw_text="son 1 senede", breakdown=True, granularity="monthly")
+    assert st.granularity == "monthly"
+
+
+def test_semantic_time_granularity_defaults_to_none():
+    """granularity verilmezse None olmalı (backward compat)."""
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticTime
+    st = SemanticTime(raw_text="son 3 ay", breakdown=False)
+    assert st.granularity is None
+
+
+def test_prompt_contains_granularity_rule():
+    """SEMANTIC_EXTRACTOR_PROMPT, 'aylık' → 'monthly' kuralını içermeli."""
+    from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
+    prompt_lower = SEMANTIC_EXTRACTOR_PROMPT.lower()
+    assert "granularity" in prompt_lower
+    assert "monthly" in prompt_lower
+    assert "weekly" in prompt_lower
+    assert "aylık" in prompt_lower

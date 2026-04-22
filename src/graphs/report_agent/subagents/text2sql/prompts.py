@@ -802,6 +802,21 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
 - **True** — Zaman KIRILIMı isteniyor: "aylık", "haftalık", "günlük", "yıllık" kırılım
 - **False** — Sadece zaman FİLTRESİ: "son 3 ay", "bu yıl", "2024", "ocak 2024"
 
+## time.granularity KURALI (breakdown=True ise doldur, aksi halde null)
+- "aylık", "her ay", "ay bazında", "aylık olarak"    → granularity: "monthly"
+- "haftalık", "her hafta", "hafta bazında"            → granularity: "weekly"
+- "günlük", "her gün", "gün bazında"                  → granularity: "daily"
+- "yıllık", "her yıl", "yıl bazında"                  → granularity: "yearly"
+- "saatlik", "saat bazında"                           → granularity: "hourly"
+- "haftanın günlerine göre"                           → granularity: "day_of_week"
+- "ayın günlerine göre"                               → granularity: "day_of_month"
+- Açık granülarite kelimesi yoksa                     → granularity: null
+
+**Örnekler:**
+  "son 1 yılda aylık karşılaştır" → time: {{raw_text: "son 1 yılda", breakdown: true, granularity: "monthly"}}
+  "son 3 ayda haftalık trend"     → time: {{raw_text: "son 3 ayda", breakdown: true, granularity: "weekly"}}
+  "son 6 ayda satışlar"           → time: {{raw_text: "son 6 ayda", breakdown: false, granularity: null}}
+
 ## limit ve order_direction
 - limit: Sayı varsa ("top 10", "en çok satan 5 ürün") → o sayı, yoksa null
 - order_direction: "DESC" varsayılan; "en az", "en düşük", "artan" ifadeleri → "ASC"
