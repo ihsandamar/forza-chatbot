@@ -195,3 +195,22 @@ def test_unresolved_comparison_value_without_column_hint_is_skipped():
     schema = build_query_schema(intent, {"ciro": _make_tm("RowAmount")}, "COMPARISON", False)
     assert schema.comparison_dimension is None
     assert not any(f.operator == "IN" for f in schema.filters)
+
+
+def test_unresolved_metric_without_term_match_is_skipped():
+    """
+    'satış' not in term_resolution → no aggregation should be generated
+    (metric.raw_text must never be used as a DB column name).
+    """
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        metrics=[SemanticMetric(raw_text="satış", aggregation_hint="SUM")],
+        raw_query="satış",
+    )
+    schema = build_query_schema(intent, {}, "SINGLE", False)
+    agg_columns = [a.column for a in schema.aggregations]
+    assert "satış" not in agg_columns, "metric.raw_text should NEVER be used as a DB column name"
+    assert len(schema.aggregations) == 0

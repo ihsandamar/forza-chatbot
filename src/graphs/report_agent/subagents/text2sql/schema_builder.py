@@ -81,7 +81,12 @@ def build_query_schema(
     # ------------------------------------------------------------------
     for metric in intent.metrics:
         tm = term_resolution.get(metric.raw_text)
-        col = tm.column_name if tm else metric.raw_text
+        col = tm.column_name if tm else None
+        if col is None:
+            logger.warning(
+                f"[SCHEMA_BUILDER] No column resolved for metric '{metric.raw_text}', skipping"
+            )
+            continue
         agg = SchemaAggregation(
             function=metric.aggregation_hint,
             column=col,
