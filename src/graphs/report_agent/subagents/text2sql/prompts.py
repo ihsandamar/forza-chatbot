@@ -742,3 +742,69 @@ BUSINESS_RULES_VALIDATOR_PROMPT = """Kullanıcı sorgusunu analiz et. Aşağıda
 applicable_rule_ids'e sadece gerçekten geçerli olan kural ID'lerini yaz.
 Emin olmadığında → listeye EKLEME (eksik kural, çelişen kuraldan iyidir).
 """
+
+
+# =============================================================================
+# SEMANTIC EXTRACTOR PROMPT — SemanticIntent structured output (~70 lines)
+# LLM KATMANI: SQL bilgisi YOK, DB verisi YOK. Sadece "ne istendi?" sorusu.
+# =============================================================================
+
+SEMANTIC_EXTRACTOR_PROMPT = """Sen bir semantik analiz uzmanısın. Kullanıcı sorgusunu analiz et ve yapılandırılmış semantik çıkarım üret.
+
+SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusunu yanıtla.
+
+## KULLANICI SORUSU
+{user_query}
+
+## SORGU TİPİ (intent_resolver tarafından belirlendi)
+{query_type}
+
+## MEVCUT KOLON ADLARI (column_hint için referans — değerler değil)
+{column_names}
+
+## KONUŞMA BAĞLAMI
+{conversation_context}
+
+## ÖNCEKİ SQL HATASI (varsa — farklı çıkarım dene)
+{sql_error}
+
+---
+
+## entity_type KURALLARI
+
+**"filter_value"**: Sorguda filtre değeri olan spesifik kavram.
+  - "dürümler kategorisi" → entity("dürümler", filter_value)
+  - "Ankara şubesi" → entity("Ankara", filter_value, column_hint="BranchName")
+  - "son 1 yılda" — entity DEĞİL, time alanına yaz
+
+**"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir.
+  - "ürünlere göre" → entity("ürün", dimension)
+  - "kategoriler bazında" → entity("kategori", dimension)
+
+**"comparison_value"**: COMPARISON sorgusunda karşılaştırılan iki veya daha fazla spesifik değer.
+  - "dürümler ve içecek karşılaştır" → entity("dürümler", comparison_value) + entity("içecek", comparison_value)
+  - Her iki değer AYRI entity olarak yazılır
+
+## aggregation_hint KURALLARI
+- "ciro", "tutar", "gelir", "satış tutarı" → SUM
+- "adet", "miktar", "kaç tane", "sayısı" → COUNT
+- "ortalama", "ort." → AVG
+- "en yüksek", "maksimum", "max" → MAX
+- "en düşük", "minimum", "min" → MIN
+
+## time.breakdown KURALI
+- **True** — Zaman KIRILIMı isteniyor: "aylık", "haftalık", "günlük", "yıllık" kırılım
+- **False** — Sadece zaman FİLTRESİ: "son 3 ay", "bu yıl", "2024", "ocak 2024"
+
+## limit ve order_direction
+- limit: Sayı varsa ("top 10", "en çok satan 5 ürün") → o sayı, yoksa null
+- order_direction: "DESC" varsayılan; "en az", "en düşük", "artan" ifadeleri → "ASC"
+
+## column_hint
+Sadece güçlü ipucun varsa gerçek DB kolon adını yaz. Emin değilsen None bırak.
+
+## ÖNEMLİ KISITLAMALAR
+- SQL ifadeleri YAZMA (WHERE, GROUP BY, SELECT, HAVING vb.)
+- raw_query: Orijinal sorguyu AYNEN kopyala
+- Aynı kavramı hem filter_value hem dimension olarak ekleme
+"""
