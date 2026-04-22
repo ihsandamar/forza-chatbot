@@ -52,7 +52,10 @@ async def send_message(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
+        err = str(e)
+        if "429" in err or "quota" in err.lower() or "RateLimitError" in type(e).__name__:
+            raise HTTPException(status_code=429, detail="LLM API kotası aşıldı. Lütfen API anahtarınızı veya planınızı kontrol edin.")
+        raise HTTPException(status_code=500, detail=f"Failed to send message: {err}")
 
 
 @router.get("/session/{session_id}/history", response_model=SessionHistoryResponse)
