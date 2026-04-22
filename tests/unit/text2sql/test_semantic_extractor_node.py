@@ -55,3 +55,16 @@ def test_schema_builder_node_writes_query_schema():
     result = asyncio.get_event_loop().run_until_complete(node(state))
     assert "query_schema" in result
     assert result["query_schema"] is not None
+
+
+def test_prompt_contains_filter_value_raw_text_rule():
+    """SEMANTIC_EXTRACTOR_PROMPT filter_value için saf değer (ek-siz) ve zorunlu column_hint kuralını içermeli."""
+    from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
+    assert "filter_value için ZORUNLU" in SEMANTIC_EXTRACTOR_PROMPT
+
+
+def test_prompt_contains_category_example_with_column_hint():
+    """SEMANTIC_EXTRACTOR_PROMPT espresso + CategoryName örneği içermeli."""
+    from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
+    assert "CategoryName" in SEMANTIC_EXTRACTOR_PROMPT
+    assert "espresso" in SEMANTIC_EXTRACTOR_PROMPT

@@ -773,16 +773,22 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
 ## entity_type KURALLARI
 
 **"filter_value"**: Sorguda filtre değeri olan spesifik kavram.
-  - "dürümler kategorisi" → entity("dürümler", filter_value)
-  - "Ankara şubesi" → entity("Ankara", filter_value, column_hint="BranchName")
-  - "son 1 yılda" — entity DEĞİL, time alanına yaz
+  KURAL 1 — raw_text = SAF DEĞER (Türkçe gramer ekleri dahil değil):
+    "espresso kategorisi" → raw_text="espresso"     (NOT "espresso kategorisi")
+    "Ankara şubesi"       → raw_text="Ankara"        (NOT "Ankara şubesi")
+    "dürümler kategorisi" → raw_text="dürümler"      (NOT "dürümler kategorisi")
+  KURAL 2 — column_hint = filter_value için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
+    "espresso kategorisi" → entity("espresso",  filter_value, column_hint="CategoryName")
+    "Ankara şubesi"       → entity("Ankara",    filter_value, column_hint="BranchName")
+    "dürümler kategorisi" → entity("dürümler",  filter_value, column_hint="CategoryName")
+    "son 1 yılda"         → entity DEĞİL, time alanına yaz
 
 **"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir.
-  - "ürünlere göre" → entity("ürün", dimension)
-  - "kategoriler bazında" → entity("kategori", dimension)
+  - "ürünlere göre"       → entity("ürün",      dimension, column_hint="ProductName")
+  - "kategoriler bazında" → entity("kategori",  dimension, column_hint="CategoryName")
 
 **"comparison_value"**: COMPARISON sorgusunda karşılaştırılan iki veya daha fazla spesifik değer.
-  - "dürümler ve içecek karşılaştır" → entity("dürümler", comparison_value) + entity("içecek", comparison_value)
+  - "dürümler ve içecek karşılaştır" → entity("dürümler", comparison_value, column_hint="CategoryName") + entity("içecek", comparison_value, column_hint="CategoryName")
   - Her iki değer AYRI entity olarak yazılır
 
 ## aggregation_hint KURALLARI
@@ -801,7 +807,9 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
 - order_direction: "DESC" varsayılan; "en az", "en düşük", "artan" ifadeleri → "ASC"
 
 ## column_hint
-Sadece güçlü ipucun varsa gerçek DB kolon adını yaz. Emin değilsen None bırak.
+- **filter_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden gerçek DB kolon adını seç.
+- **dimension ve comparison_value için yaz** — biliyorsan mutlaka ekle.
+- Emin değilsen MEVCUT KOLON ADLARI listesine bak; uygun kolon yoksa None bırak.
 
 ## ÖNEMLİ KISITLAMALAR
 - SQL ifadeleri YAZMA (WHERE, GROUP BY, SELECT, HAVING vb.)
