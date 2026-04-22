@@ -231,3 +231,116 @@ def test_metrics_raw_text_included_in_resolve_call():
     call_args = mock_store.resolve_terms.call_args[0][0]
     assert "toplam satış" in call_args
     assert "ortalama sipariş" in call_args
+
+
+# ---------------------------------------------------------------------------
+# Test: column_hint normalization via value_resolver
+# ---------------------------------------------------------------------------
+
+def test_column_hint_normalized_when_no_term_match():
+    """
+    Eğer ChromaDB bir raw_text için eşleşme bulamazsa ama entity'nin column_hint'i varsa,
+    value_resolver.resolve_column_name(column_hint) çağrılmalı ve sonuç term_resolution'a eklenmeli.
+    """
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_term_resolver_node
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticEntity, SemanticIntent
+    from src.graphs.report_agent.subagents.text2sql.stores.term_store import TermResolverOutput
+
+    # ChromaDB eşleşme bulamıyor
+    mock_store = _make_store({"kahve": TermResolverOutput(
+        term_filters=[], candidate_filter_terms=[], hints_text="", ambiguous=[],
+    )})
+    mock_vr = MagicMock()
+    mock_vr.resolve_column_name.return_value = "CategoryName"
+
+    intent = SemanticIntent(
+        entities=[SemanticEntity(raw_text="kahve", entity_type="filter_value", column_hint="Kategori")],
+        metrics=[],
+        raw_query="kahve kategorisi",
+    )
+    node = create_term_resolver_node(mock_store, mock_vr)
+    result = _run(node({"semantic_intent": intent.model_dump(), "messages": []}))
+
+    # resolve_column_name çağrılmalı
+    mock_vr.resolve_column_name.assert_called_once_with("Kategori")
+    # Sentetik TermMatch eklenmiş olmalı
+    assert "kahve" in result["term_resolution"]
+    assert result["term_resolution"]["kahve"]["column_name"] == "CategoryName"
+
+
+def test_column_hint_not_called_when_term_already_resolved():
+    """
+    ChromaDB zaten eşleşme bulduysa, value_resolver.resolve_column_name çağrılmamalı.
+    """
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_term_resolver_node
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticEntity, SemanticIntent
+    from src.graphs.report_agent.subagents.text2sql.stores.term_store import TermResolverOutput
+
+    cft = {
+        "term_id": "t1", "term": "dürüm", "column": "ProductName",
+        "filter_structured": {"column": "ProductName", "operator": "=", "value": "Dürüm"},
+        "hint": "",
+    }
+    output = TermResolverOutput(
+        term_filters=[], candidate_filter_terms=[cft], hints_text="", ambiguous=[],
+    )
+    mock_store = _make_store({"dürüm": output})
+    mock_vr = MagicMock()
+
+    intent = SemanticIntent(
+        entities=[SemanticEntity(raw_text="dürüm", entity_type="filter_value", column_hint="ProductName")],
+        metrics=[],
+        raw_query="dürüm",
+    )
+    node = create_term_resolver_node(mock_store, mock_vr)
+    _run(node({"semantic_intent": intent.model_dump(), "messages": []}))
+
+    mock_vr.resolve_column_name.assert_not_called()
+
+
+def test_column_hint_skipped_when_resolve_column_name_returns_none():
+    """
+    resolve_column_name None dönerse, raw_text term_resolution'a eklenmemeli.
+    """
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_term_resolver_node
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticEntity, SemanticIntent
+    from src.graphs.report_agent.subagents.text2sql.stores.term_store import TermResolverOutput
+
+    mock_store = _make_store({"bilinmeyen": TermResolverOutput(
+        term_filters=[], candidate_filter_terms=[], hints_text="", ambiguous=[],
+    )})
+    mock_vr = MagicMock()
+    mock_vr.resolve_column_name.return_value = None  # çözülemedi
+
+    intent = SemanticIntent(
+        entities=[SemanticEntity(raw_text="bilinmeyen", entity_type="filter_value", column_hint="BilinmeyenKolon")],
+        metrics=[],
+        raw_query="bilinmeyen",
+    )
+    node = create_term_resolver_node(mock_store, mock_vr)
+    result = _run(node({"semantic_intent": intent.model_dump(), "messages": []}))
+
+    assert "bilinmeyen" not in result["term_resolution"]
+
+
+def test_term_resolver_node_works_without_value_resolver():
+    """
+    value_resolver=None ile çağrıldığında node yine de çalışmalı (backward compat).
+    """
+    from src.graphs.report_agent.subagents.text2sql.nodes import create_term_resolver_node
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticEntity, SemanticIntent
+    from src.graphs.report_agent.subagents.text2sql.stores.term_store import TermResolverOutput
+
+    mock_store = _make_store({"espresso": TermResolverOutput(
+        term_filters=[], candidate_filter_terms=[], hints_text="", ambiguous=[],
+    )})
+    intent = SemanticIntent(
+        entities=[SemanticEntity(raw_text="espresso", entity_type="filter_value", column_hint="CategoryName")],
+        metrics=[],
+        raw_query="espresso",
+    )
+    node = create_term_resolver_node(mock_store, None)
+    result = _run(node({"semantic_intent": intent.model_dump(), "messages": []}))
+
+    # Hata vermemeli, term_resolution boş olabilir
+    assert "term_resolution" in result

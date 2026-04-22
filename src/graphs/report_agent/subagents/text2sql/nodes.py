@@ -390,7 +390,10 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 # NODE 3: TERM RESOLVER
 # =============================================================================
 
-def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
+def create_term_resolver_node(
+    term_vector_store: TermStore,
+    value_resolver: Optional[ValueResolverService] = None,
+) -> Callable:
     """
     Semantic term resolution + optional interrupt():
 
@@ -463,6 +466,25 @@ def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
                 match_dict = _resolver_output_to_term_match_dict(output)
                 if match_dict is not None:
                     term_resolution[raw_text] = match_dict
+
+            # Column-hint normalization for unresolved entities
+            # When ChromaDB has no match but entity has column_hint,
+            # normalize hint to real DB column via ValueResolverService.
+            if value_resolver is not None:
+                for entity in intent.entities:
+                    if entity.raw_text not in term_resolution and entity.column_hint:
+                        resolved_col = value_resolver.resolve_column_name(entity.column_hint)
+                        if resolved_col:
+                            term_resolution[entity.raw_text] = {
+                                "column_name": resolved_col,
+                                "filter_structured": None,
+                                "specificity": 0.5,
+                                "similarity": 0.0,
+                            }
+                            logger.info(
+                                f"[TERM_RESOLVER] column_hint fallback: '{entity.raw_text}' "
+                                f"→ '{resolved_col}' (hint='{entity.column_hint}')"
+                            )
 
             logger.info(
                 f"[TERM_RESOLVER] semantic_intent path: "
