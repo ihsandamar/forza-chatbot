@@ -35,7 +35,10 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
     SCHEMA_VALIDATOR_PROMPT,
     BUSINESS_RULES_VALIDATOR_PROMPT,
     TERM_VALIDATOR_PROMPT,
+    SEMANTIC_EXTRACTOR_PROMPT,
 )
+from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticIntent, TermMatch
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.stores import BusinessRulesStore, TermStore
@@ -1427,6 +1430,124 @@ def create_sql_executor_node(connection_string: str) -> Callable:
                 }
 
     return sql_executor_node
+
+
+# =============================================================================
+# NODE: SEMANTIC EXTRACTOR
+# =============================================================================
+
+def create_semantic_extractor_node(llm) -> Callable:
+    """
+    LLM (STRUCTURED OUTPUT): user_query → SemanticIntent.
+
+    Reads:  state["user_query"], state["query_type"], state.get("column_metadata", {}),
+            state.get("messages", []), state.get("sql_error")
+    Writes: {"semantic_intent": SemanticIntent.model_dump()}
+
+    No SQL knowledge required — pure "what did the user want?" extraction.
+    """
+    structured_llm = llm.with_structured_output(SemanticIntent)
+
+    async def semantic_extractor_node(state: dict) -> dict:
+        user_query   = state.get("user_query", "")
+        query_type   = state.get("query_type", "SINGLE")
+        col_meta     = state.get("column_metadata") or {}
+        messages     = state.get("messages") or []
+        sql_error    = state.get("sql_error") or "Yok"
+
+        column_names = ", ".join(col_meta.keys()) if col_meta else "Bilinmiyor"
+
+        # Build conversation context from message history (last 3 pairs at most)
+        if messages:
+            last_msgs = messages[-6:]  # up to 3 human+ai pairs
+            conv_lines = []
+            for m in last_msgs:
+                role = getattr(m, "type", None) or (m.get("role") if isinstance(m, dict) else "?")
+                content = getattr(m, "content", None) or (m.get("content") if isinstance(m, dict) else str(m))
+                conv_lines.append(f"{role}: {content[:200]}")
+            conversation_context = "\n".join(conv_lines)
+        else:
+            conversation_context = "Yeni konuşma, önceki bağlam yok."
+
+        prompt = SEMANTIC_EXTRACTOR_PROMPT.format(
+            user_query=user_query,
+            query_type=query_type,
+            column_names=column_names,
+            conversation_context=conversation_context,
+            sql_error=sql_error,
+        )
+
+        logger.info(f"[SEMANTIC_EXTRACTOR] Extracting intent: {user_query[:80]} (type={query_type})")
+        result: SemanticIntent = await structured_llm.ainvoke(prompt)
+        logger.info(
+            f"[SEMANTIC_EXTRACTOR] entities={len(result.entities)}, "
+            f"metrics={len(result.metrics)}, time={result.time}"
+        )
+        return {"semantic_intent": result.model_dump()}
+
+    return semantic_extractor_node
+
+
+# =============================================================================
+# NODE: SCHEMA BUILDER
+# =============================================================================
+
+def create_schema_builder_node() -> Callable:
+    """
+    Pure Python: semantic_intent + term_resolution → QuerySchema.
+
+    Reads:  state["semantic_intent"] (dict from SemanticIntent.model_dump()),
+            state.get("term_resolution", {}) (dict of raw_text → TermMatch dict),
+            state["query_type"], state.get("time_breakdown", False)
+    Writes: {"query_schema": QuerySchema.model_dump()}
+
+    No LLM involved. Deterministic conversion via build_query_schema().
+    """
+
+    async def schema_builder_node(state: dict) -> dict:
+        intent_dict     = state.get("semantic_intent") or {}
+        resolution_dict = state.get("term_resolution") or {}
+        query_type      = state.get("query_type", "SINGLE")
+        time_breakdown  = state.get("time_breakdown", False)
+        today           = date.today()
+
+        # Reconstruct SemanticIntent from dict
+        intent = SemanticIntent.model_validate(intent_dict)
+
+        # Reconstruct TermMatch objects from dict
+        term_resolution_map: Dict[str, TermMatch] = {}
+        for raw_text, tm_data in resolution_dict.items():
+            if isinstance(tm_data, TermMatch):
+                term_resolution_map[raw_text] = tm_data
+            elif isinstance(tm_data, dict):
+                term_resolution_map[raw_text] = TermMatch(
+                    column_name=tm_data.get("column_name", raw_text),
+                    filter_structured=tm_data.get("filter_structured"),
+                    specificity=float(tm_data.get("specificity", 1.0)),
+                    similarity=float(tm_data.get("similarity", 1.0)),
+                )
+
+        logger.info(
+            f"[SCHEMA_BUILDER] Building schema: query_type={query_type}, "
+            f"entities={len(intent.entities)}, metrics={len(intent.metrics)}, "
+            f"term_resolution={list(term_resolution_map.keys())}"
+        )
+
+        schema = build_query_schema(
+            intent=intent,
+            term_resolution=term_resolution_map,
+            query_type=query_type,
+            time_breakdown=time_breakdown,
+            today=today,
+        )
+
+        logger.info(
+            f"[SCHEMA_BUILDER] Schema ready: filters={len(schema.filters)}, "
+            f"aggs={len(schema.aggregations)}, group_by={schema.group_by}"
+        )
+        return {"query_schema": schema.model_dump()}
+
+    return schema_builder_node
 
 
 # =============================================================================
