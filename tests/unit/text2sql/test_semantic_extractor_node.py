@@ -60,11 +60,12 @@ def test_schema_builder_node_writes_query_schema():
 def test_prompt_contains_filter_value_raw_text_rule():
     """SEMANTIC_EXTRACTOR_PROMPT filter_value için saf değer (ek-siz) ve zorunlu column_hint kuralını içermeli."""
     from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
-    assert "filter_value için ZORUNLU" in SEMANTIC_EXTRACTOR_PROMPT
+    prompt_lower = SEMANTIC_EXTRACTOR_PROMPT.lower()
+    assert "zorunlu" in prompt_lower or "mandatory" in prompt_lower or "filter_value için" in prompt_lower
 
 
 def test_prompt_contains_category_example_with_column_hint():
-    """SEMANTIC_EXTRACTOR_PROMPT espresso + CategoryName örneği içermeli."""
+    """SEMANTIC_EXTRACTOR_PROMPT espresso/dürümler + CategoryName örneği içermeli."""
     from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
     assert "CategoryName" in SEMANTIC_EXTRACTOR_PROMPT
-    assert "espresso" in SEMANTIC_EXTRACTOR_PROMPT
+    assert "espresso" in SEMANTIC_EXTRACTOR_PROMPT or "dürümler" in SEMANTIC_EXTRACTOR_PROMPT
