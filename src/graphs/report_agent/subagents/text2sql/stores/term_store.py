@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -38,7 +37,6 @@ _DEFAULT_COLLECTION = "term_dictionary"
 _DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _DEFAULT_SIMILARITY_THRESHOLD = 0.75
 _TOP_K = 15
-_TR_CHARS = r"a-zA-ZçğıöşüÇĞİÖŞÜ"  # Turkish word-boundary character class
 
 
 # =============================================================================
@@ -124,7 +122,7 @@ class TermStore(BaseVectorStore):
 
         self._collection = None
         self._terms_data: List[Dict[str, Any]] = []
-        self._keyword_patterns: Dict[str, re.Pattern] = {}
+        self._entry_thresholds: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # BaseVectorStore interface
@@ -153,16 +151,6 @@ class TermStore(BaseVectorStore):
             logger.error(f"[TERM_STORE] Dict empty or unreadable: {self.dict_path}")
             return
 
-        # Pre-compile word-boundary regex patterns for keyword pre-resolution
-        self._keyword_patterns = {
-            alias.lower(): re.compile(
-                rf"(?<![{_TR_CHARS}]){re.escape(alias.lower())}(?:ları|leri|lar|ler|su|sı|si|sü|nın|nin|nun|nün|dan|den|tan|ten|da|de|ta|te|ya|ye|yı|yi|yu|yü|ı|i|u|ü|a|e)?(?![{_TR_CHARS}])"
-            )
-            for entry in self._terms_data
-            if not entry.get("filter_structured") and not entry.get("ambiguous_columns")
-            for alias in [entry["term"]] + entry.get("aliases", [])
-        }
-
         if self._collection.count() == 0:
             logger.info("[TERM_STORE] Collection empty, building index...")
             self._build_index()
@@ -177,6 +165,7 @@ class TermStore(BaseVectorStore):
             self._terms_data = self._load_dict()
 
         ids, documents, metadatas = [], [], []
+        self._entry_thresholds = {}
 
         for entry in self._terms_data:
             term_id = entry["id"]
@@ -192,6 +181,10 @@ class TermStore(BaseVectorStore):
                 "filter_structured_json":  json.dumps(entry.get("filter_structured") or {}, ensure_ascii=False),
                 "ambiguous_columns_json":  json.dumps(entry.get("ambiguous_columns") or [], ensure_ascii=False),
             }
+
+            # Per-entry similarity threshold override
+            if "similarity_threshold" in entry:
+                self._entry_thresholds[term_id] = float(entry["similarity_threshold"])
 
             ids.append(term_id)
             documents.append(embedding_text)
@@ -210,88 +203,23 @@ class TermStore(BaseVectorStore):
         Conflict resolution algoritmasını uygula.
 
         Pipeline:
-          1. keyword_pre_resolve  — threshold'dan bağımsız alias match (unambiguous non-filter)
-          2. semantic_search      — ChromaDB cosine similarity (threshold=0.75)
-          3. conflict_resolution  — pre_resolved ile beslenmiş suppress zinciri
+          1. semantic_search      — ChromaDB cosine similarity (per-entry or collection threshold)
+          2. conflict_resolution  — suppress zinciri
         """
-        keyword_pre_resolved = self._keyword_pre_resolve(user_query)
         candidates = self._semantic_search(user_query)
-        return self._apply_conflict_resolution(candidates, user_query, keyword_pre_resolved)
+        return self._apply_conflict_resolution(candidates, user_query)
 
-    # ------------------------------------------------------------------
-    # Internal: keyword pre-resolution
-    # ------------------------------------------------------------------
-
-    def _keyword_pre_resolve(self, user_query: str) -> Dict[str, "TermCandidate"]:
+    def resolve_terms(self, raw_texts: List[str]) -> Dict[str, Optional[TermResolverOutput]]:
         """
-        Threshold'dan bağımsız keyword/alias match ile unambiguous non-filter
-        term'leri önceden çözer.  Longest-match-first: alias'lar uzunluktan
-        kısaya sıralanır, match edilen span'lar consumed olarak işaretlenir.
-        Kısa alias consumed span'a denk gelirse atlanır.
+        Batch wrapper over resolve().
 
-        Dahil: metric + dimension term'ler (filter_structured=None, ambiguous_columns=[])
-        Hariç: filter term'ler (filter_structured var) → semantic + term_validator LLM gate yeter
-        Hariç: ambiguous term'ler (ambiguous_columns var) → zaten belirsiz
+        Takes a list of raw text strings (entity/metric raw_text values) and
+        resolves each one individually.
 
-        Returns: {column: TermCandidate} — resolved_columns için başlangıç değeri
+        Returns a dict mapping raw_text → TermResolverOutput (or None if the
+        text could not be resolved — i.e. resolve() returns None).
         """
-        if not self._terms_data:
-            return {}
-
-        query_lower = user_query.lower()
-        pre_resolved: Dict[str, TermCandidate] = {}
-        consumed_spans: list[tuple[int, int]] = []
-
-        # Tüm eligible alias'ları topla
-        alias_entries: list[tuple[str, dict]] = []
-        for entry in self._terms_data:
-            if entry.get("filter_structured") or entry.get("ambiguous_columns"):
-                continue
-            if not entry.get("column"):
-                continue
-            for alias in [entry["term"]] + entry.get("aliases", []):
-                alias_entries.append((alias.lower(), entry))
-
-        # Uzundan kısaya sırala — longest match first
-        alias_entries.sort(key=lambda x: len(x[0]), reverse=True)
-
-        for alias, entry in alias_entries:
-            column = entry["column"]
-            if column in pre_resolved:
-                continue
-
-            pat = self._keyword_patterns.get(alias)
-            if not pat:
-                continue
-
-            match = pat.search(query_lower)
-            if not match:
-                continue
-
-            # Match edilen span consumed mı?
-            m_start, m_end = match.start(), match.end()
-            if any(cs <= m_start < ce or cs < m_end <= ce for cs, ce in consumed_spans):
-                continue
-
-            consumed_spans.append((m_start, m_end))
-            pre_resolved[column] = TermCandidate(
-                term_id=entry["id"],
-                category=entry.get("category", ""),
-                term=entry["term"],
-                column=column,
-                specificity=float(entry.get("specificity", 1.0)),
-                hint=entry.get("hint", ""),
-                filter_structured=None,
-                ambiguous_columns=[],
-                similarity=1.0,
-            )
-
-        if pre_resolved:
-            logger.info(
-                f"[TERM_STORE] Keyword pre-resolve: {len(pre_resolved)} column(s) → "
-                + str({col: cand.term for col, cand in pre_resolved.items()})
-            )
-        return pre_resolved
+        return {text: self.resolve(text) for text in raw_texts}
 
     # ------------------------------------------------------------------
     # Internal: search
@@ -315,7 +243,9 @@ class TermStore(BaseVectorStore):
         for i, term_id in enumerate(results["ids"][0]):
             distance = results["distances"][0][i]
             similarity = 1 - distance          # cosine distance → similarity
-            if similarity < self.similarity_threshold:
+            # Per-entry threshold overrides the collection-level default
+            effective_threshold = self._entry_thresholds.get(term_id, self.similarity_threshold)
+            if similarity < effective_threshold:
                 continue
 
             meta = results["metadatas"][0][i]
@@ -345,12 +275,10 @@ class TermStore(BaseVectorStore):
         self,
         candidates: List[TermCandidate],
         user_query: str,
-        keyword_pre_resolved: Optional[Dict[str, "TermCandidate"]] = None,
     ) -> TermResolverOutput:
         """
         Conflict resolution algoritması:
 
-        0. keyword_pre_resolved ile resolved_columns önceden doldurulur
         1. Sort by similarity * specificity (desc) — spesifik term'ler önce işlenir
         2. Unambiguous term → resolved_columns'a ekle
            - filter_structured varsa → term_filters + candidate_filter_terms (filter_hint_lines)
@@ -362,16 +290,11 @@ class TermStore(BaseVectorStore):
         """
         sorted_candidates = sorted(candidates, key=lambda c: c.sort_key, reverse=True)
 
-        # Keyword pre-resolved term'lerle başla — suppress zinciri için önceden beslenmiş
-        resolved_columns: Dict[str, TermCandidate] = dict(keyword_pre_resolved or {})
+        resolved_columns: Dict[str, TermCandidate] = {}
         term_filters: List[Dict[str, Any]] = []
         candidate_filter_terms: List[Dict[str, Any]] = []
         filter_hint_lines: List[str] = []    # Python-managed filter hints
-        # Pre-resolved keyword term'lerinin hint'lerini KOLON İPUÇLARI'na ekle
-        column_hint_lines: List[str] = [
-            f'- "{cand.term}" (keyword) [{col}] → {cand.hint}'
-            for col, cand in resolved_columns.items()
-        ]
+        column_hint_lines: List[str] = []
         ambiguous: List[AmbiguousMatch] = []
 
         for candidate in sorted_candidates:
