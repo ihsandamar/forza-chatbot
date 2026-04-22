@@ -150,6 +150,7 @@ def test_unresolved_filter_value_without_column_hint_is_skipped():
     assert "espresso kategorisi" not in column_names, (
         "entity.raw_text should NEVER be used as a DB column name"
     )
+    assert len(column_names) == 0, "No filter should be generated for an unresolved entity"
 
 
 def test_unresolved_dimension_without_column_hint_is_skipped():
@@ -172,3 +173,25 @@ def test_unresolved_dimension_without_column_hint_is_skipped():
     schema = build_query_schema(intent, term_resolution, "LISTING", False)
 
     assert "bilinmeyen boyut" not in schema.group_by
+
+
+def test_unresolved_comparison_value_without_column_hint_is_skipped():
+    """
+    term_resolution'da eşleşme yok ve column_hint=None ise,
+    comparison_value entity'si için ne filter ne de comparison_dimension üretilmemeli.
+    """
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticEntity, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        entities=[
+            SemanticEntity(raw_text="bilinmeyen A", entity_type="comparison_value", column_hint=None),
+            SemanticEntity(raw_text="bilinmeyen B", entity_type="comparison_value", column_hint=None),
+        ],
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="bilinmeyen karşılaştır",
+    )
+    schema = build_query_schema(intent, {"ciro": _make_tm("RowAmount")}, "COMPARISON", False)
+    assert schema.comparison_dimension is None
+    assert not any(f.operator == "IN" for f in schema.filters)
