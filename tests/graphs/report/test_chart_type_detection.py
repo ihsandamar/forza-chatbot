@@ -83,7 +83,10 @@ def test_only_whitespace_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# Integration: classify_intent_node fallback path (LLM mock ile)
+# Integration: classify_intent_node (LLM mock ile)
+# NOTE: Parallel chart LLM call removed in Task 10.
+#       chart_type detection moved to viz_decider (Task 11).
+#       classify_intent_node now always returns requested_chart_type=None.
 # Projedeki pattern: @pytest.mark.asyncio + async def (test_extract_entity_node.py)
 # ---------------------------------------------------------------------------
 import pytest
@@ -96,16 +99,15 @@ def _make_mock_llm(
     confidence=0.9,
     wants_visualization=True,
     use_result_type=None,
-    chart_type=None,
-    chart_llm_raises=None,
+    chart_type=None,       # kept for API compat, not used (parallel call removed)
+    chart_llm_raises=None, # kept for API compat, not used (parallel call removed)
 ):
-    """Mock LLM for parallel chart type detection tests.
+    """Mock LLM for classify_intent_node tests.
 
-    with_structured_output is called twice:
-      1st call → IntentClassificationResult chain
-      2nd call → ChartTypeResult chain
+    with_structured_output is called once → IntentClassificationResult chain.
+    The parallel ChartTypeResult call was removed in Task 10.
     """
-    from src.graphs.report_agent.prompts import IntentClassificationResult, ChartTypeResult
+    from src.graphs.report_agent.prompts import IntentClassificationResult
 
     mock_intent = IntentClassificationResult(
         intent_type=intent_type,
@@ -114,27 +116,18 @@ def _make_mock_llm(
         wants_visualization=wants_visualization,
         use_result_type=use_result_type,
     )
-    mock_chart = ChartTypeResult(chart_type=chart_type)
 
     intent_chain = MagicMock()
     intent_chain.ainvoke = AsyncMock(return_value=mock_intent)
 
-    chart_chain = MagicMock()
-    if chart_llm_raises:
-        chart_chain.ainvoke = AsyncMock(side_effect=chart_llm_raises)
-    else:
-        chart_chain.ainvoke = AsyncMock(return_value=mock_chart)
-
     mock_llm = MagicMock()
-    mock_llm.with_structured_output = MagicMock(
-        side_effect=[intent_chain, chart_chain]
-    )
+    mock_llm.with_structured_output = MagicMock(return_value=intent_chain)
     return mock_llm
 
 
 @pytest.mark.asyncio
 async def test_fallback_sets_sunburst_when_llm_returns_none():
-    """Root cause: LLM None döndüğünde 'sunbrust' fallback ile sunburst olmalı."""
+    """Task 10: chart type detection moved to viz_decider — classify_intent returns None."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
@@ -142,12 +135,13 @@ async def test_fallback_sets_sunburst_when_llm_returns_none():
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="son 3 aydaki satışları sunbrust grafik ile göster")]}
     result = await node(state)
-    assert result["requested_chart_type"] == "sunburst"
+    # classify_intent no longer resolves chart_type; viz_decider (Task 11) handles it
+    assert result["requested_chart_type"] is None
 
 
 @pytest.mark.asyncio
 async def test_fallback_does_not_override_when_llm_returns_value():
-    """LLM zaten bir değer döndürdüyse fallback override etmemeli."""
+    """Task 10: chart type detection moved to viz_decider — classify_intent returns None."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
@@ -155,18 +149,17 @@ async def test_fallback_does_not_override_when_llm_returns_value():
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="sunburst grafik ver")]}
     result = await node(state)
-    assert result["requested_chart_type"] == "bar_chart"
+    assert result["requested_chart_type"] is None
 
 
 @pytest.mark.asyncio
 async def test_fallback_inactive_when_no_visualization():
-    """wants_visualization=False, use_result_type=None ve chart keyword yok → None beklenir."""
+    """wants_visualization=False, use_result_type=None → requested_chart_type=None."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
     llm = _make_mock_llm(wants_visualization=False, use_result_type=None, chart_type=None)
     node = create_classify_intent_node(llm)
-    # Sorguda chart keyword YOK — explicit_chart=None → wants_viz=False → chart_type=None
     state = {"messages": [HumanMessage(content="son 3 aydaki satışları karşılaştır")]}
     result = await node(state)
     assert result["requested_chart_type"] is None
@@ -174,7 +167,7 @@ async def test_fallback_inactive_when_no_visualization():
 
 @pytest.mark.asyncio
 async def test_fallback_active_on_revisualize_path():
-    """use_result_type=revisualize + LLM None → fallback devreye girmeli."""
+    """Task 10: revisualize path sets wants_visualization=True but chart_type=None (viz_decider handles it)."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
@@ -187,12 +180,14 @@ async def test_fallback_active_on_revisualize_path():
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="bunu sunbrust olarak göster")]}
     result = await node(state)
-    assert result["requested_chart_type"] == "sunburst"
+    # wants_visualization forced True via revisualize, but chart_type resolution is in viz_decider
+    assert result["wants_visualization"] is True
+    assert result["requested_chart_type"] is None
 
 
 @pytest.mark.asyncio
 async def test_fallback_returns_none_when_no_keyword():
-    """Keyword yoksa fallback None bırakmalı."""
+    """Task 10: chart_type always None from classify_intent (moved to viz_decider)."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
@@ -205,7 +200,7 @@ async def test_fallback_returns_none_when_no_keyword():
 
 @pytest.mark.asyncio
 async def test_chart_llm_exception_falls_back_to_keyword_detection():
-    """chart_llm Exception fırlatırsa keyword fallback devreye girmeli, node çökmemeli."""
+    """Task 10: no parallel chart LLM call — node never raises even with old chart_llm_raises arg."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
@@ -216,12 +211,14 @@ async def test_chart_llm_exception_falls_back_to_keyword_detection():
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="sunburst grafik ver")]}
     result = await node(state)
-    assert result["requested_chart_type"] == "sunburst"
+    # Node should complete without error; chart_type resolved by viz_decider
+    assert result["requested_chart_type"] is None
+    assert result["wants_visualization"] is True
 
 
 @pytest.mark.asyncio
 async def test_parallel_chart_llm_value_used_when_wants_viz():
-    """chart LLM sonucu doğrudan kullanılmalı."""
+    """Task 10: chart type is delegated to viz_decider; classify_intent returns None."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 
@@ -229,12 +226,13 @@ async def test_parallel_chart_llm_value_used_when_wants_viz():
     node = create_classify_intent_node(llm)
     state = {"messages": [HumanMessage(content="kategorilerin alt kırılımını göster")]}
     result = await node(state)
-    assert result["requested_chart_type"] == "treemap"
+    assert result["requested_chart_type"] is None
+    assert result["wants_visualization"] is True
 
 
 @pytest.mark.asyncio
 async def test_chart_type_none_when_no_viz_requested():
-    """wants_visualization=False olduğunda chart LLM sonucu kullanılmamalı."""
+    """wants_visualization=False → requested_chart_type=None."""
     from langchain_core.messages import HumanMessage
     from src.graphs.report_agent.nodes import create_classify_intent_node
 

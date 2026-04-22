@@ -19,6 +19,7 @@ class IntentClassificationResult(BaseModel):
     modification_action: Optional[str] = None   # "add_filter" | "remove_filter" | "change_limit" | "change_order"
     modification_target: Optional[str] = None   # "şehir", "tarih", "limit"
     modification_value: Optional[str] = None    # "Ankara", "2024-01", "50"
+    time_breakdown: bool = False                 # True: dönemsel kırılım var ("aylık", "haftalık", "günlük", "yıllık")
 
     @field_validator("confidence")
     @classmethod
@@ -177,6 +178,10 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
 - 0.70 altı: Belirsiz → kullanıcıya sor
 
 ⚠️ ALAN KISITLAMASI: `use_result_type` ve `compute_operation` alanları YALNIZCA intent_type="USE_RESULT" olduğunda doldurulur. MODIFY_QUERY veya NEW_QUERY için bu alanlar boş (null) bırakılır.
+
+**time_breakdown:**
+- True: Kullanıcı dönemsel kırılım istiyor — "aylık", "haftalık", "günlük", "yıllık" ifadeleri var
+- False: Dönemsel kırılım YOK (salt zaman filtresi veya zaman yok)
 """
 
 SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre değiştir.

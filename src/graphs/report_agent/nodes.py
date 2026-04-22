@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import re
@@ -8,12 +7,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import interrupt
 
 from src.graphs.report_agent.prompts import (
-    ChartTypeResult,
     EntityExtractionResult,
     IntentClassificationResult,
     QueryClarificationResult,
     SqlModificationResult,
-    CHART_TYPE_PROMPT,
     ENTITY_EXTRACTOR_PROMPT,
     INTENT_CLASSIFIER_PROMPT,
     QUERY_CLARIFICATION_PROMPT,
@@ -91,7 +88,6 @@ def create_classify_intent_node(llm) -> Callable:
     Confidence < 0.70 ise interrupt() ile kullanıcıya sorar.
     """
     structured_llm = llm.with_structured_output(IntentClassificationResult)
-    chart_llm = llm.with_structured_output(ChartTypeResult)
 
     async def classify_intent_node(state: dict) -> dict:
         logger.info(f"[REPORT_AGENT] ===== classify_intent_node ENTERED ===== query: {state.get('messages', [{}])[-1].content[:80] if state.get('messages') else 'NO_MESSAGES'}")
@@ -128,39 +124,12 @@ def create_classify_intent_node(llm) -> Callable:
             result_count=len(active_results),
         )
 
-        # chart prompt — user_query'de { } varsa format hatası; güvenli fallback
-        try:
-            chart_prompt_str = CHART_TYPE_PROMPT.format(user_query=user_query)
-        except (KeyError, ValueError):
-            chart_prompt_str = CHART_TYPE_PROMPT.format(user_query="")
-
-        # Paralel çağrı — return_exceptions=True: chart_llm hatası intent çağrısını öldürmez
-        gather_results = await asyncio.gather(
-            structured_llm.ainvoke(prompt),
-            chart_llm.ainvoke(chart_prompt_str),
-            return_exceptions=True,
-        )
-        intent_raw, chart_raw = gather_results[0], gather_results[1]
-
-        # intent_llm hatası: node'un normal exception mekanizmasına bırak
-        if isinstance(intent_raw, Exception):
-            raise intent_raw
-
-        result: IntentClassificationResult = intent_raw
-
-        # chart_llm hatası → graceful degrade, deterministic fallback'e düşer
-        chart_type_from_llm: Optional[str] = None
-        if isinstance(chart_raw, Exception):
-            logger.warning(
-                f"[CLASSIFY] chart_llm failed ({type(chart_raw).__name__}): {chart_raw}"
-            )
-        elif chart_raw is not None:
-            chart_type_from_llm = chart_raw.chart_type
+        result: IntentClassificationResult = await structured_llm.ainvoke(prompt)
 
         logger.info(
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
             f"conf={result.confidence:.2f} wants_viz={result.wants_visualization} "
-            f"chart_type_llm={chart_type_from_llm}"
+            f"time_breakdown={result.time_breakdown}"
         )
 
         # Max clarification tur aşıldıysa VAGUE_QUERY'yi NEW_QUERY'ye zorla
@@ -197,30 +166,14 @@ def create_classify_intent_node(llm) -> Callable:
             })
             result = _resolve_intent_from_answer(result, answer)
 
-        # Keyword detection — LLM'den bağımsız çalışır (wants_viz gate'inden önce)
-        explicit_chart = _detect_chart_type_from_query(user_query)
-
         # revisualize her zaman görselleştirme talebidir.
-        # Açık chart keyword'ü de wants_viz'i zorla True yapar —
-        # intent LLM supervisor context'i nedeniyle False dönse bile.
         wants_viz = (
             result.wants_visualization
             or (result.use_result_type == "revisualize")
-            or bool(explicit_chart)
         )
-        if explicit_chart and not (result.wants_visualization or result.use_result_type == "revisualize"):
-            logger.info(f"[CLASSIFY] wants_viz overridden True by explicit keyword: '{explicit_chart}'")
 
-        # Merge: chart_type sadece visualization isteklerinde kullanılır.
-        # Bu blok interrupt+resolve SONRASINDA hesaplanır; revisualize path'inde
-        # wants_viz doğru şekilde True gelir.
+        # chart_type: viz_decider (Task 11) sorumludur — burada None bırakılır.
         chart_type: Optional[str] = None
-        if wants_viz:
-            chart_type = chart_type_from_llm
-            if chart_type is None:
-                chart_type = explicit_chart  # pre-computed, ikinci _detect çağrısı yok
-                if chart_type:
-                    logger.info(f"[CLASSIFY] Keyword fallback chart type: '{chart_type}'")
 
         # revisualize'da user_query SQL semantic query'yi kirletmemesi için
         # viz_request ayrı bir alana yazılır; diğer pathlerde None (reset).
@@ -238,6 +191,7 @@ def create_classify_intent_node(llm) -> Callable:
             "visualization_output": None,  # önceki tur çıktısını temizle
             "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
             "time_granularity": None,       # her turda temizle — stale state önle
+            "time_breakdown": result.time_breakdown,
             "modification_hints": None,   # her turda temizle
             "semantic_intent": None,        # her turda temizle — NLU pipeline yeniden çalışır
             "term_resolution": None,        # her turda temizle — NLU pipeline yeniden çalışır
