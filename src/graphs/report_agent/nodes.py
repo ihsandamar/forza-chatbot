@@ -239,6 +239,8 @@ def create_classify_intent_node(llm) -> Callable:
             "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
             "time_granularity": None,       # her turda temizle — stale state önle
             "modification_hints": None,   # her turda temizle
+            "semantic_intent": None,        # her turda temizle — NLU pipeline yeniden çalışır
+            "term_resolution": None,        # her turda temizle — NLU pipeline yeniden çalışır
             "_clarification_count": 0 if result.intent_type != "VAGUE_QUERY" else state.get("_clarification_count", 0),
             "_skip_vague_check": False,
             "text2sql_clarification": None,   # each turn: clear

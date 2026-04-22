@@ -10,8 +10,9 @@ class Text2SQLState(TypedDict, total=False):
         sql_queries, results, error, active_results
 
     Internal keys (sadece bu subgraph içinde kullanılır):
-        query_schema, schema_validation, auto_rules, term_filters, term_hints,
-        candidate_filter_terms, validated_term_filters, retry_count, sql_error
+        query_schema, auto_rules, term_filters,
+        candidate_filter_terms, validated_term_filters, retry_count, sql_error,
+        semantic_intent, term_resolution, time_breakdown
     """
 
     # --- ReportState overlapping ---
@@ -32,12 +33,17 @@ class Text2SQLState(TypedDict, total=False):
 
     # --- Internal ---
     query_schema:      Optional[Dict[str, Any]]       # QuerySchema.model_dump()
-    schema_validation: Optional[Dict[str, Any]]       # schema_validator → SchemaValidationResult.model_dump()
+    # schema_validation KALDIRILDI — schema_validator node kaldırıldı
     auto_rules:        Optional[List[Dict[str, Any]]] # ChromaDB'den bulunan rules — sql_generator uygular
     term_filters:      Optional[List[Dict[str, Any]]] # term_resolver → sql_generator (Python garantili WHERE)
-    term_hints:        Optional[str]                  # term_resolver → sql_architect + schema_validator
+    # term_hints KALDIRILDI — semantic_intent / term_resolution ile değiştirildi
     candidate_filter_terms: Optional[List[Dict[str, Any]]]  # term_resolver → term_validator (term_id + metadata)
     validated_term_filters: Optional[List[Dict[str, Any]]]  # term_validator → sql_generator (onaylanan filtreler)
     retry_count:       int                            # 0 | 1 | 2
     sql_error:         Optional[str]                  # Son SQL hata mesajı (retry için)
     # business_rules_context KALDIRILDI — LLM artık kuralları görmüyor
+
+    # --- NLU Pipeline (semantic approach) ---
+    semantic_intent:   Optional[Dict]                 # SemanticIntent.model_dump() — semantic_extractor output
+    term_resolution:   Optional[Dict]                 # {raw_text → TermMatch dict} — term_resolver output
+    time_breakdown:    Optional[bool]                 # intent_resolver time_breakdown flag passed into subgraph
