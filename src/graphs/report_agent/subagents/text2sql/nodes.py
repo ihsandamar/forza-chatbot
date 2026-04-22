@@ -1583,6 +1583,12 @@ def create_schema_builder_node() -> Callable:
         time_breakdown  = state.get("time_breakdown", False)
         today           = date.today()
 
+        logger.info(
+            f"[SCHEMA_BUILDER] INPUT: semantic_intent={bool(intent_dict)}, "
+            f"term_resolution={len(resolution_dict)} terms, "
+            f"query_type={query_type}, time_breakdown={time_breakdown}"
+        )
+
         # Reconstruct SemanticIntent from dict
         intent = SemanticIntent.model_validate(intent_dict)
 
@@ -1599,12 +1605,6 @@ def create_schema_builder_node() -> Callable:
                     similarity=float(tm_data.get("similarity", 1.0)),
                 )
 
-        logger.info(
-            f"[SCHEMA_BUILDER] Building schema: query_type={query_type}, "
-            f"entities={len(intent.entities)}, metrics={len(intent.metrics)}, "
-            f"term_resolution={list(term_resolution_map.keys())}"
-        )
-
         schema = build_query_schema(
             intent=intent,
             term_resolution=term_resolution_map,
@@ -1614,8 +1614,11 @@ def create_schema_builder_node() -> Callable:
         )
 
         logger.info(
-            f"[SCHEMA_BUILDER] Schema ready: filters={len(schema.filters)}, "
-            f"aggs={len(schema.aggregations)}, group_by={schema.group_by}"
+            f"[SCHEMA_BUILDER] DECISION: filters={len(schema.filters)}, "
+            f"group_by={schema.group_by}, gran={schema.time_granularity}"
+        )
+        logger.info(
+            f"[SCHEMA_BUILDER] OUTPUT: query_schema ready, aggs={len(schema.aggregations)}"
         )
         return {"query_schema": schema.model_dump()}
 
