@@ -463,9 +463,6 @@ def create_term_resolver_node(
             all_candidate_filter_terms: list = []
 
             for raw_text, output in resolved_map.items():
-                if output is None:
-                    continue
-
                 # Aggregate candidate_filter_terms for term_validator
                 all_candidate_filter_terms.extend(output.candidate_filter_terms)
 
