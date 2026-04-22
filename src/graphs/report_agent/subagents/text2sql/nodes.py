@@ -413,8 +413,8 @@ def create_term_resolver_node(
     Args:
         term_vector_store: ChromaDB-backed term resolution store.
         column_resolver:   Optional ColumnResolver. When provided and a raw_text
-                           has no ChromaDB match, resolves via alias table + Turkish
-                           suffix stripping. Applies to both entities and metrics.
+                           has no ChromaDB match, resolves via alias table +
+                           column_hint fallback. Applies to both entities and metrics.
     """
 
     def _resolver_output_to_term_match_dict(output) -> Optional[dict]:

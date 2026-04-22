@@ -355,32 +355,6 @@ def test_metric_resolved_via_column_resolver():
     assert result["term_resolution"]["satış"]["column_name"] == "RowAmount"
 
 
-def test_entity_with_suffix_resolved_via_column_resolver():
-    """
-    'kategorisi' (Turkish suffix) not in ChromaDB → ColumnResolver strips suffix:
-    kategorisi → kategori → CategoryName.
-    """
-    from src.graphs.report_agent.subagents.text2sql.nodes import create_term_resolver_node
-    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
-        SemanticIntent, SemanticEntity,
-    )
-    from src.graphs.report_agent.subagents.text2sql.stores.term_store import TermResolverOutput
-
-    empty = TermResolverOutput(term_filters=[], candidate_filter_terms=[], hints_text="", ambiguous=[])
-    mock_store = _make_store({"kategorisi": empty})
-
-    node = create_term_resolver_node(mock_store, _make_resolver())
-    intent = SemanticIntent(
-        entities=[SemanticEntity(raw_text="kategorisi", entity_type="dimension", column_hint=None)],
-        metrics=[],
-        raw_query="kategorisi",
-    )
-    result = _run(node({"semantic_intent": intent.model_dump(), "messages": []}))
-
-    assert "kategorisi" in result["term_resolution"]
-    assert result["term_resolution"]["kategorisi"]["column_name"] == "CategoryName"
-
-
 def test_column_resolver_not_called_when_chromadb_resolved():
     """If ChromaDB already resolved the term, ColumnResolver.resolve() is never called."""
     from unittest.mock import patch

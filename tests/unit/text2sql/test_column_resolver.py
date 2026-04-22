@@ -30,24 +30,6 @@ def test_resolve_case_insensitive(resolver):
     assert resolver.resolve("rowamount") == "RowAmount"
 
 
-# ── Türkçe suffix soyma ─────────────────────────────────────────────────────
-
-def test_strip_possessive_si(resolver):
-    assert resolver.resolve("kategorisi") == "CategoryName"
-
-
-def test_strip_possessive_si_with_locative(resolver):
-    assert resolver.resolve("kategorisindeki") == "CategoryName"
-
-
-def test_strip_ablative_den(resolver):
-    assert resolver.resolve("şubeden") == "BranchName"
-
-
-def test_strip_locative_de(resolver):
-    assert resolver.resolve("şubede") == "BranchName"
-
-
 # ── column_hint fallback ────────────────────────────────────────────────────
 
 def test_column_hint_used_when_raw_text_unknown(resolver):
@@ -99,11 +81,6 @@ def test_resolve_platform_to_document_kind_name(resolver):
     assert resolver.resolve("platform") == "DocumentKindName"
 
 
-def test_resolve_platform_inflected(resolver):
-    """'platformlara' → suffix strip 'lara' → 'platform' → DocumentKindName"""
-    assert resolver.resolve("platformlara") == "DocumentKindName"
-
-
 def test_resolve_kanal_to_document_kind_name(resolver):
     assert resolver.resolve("kanal") == "DocumentKindName"
 
@@ -124,3 +101,15 @@ def test_resolve_kurye_to_delivery_user_name(resolver):
 
 def test_resolve_masano_to_table_no(resolver):
     assert resolver.resolve("masano") == "TableNo"
+
+
+def test_inflected_forms_return_none(resolver):
+    """
+    ColumnResolver does NOT do suffix stripping.
+    Inflected forms that are not in _ALIAS_TABLE directly → None.
+    The LLM is responsible for providing canonical root forms.
+    """
+    assert resolver.resolve("kategorisindeki") is None
+    assert resolver.resolve("platformlara") is None
+    assert resolver.resolve("şubeden") is None
+    assert resolver.resolve("ürünlerin") is None

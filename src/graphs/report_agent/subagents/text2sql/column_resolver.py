@@ -1,11 +1,13 @@
 """
-column_resolver.py — Saf Python kolon çözümleme katmanı.
+column_resolver.py — Deterministic kolon çözümleme katmanı.
 
 Çözümleme zinciri (sırayla):
   1. Semantik alias tablosu (normalize edilmiş eşleşme)
-  2. Türkçe suffix soyma → alias tablosu
-  3. column_hint (varsa) → aynı zincir
-  4. Fuzzy match (db_columns biliniyorsa)
+  2. column_hint (LLM tarafından sağlanır) → aynı zincir
+  3. Fuzzy match (db_columns biliniyorsa)
+
+Türkçe suffix soyma (morfoloji) bu katmanda YAPILMAZ.
+LLM semantic_extractor kanonik kök formu + column_hint'i sağlamaktan sorumludur.
 """
 from __future__ import annotations
 
@@ -60,32 +62,7 @@ _ALIAS_TABLE: Dict[str, List[str]] = {
     "TableNo": ["masano", "masanumarasi", "tableno"],
 }
 
-_TR_SUFFIXES: List[str] = [
-    # Çoğul (lar/ler) + hal ekleri — önce uzun olanlar
-    "lardan", "lerden",
-    "larda", "lerde",
-    "ların", "lerin",
-    "lara", "lere",
-    "ları", "leri",
-    "lar", "ler",
-    # Tekil hal ekleri
-    "ındaki", "undaki", "undeki",
-    "ndaki", "ndeki", "indeki",
-    "sından", "sinden", "sundan", "sunden",
-    "ndan", "nden", "tan", "ten", "dan", "den",
-    "nına", "nine", "nuna", "nune",
-    "nın", "nin", "nun",
-    "sına", "sine", "suna", "sune",
-    "nda", "nde",
-    "ta", "te", "da", "de",
-    "sı", "si", "su", "sü",
-    "yı", "yi", "yu", "yü",
-    "ın", "in", "un", "ün",
-    "ya", "ye",
-]
-
-_MIN_STEM_LEN = 3
-
+# Turkish character normalization (charset only — not morphology).
 _TR_MAP = {
     "ı": "i", "İ": "i", "I": "i",
     "ğ": "g", "Ğ": "g",
@@ -103,25 +80,12 @@ def _normalize(text: str) -> str:
     return text.replace("_", "").replace(" ", "")
 
 
-def _strip_suffixes_intermediate(text: str) -> List[str]:
-    """Return all intermediate stems produced by iterative suffix stripping."""
-    results: List[str] = []
-    for _ in range(4):
-        lower = text.lower()
-        stripped = False
-        for suffix in _TR_SUFFIXES:
-            if lower.endswith(suffix) and len(lower) - len(suffix) >= _MIN_STEM_LEN:
-                text = text[: len(text) - len(suffix)]
-                results.append(text)
-                stripped = True
-                break
-        if not stripped:
-            break
-    return results
-
-
 class ColumnResolver:
-    """raw_text / column_hint → DB kolon adı çözümleyicisi."""
+    """Canonical raw_text / column_hint → DB column name.
+
+    Expects canonical (root) forms in raw_text. No suffix stripping is done here —
+    that responsibility belongs to the LLM semantic_extractor.
+    """
 
     def __init__(self, db_columns: Optional[List[str]] = None) -> None:
         self._lookup: Dict[str, str] = {}
@@ -136,27 +100,20 @@ class ColumnResolver:
         raw_text: str,
         column_hint: Optional[str] = None,
     ) -> Optional[str]:
-        # 1. Direct alias
+        # 1. Direct alias lookup
         result = self._lookup.get(_normalize(raw_text))
         if result:
             logger.debug(f"[COL_RESOLVER] '{raw_text}' → '{result}' (alias)")
             return result
 
-        # 2. Turkish suffix stripping — check every intermediate stem
-        for stem in _strip_suffixes_intermediate(raw_text):
-            result = self._lookup.get(_normalize(stem))
-            if result:
-                logger.debug(f"[COL_RESOLVER] '{raw_text}' → strip → '{stem}' → '{result}'")
-                return result
-
-        # 3. column_hint fallback
+        # 2. column_hint — LLM-provided, primary for entity types
         if column_hint:
             result = self._lookup.get(_normalize(column_hint))
             if result:
                 logger.debug(f"[COL_RESOLVER] '{raw_text}' unknown, hint '{column_hint}' → '{result}'")
                 return result
 
-        # 4. Fuzzy match (optional)
+        # 3. Fuzzy match on actual DB column names (last resort)
         if self._db_columns:
             try:
                 from rapidfuzz import process, fuzz
