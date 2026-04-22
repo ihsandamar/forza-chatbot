@@ -123,3 +123,52 @@ def test_filter_term_with_pre_built_filter_structured():
     assert len(return_filters) == 1
     assert return_filters[0].value == "1"
     assert return_filters[0].value_hint == "iade"
+
+
+def test_unresolved_filter_value_without_column_hint_is_skipped():
+    """
+    term_resolution'da eşleşme yok ve column_hint=None ise,
+    filter_value entity'si için SchemaFilter üretilmemeli (raw_text kolon adı olarak kullanılmamalı).
+    """
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticEntity, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        entities=[
+            SemanticEntity(raw_text="espresso kategorisi", entity_type="filter_value", column_hint=None),
+        ],
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="espresso kategorisi ciro",
+    )
+    # term_resolution'da "espresso kategorisi" yok
+    term_resolution = {"ciro": _make_tm("RowAmount")}
+    schema = build_query_schema(intent, term_resolution, "SINGLE", False)
+
+    # "espresso kategorisi" kolon adlı bir filter OLMAMALI
+    column_names = [f.column for f in schema.filters if f.column != "DocumentDate"]
+    assert "espresso kategorisi" not in column_names, (
+        "entity.raw_text should NEVER be used as a DB column name"
+    )
+
+
+def test_unresolved_dimension_without_column_hint_is_skipped():
+    """
+    term_resolution'da eşleşme yok ve column_hint=None ise,
+    dimension entity'si group_by'a eklenmemeli.
+    """
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticEntity, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        entities=[
+            SemanticEntity(raw_text="bilinmeyen boyut", entity_type="dimension", column_hint=None),
+        ],
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="bilinmeyen boyut ciro",
+    )
+    term_resolution = {"ciro": _make_tm("RowAmount")}
+    schema = build_query_schema(intent, term_resolution, "LISTING", False)
+
+    assert "bilinmeyen boyut" not in schema.group_by

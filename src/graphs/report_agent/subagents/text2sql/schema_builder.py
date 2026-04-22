@@ -5,6 +5,7 @@ No LLM involved. Pure Python business logic.
 """
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import date
 from typing import Dict, List, Optional
@@ -20,6 +21,8 @@ from src.graphs.report_agent.subagents.text2sql.semantic_models import (
     SemanticIntent,
     TermMatch,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Aggregation alias helpers
@@ -95,7 +98,13 @@ def build_query_schema(
 
     for entity in intent.entities:
         tm = term_resolution.get(entity.raw_text)
-        col = (tm.column_name if tm else None) or entity.column_hint or entity.raw_text
+        col = (tm.column_name if tm else None) or entity.column_hint
+        if col is None:
+            logger.warning(
+                f"[SCHEMA_BUILDER] No column resolved for '{entity.raw_text}' "
+                f"(entity_type={entity.entity_type}), skipping"
+            )
+            continue
 
         if entity.entity_type == "dimension":
             # Dimension → GROUP BY
