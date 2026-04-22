@@ -93,3 +93,37 @@ def test_prompt_contains_granularity_rule():
     assert "monthly" in prompt_lower
     assert "weekly" in prompt_lower
     assert "aylık" in prompt_lower
+
+
+def test_prompt_mandates_canonical_raw_text():
+    """
+    SEMANTIC_EXTRACTOR_PROMPT must contain an explicit rule that raw_text
+    is the canonical root form for ALL entity types. Python does not strip suffixes.
+    """
+    from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
+    assert "raw_text = KANONİK KÖK FORM" in SEMANTIC_EXTRACTOR_PROMPT
+    assert "platformlara" in SEMANTIC_EXTRACTOR_PROMPT
+    assert "YASAK" in SEMANTIC_EXTRACTOR_PROMPT
+
+
+def test_prompt_mandates_column_hint_for_dimension():
+    """
+    column_hint must be declared ZORUNLU for dimension entities,
+    not just shown in examples.
+    """
+    from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
+    dim_idx = SEMANTIC_EXTRACTOR_PROMPT.find('"dimension"')
+    assert dim_idx != -1
+    dim_section = SEMANTIC_EXTRACTOR_PROMPT[dim_idx:dim_idx + 400]
+    assert "ZORUNLU" in dim_section, "column_hint must be declared ZORUNLU for dimension entities"
+
+
+def test_prompt_mandates_column_hint_for_comparison_value():
+    """
+    column_hint must be declared ZORUNLU for comparison_value entities.
+    """
+    from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
+    cv_idx = SEMANTIC_EXTRACTOR_PROMPT.find('"comparison_value"')
+    assert cv_idx != -1
+    cv_section = SEMANTIC_EXTRACTOR_PROMPT[cv_idx:cv_idx + 400]
+    assert "ZORUNLU" in cv_section, "column_hint must be declared ZORUNLU for comparison_value entities"

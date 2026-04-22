@@ -772,6 +772,17 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
 
 ## entity_type KURALLARI
 
+## raw_text = KANONİK KÖK FORM (TÜM entity tipleri — KRİTİK)
+raw_text DAIMA sözlük/kök formunu içermeli. Türkçe çekim, çoğul, hal ekleri raw_text'e DAHİL EDİLMEZ.
+Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
+
+✅ DOĞRU:   "platformlara göre"     → raw_text: "platform"
+✅ DOĞRU:   "şubelerdeki satışlar"  → raw_text: "şube"
+✅ DOĞRU:   "ürünlerin performansı" → raw_text: "ürün"
+✅ DOĞRU:   "kategorisindeki"       → raw_text: "kategori"
+❌ YASAK:   "platformlara göre"     → raw_text: "platformlara"
+❌ YASAK:   "şubelerdeki satışlar"  → raw_text: "şubelerdeki"
+
 **"filter_value"**: Sorguda filtre değeri olan spesifik kavram.
   KURAL 1 — raw_text = SAF DEĞER (Türkçe gramer ekleri dahil değil):
     "espresso kategorisi" → raw_text="espresso"     (NOT "espresso kategorisi")
@@ -784,10 +795,14 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
     "son 1 yılda"         → entity DEĞİL, time alanına yaz
 
 **"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir.
+  column_hint = dimension için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
   - "ürünlere göre"       → entity("ürün",      dimension, column_hint="ProductName")
   - "kategoriler bazında" → entity("kategori",  dimension, column_hint="CategoryName")
+  - "platformlara göre"   → entity("platform",  dimension, column_hint="DocumentKindName")
+  - "şubelere göre"       → entity("şube",      dimension, column_hint="BranchName")
 
 **"comparison_value"**: COMPARISON sorgusunda karşılaştırılan iki veya daha fazla spesifik değer.
+  column_hint = comparison_value için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
   - "dürümler ve içecek karşılaştır" → entity("dürümler", comparison_value, column_hint="CategoryName") + entity("içecek", comparison_value, column_hint="CategoryName")
   - Her iki değer AYRI entity olarak yazılır
 
