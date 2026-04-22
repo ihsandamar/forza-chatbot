@@ -41,6 +41,7 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
 from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
 from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticIntent, TermMatch
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
+from src.graphs.report_agent.subagents.text2sql.column_resolver import ColumnResolver
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.stores import BusinessRulesStore, TermStore
 
@@ -392,7 +393,7 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 
 def create_term_resolver_node(
     term_vector_store: TermStore,
-    value_resolver: Optional[ValueResolverService] = None,
+    column_resolver: Optional[ColumnResolver] = None,
 ) -> Callable:
     """
     Semantic term resolution + optional interrupt():
@@ -411,9 +412,9 @@ def create_term_resolver_node(
 
     Args:
         term_vector_store: ChromaDB-backed term resolution store.
-        value_resolver:    Optional ValueResolverService. When provided and an entity
-                           has no ChromaDB match, resolves entity.column_hint to a real
-                           DB column name and injects a synthetic TermMatch.
+        column_resolver:   Optional ColumnResolver. When provided and a raw_text
+                           has no ChromaDB match, resolves via alias table + Turkish
+                           suffix stripping. Applies to both entities and metrics.
     """
 
     def _resolver_output_to_term_match_dict(output) -> Optional[dict]:
@@ -473,14 +474,15 @@ def create_term_resolver_node(
                 if match_dict is not None:
                     term_resolution[raw_text] = match_dict
 
-            # Column-hint normalization for unresolved entities
-            # When ChromaDB has no match but entity has column_hint,
-            # normalize hint to real DB column via ValueResolverService.
-            if value_resolver is not None:
-                # Applies to all entity types — filter_value, dimension, comparison_value
+            # ColumnResolver fallback for unresolved raw_texts
+            # Applies to all entity types AND metrics.
+            if column_resolver is not None:
+                # Entities: raw_text + optional column_hint
                 for entity in intent.entities:
-                    if entity.raw_text not in term_resolution and entity.column_hint:
-                        resolved_col = value_resolver.resolve_column_name(entity.column_hint)
+                    if entity.raw_text not in term_resolution:
+                        resolved_col = column_resolver.resolve(
+                            entity.raw_text, entity.column_hint
+                        )
                         if resolved_col:
                             term_resolution[entity.raw_text] = {
                                 "column_name": resolved_col,
@@ -489,8 +491,24 @@ def create_term_resolver_node(
                                 "similarity": 0.0,
                             }
                             logger.info(
-                                f"[TERM_RESOLVER] column_hint fallback: '{entity.raw_text}' "
-                                f"→ '{resolved_col}' (hint='{entity.column_hint}')"
+                                f"[TERM_RESOLVER] resolver fallback (entity): "
+                                f"'{entity.raw_text}' → '{resolved_col}'"
+                            )
+
+                # Metrics: raw_text only (no column_hint on SemanticMetric)
+                for metric in intent.metrics:
+                    if metric.raw_text not in term_resolution:
+                        resolved_col = column_resolver.resolve(metric.raw_text)
+                        if resolved_col:
+                            term_resolution[metric.raw_text] = {
+                                "column_name": resolved_col,
+                                "filter_structured": None,
+                                "specificity": 0.5,
+                                "similarity": 0.0,
+                            }
+                            logger.info(
+                                f"[TERM_RESOLVER] resolver fallback (metric): "
+                                f"'{metric.raw_text}' → '{resolved_col}'"
                             )
 
             logger.info(
