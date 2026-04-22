@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import date
 from typing import Dict, List, Optional
 
-from src.graphs.report_agent.subagents.text2sql.date_parser import parse_semantic_time
+from src.graphs.report_agent.subagents.text2sql.date_parser import parse_semantic_time, detect_granularity_from_query
 from src.graphs.report_agent.subagents.text2sql.exceptions import SchemaBuilderError, SemanticExtractionError
 from src.graphs.report_agent.subagents.text2sql.prompts import (
     QuerySchema,
@@ -189,6 +189,14 @@ def build_query_schema(
 
         if gran is not None:
             time_granularity = gran
+
+        # Python keyword fallback — explicit keyword in raw_query overrides period-unit derivation.
+        # Runs only when time_breakdown=True (user requested breakdown).
+        if time_breakdown and intent.raw_query:
+            keyword_gran = detect_granularity_from_query(intent.raw_query)
+            if keyword_gran:
+                gran = keyword_gran
+                time_granularity = gran
 
     # ------------------------------------------------------------------
     # 4. Build description

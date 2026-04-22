@@ -214,3 +214,66 @@ def test_unresolved_metric_without_term_match_is_skipped():
     agg_columns = [a.column for a in schema.aggregations]
     assert "satış" not in agg_columns, "metric.raw_text should NEVER be used as a DB column name"
     assert len(schema.aggregations) == 0
+
+
+def test_keyword_fallback_overrides_period_unit_gran_in_schema():
+    """
+    LLM granularity=None bıraksa bile raw_query'de 'aylık' varsa
+    QuerySchema.time_granularity='monthly' olmalı (yearly değil).
+    """
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticTime, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        time=SemanticTime(raw_text="son 1 senede", breakdown=True, granularity=None),
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="son 1 senede espresso kategorisindeki satışları aylık karşılaştır",
+    )
+    term_resolution = {"ciro": _make_tm("RowAmount")}
+    schema = build_query_schema(intent, term_resolution, "TIME_SERIES_COMPARISON", time_breakdown=True)
+    assert schema.time_granularity == "monthly", (
+        f"Expected 'monthly' but got '{schema.time_granularity}'"
+    )
+
+
+def test_keyword_fallback_haftalık():
+    """'haftalık' in raw_query → 'weekly' override."""
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticTime, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        time=SemanticTime(raw_text="son 3 ayda", breakdown=True, granularity=None),
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="son 3 ayda haftalık satış trendi",
+    )
+    term_resolution = {"ciro": _make_tm("RowAmount")}
+    schema = build_query_schema(intent, term_resolution, "TIME_SERIES", time_breakdown=True)
+    assert schema.time_granularity == "weekly"
+
+
+def test_no_keyword_keeps_period_unit_gran():
+    """No explicit keyword → period-unit derivation preserved (yearly for 'son 1 yılda')."""
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticTime, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        time=SemanticTime(raw_text="son 1 yılda", breakdown=True, granularity=None),
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="son 1 yılda satışlar",
+    )
+    term_resolution = {"ciro": _make_tm("RowAmount")}
+    schema = build_query_schema(intent, term_resolution, "TIME_SERIES", time_breakdown=True)
+    assert schema.time_granularity == "yearly"
+
+
+def test_detect_granularity_from_query():
+    """detect_granularity_from_query correct keyword→gran mapping."""
+    from src.graphs.report_agent.subagents.text2sql.date_parser import detect_granularity_from_query
+    assert detect_granularity_from_query("aylık karşılaştır") == "monthly"
+    assert detect_granularity_from_query("haftalık trend") == "weekly"
+    assert detect_granularity_from_query("günlük satış") == "daily"
+    assert detect_granularity_from_query("yıllık büyüme") == "yearly"
+    assert detect_granularity_from_query("toplam ciro") is None

@@ -33,6 +33,42 @@ _GRAN_MAP = {
     "gün": "daily",
     "hafta": "weekly",
 }
+_GRANULARITY_KEYWORDS = {
+    # Monthly — longer phrases first (insertion order matters for first-match)
+    "ay bazında": "monthly",
+    "ay kırılımı": "monthly",
+    "her ay": "monthly",
+    "aylık": "monthly",
+    # Weekly
+    "hafta bazında": "weekly",
+    "haftalık": "weekly",
+    "her hafta": "weekly",
+    # Daily
+    "gün bazında": "daily",
+    "günlük": "daily",
+    "her gün": "daily",
+    # Yearly
+    "yıl bazında": "yearly",
+    "yıllık": "yearly",
+    "her yıl": "yearly",
+    # Hourly
+    "saat bazında": "hourly",
+    "saatlik": "hourly",
+    # Special
+    "haftanın günlerine": "day_of_week",
+    "ayın günlerine": "day_of_month",
+}
+
+
+def detect_granularity_from_query(raw_query: str) -> Optional[str]:
+    """Scan raw_query for explicit granularity keywords. Returns first match or None."""
+    q = raw_query.lower()
+    for keyword, gran in _GRANULARITY_KEYWORDS.items():
+        if keyword in q:
+            return gran
+    return None
+
+
 _TR_MONTH_MAP = {
     "ocak": 1,
     "şubat": 2,
