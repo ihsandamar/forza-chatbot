@@ -76,21 +76,6 @@ def _normalize(text: str) -> str:
     return text.replace("_", "").replace(" ", "")
 
 
-def _strip_suffixes(text: str) -> str:
-    """Strip one suffix per iteration (up to 4 rounds), returning the final stem."""
-    for _ in range(4):  # max 4 iterations (avoid infinite loop)
-        lower = text.lower()
-        stripped = False
-        for suffix in _TR_SUFFIXES:
-            if lower.endswith(suffix) and len(lower) - len(suffix) >= _MIN_STEM_LEN:
-                text = text[: len(text) - len(suffix)]
-                stripped = True
-                break
-        if not stripped:
-            break
-    return text
-
-
 def _strip_suffixes_intermediate(text: str) -> List[str]:
     """Return all intermediate stems produced by iterative suffix stripping."""
     results: List[str] = []
@@ -148,14 +133,17 @@ class ColumnResolver:
         if self._db_columns:
             try:
                 from rapidfuzz import process, fuzz
+            except ImportError:
+                pass
+            else:
                 match = process.extractOne(
                     raw_text, self._db_columns, scorer=fuzz.ratio, score_cutoff=85
                 )
                 if match:
-                    logger.debug(f"[COL_RESOLVER] '{raw_text}' fuzzy → '{match[0]}' (score={match[1]})")
+                    logger.debug(
+                        f"[COL_RESOLVER] '{raw_text}' fuzzy → '{match[0]}' (score={match[1]})"
+                    )
                     return match[0]
-            except Exception:
-                pass
 
         logger.debug(f"[COL_RESOLVER] '{raw_text}' → unresolved")
         return None
