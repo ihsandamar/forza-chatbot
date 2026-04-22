@@ -91,3 +91,36 @@ def test_with_db_columns_helper():
     assert base._db_columns == []
     # still resolves aliases correctly
     assert enriched.resolve("tutar") == "RowAmount"
+
+
+# ── Sales channel / platform ────────────────────────────────────────────────
+
+def test_resolve_platform_to_document_kind_name(resolver):
+    assert resolver.resolve("platform") == "DocumentKindName"
+
+
+def test_resolve_platform_inflected(resolver):
+    """'platformlara' → suffix strip 'lara' → 'platform' → DocumentKindName"""
+    assert resolver.resolve("platformlara") == "DocumentKindName"
+
+
+def test_resolve_kanal_to_document_kind_name(resolver):
+    assert resolver.resolve("kanal") == "DocumentKindName"
+
+
+def test_resolve_satiskanali(resolver):
+    assert resolver.resolve("satışkanalı") == "DocumentKindName"
+
+
+# ── Other previously missing columns ────────────────────────────────────────
+
+def test_resolve_ilce_to_branch_town_name(resolver):
+    assert resolver.resolve("ilçe") == "BranchTownName"
+
+
+def test_resolve_kurye_to_delivery_user_name(resolver):
+    assert resolver.resolve("kurye") == "DeliveryUserName"
+
+
+def test_resolve_masano_to_table_no(resolver):
+    assert resolver.resolve("masano") == "TableNo"

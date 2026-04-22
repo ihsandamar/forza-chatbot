@@ -15,33 +15,60 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _ALIAS_TABLE: Dict[str, List[str]] = {
+    # ---------- Metrics ----------
     "RowAmount": [
         "tutar", "satistutar", "satistutari", "satis_tutar", "amount",
         "rowamount", "toplam", "toplamtutar", "totalamount", "revenue",
         "gelir", "ciro", "satis",
     ],
     "Quantity": ["miktar", "adet", "quantity", "qty", "sayi", "adet_miktari"],
+    "DiscountAmountTotal": [
+        "indirim", "indirimtutar", "discount", "discountamounttotal",
+    ],
+    # ---------- Date / Time ----------
     "DocumentDate": ["tarih", "tarihsaat", "date", "datetime", "documentdate"],
-    "BranchName": ["sube", "subeadi", "sube_adi", "branch", "branchname"],
+    "DayOfWeek":    ["haftaningunu", "dayofweek"],
+    "Hour":         ["saat", "hour"],
+    # ---------- Location ----------
+    "BranchName":     ["sube", "subeadi", "sube_adi", "branch", "branchname"],
+    "BranchCityName": [
+        "sehir", "sehiradi", "sehir_adi", "city", "cityname",
+        "branchcity", "branchcityname", "il",
+    ],
+    "BranchTownName": ["ilce", "semt", "branchtownname"],
+    # ---------- Product / Category ----------
     "ProductName": ["urun", "urunadi", "urun_adi", "product", "productname", "urunlar"],
     "CategoryName": [
         "kategori", "kategoriadi", "kategori_adi", "category", "categoryname",
         "kategoriler",
     ],
-    "BranchCityName": [
-        "sehir", "sehiradi", "sehir_adi", "city", "cityname",
-        "branchcity", "branchcityname", "il",
+    # ---------- Sales channel ----------
+    "DocumentKindName": [
+        "platform", "kanal", "satiskanali", "kanaladi", "hizmettipi",
+        "siparitipi", "documentkindname",
     ],
+    "DocumentTypeName": [
+        "belgetipi", "islemtipi", "belgead", "documenttypename",
+    ],
+    # ---------- Staff / People ----------
+    "CashierName":      ["kasiyer", "cashier", "cashiername"],
+    "DeliveryUserName": ["kurye", "teslimat", "deliveryuser", "deliveryusername"],
     "CustomerName": [
         "musteri", "musteriadi", "musteri_adi", "customer", "customername",
     ],
-    "CashierName": ["kasiyer", "cashier", "cashiername"],
-    "DiscountAmountTotal": [
-        "indirim", "indirimtutar", "discount", "discountamounttotal",
-    ],
+    # ---------- Table ----------
+    "TableNo": ["masano", "masanumarasi", "tableno"],
 }
 
 _TR_SUFFIXES: List[str] = [
+    # Çoğul (lar/ler) + hal ekleri — önce uzun olanlar
+    "lardan", "lerden",
+    "larda", "lerde",
+    "ların", "lerin",
+    "lara", "lere",
+    "ları", "leri",
+    "lar", "ler",
+    # Tekil hal ekleri
     "ındaki", "undaki", "undeki",
     "ndaki", "ndeki", "indeki",
     "sından", "sinden", "sundan", "sunden",

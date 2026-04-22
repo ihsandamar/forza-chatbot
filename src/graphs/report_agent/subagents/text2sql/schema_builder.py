@@ -112,9 +112,11 @@ def build_query_schema(
             continue
 
         if entity.entity_type == "dimension":
-            # Dimension → GROUP BY
             if col not in group_by:
                 group_by.append(col)
+            # In TIME_SERIES_COMPARISON the grouping dimension IS the comparison axis
+            if query_type == "TIME_SERIES_COMPARISON" and comparison_dimension is None:
+                comparison_dimension = col
 
         elif entity.entity_type == "comparison_value":
             # Accumulate for single IN filter per column

@@ -277,3 +277,48 @@ def test_detect_granularity_from_query():
     assert detect_granularity_from_query("günlük satış") == "daily"
     assert detect_granularity_from_query("yıllık büyüme") == "yearly"
     assert detect_granularity_from_query("toplam ciro") is None
+
+
+# ── TIME_SERIES_COMPARISON: dimension → comparison_dimension ─────────────────
+
+def test_dimension_entity_sets_comparison_dimension_in_time_series():
+    """
+    TIME_SERIES_COMPARISON sorgularında dimension entity'si hem group_by hem de
+    comparison_dimension'ı set etmeli — platformlara göre aylık karşılaştır senaryosu.
+    """
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticEntity, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        entities=[SemanticEntity(raw_text="platform", entity_type="dimension")],
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="platformlara göre satış performansını aylık karşılaştır",
+    )
+    term_resolution = {
+        "platform": _make_tm("DocumentKindName"),
+        "ciro": _make_tm("RowAmount"),
+    }
+    schema = build_query_schema(intent, term_resolution, "TIME_SERIES_COMPARISON", True)
+    assert schema.comparison_dimension == "DocumentKindName"
+    assert "DocumentKindName" in schema.group_by
+
+
+def test_dimension_entity_does_not_set_comparison_dimension_outside_time_series():
+    """SINGLE / LISTING sorgularında dimension entity sadece group_by'a gitmeli."""
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticEntity, SemanticMetric,
+    )
+    intent = SemanticIntent(
+        entities=[SemanticEntity(raw_text="platform", entity_type="dimension")],
+        metrics=[SemanticMetric(raw_text="ciro", aggregation_hint="SUM")],
+        raw_query="platforma göre ciro",
+    )
+    term_resolution = {
+        "platform": _make_tm("DocumentKindName"),
+        "ciro": _make_tm("RowAmount"),
+    }
+    schema = build_query_schema(intent, term_resolution, "LISTING", False)
+    assert schema.comparison_dimension is None
+    assert "DocumentKindName" in schema.group_by

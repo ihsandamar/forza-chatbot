@@ -1165,6 +1165,7 @@ def create_sql_generator_node(
                 "cari":     "CustomerName",
                 "kasiyer":  "CashierName",
                 "şehir":    "BranchCityName",
+                "platform": "DocumentKindName",
                 "kanal":    "DocumentKindName",
                 "kurye":    "DeliveryUserName",
                 "masa":     "TableNo",
