@@ -392,17 +392,89 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
     """
     Semantic term resolution + optional interrupt():
-    user_query → term_filters (Python-guaranteed WHERE filters)
-               + term_hints  (LLM advisory column name hints)
 
-    Conflict resolution: unambiguous high-specificity terms suppress ambiguous
-    interrupts for the same column (e.g., 'ciro' suppresses 'ne kadar sattı').
+    NEW (semantic_intent present):
+        Reads SemanticIntent.entities/metrics raw_texts, calls resolve_terms() in
+        batch, converts results to term_resolution (raw_text → TermMatch dict) for
+        schema_builder_node, and aggregates candidate_filter_terms for term_validator.
 
-    term_filters: sql_generator'da QuerySchema'ya merge edilir, LLM override edilir.
-    term_hints:   sql_architect prompt'una inject edilir.
+    LEGACY (no semantic_intent — backward compat):
+        user_query → term_filters (Python-guaranteed WHERE filters)
+                   + term_hints  (LLM advisory column name hints)
+
+    Conflict resolution (legacy path): unambiguous high-specificity terms suppress
+    ambiguous interrupts for the same column (e.g., 'ciro' suppresses 'ne kadar sattı').
     """
 
+    def _resolver_output_to_term_match_dict(output) -> Optional[dict]:
+        """
+        Convert a TermResolverOutput to a TermMatch-compatible dict.
+
+        Uses the first candidate_filter_terms entry to extract column_name and
+        filter_structured. Returns None if the output has no resolved terms
+        (empty candidate_filter_terms and no term_filters).
+        """
+        # Prefer candidate_filter_terms (richer data with column, filter_structured)
+        if output.candidate_filter_terms:
+            cft = output.candidate_filter_terms[0]
+            return {
+                "column_name": cft.get("column", ""),
+                "filter_structured": cft.get("filter_structured"),
+                "specificity": 1.0,
+                "similarity": 1.0,
+            }
+        # Fall back to term_filters if no candidate_filter_terms
+        if output.term_filters:
+            tf = output.term_filters[0]
+            return {
+                "column_name": tf.get("column", ""),
+                "filter_structured": {k: v for k, v in tf.items() if k != "logical_operator"},
+                "specificity": 1.0,
+                "similarity": 1.0,
+            }
+        return None
+
     async def term_resolver_node(state: dict) -> dict:
+        # ── NEW PATH: SemanticIntent-based resolution ─────────────────────
+        intent_dict = state.get("semantic_intent")
+        if intent_dict:
+            intent = SemanticIntent.model_validate(intent_dict)
+
+            raw_texts: list[str] = (
+                [e.raw_text for e in intent.entities]
+                + [m.raw_text for m in intent.metrics]
+            )
+
+            resolved_map = term_vector_store.resolve_terms(raw_texts)
+            # resolved_map: {raw_text → TermResolverOutput}
+
+            term_resolution: dict = {}
+            all_candidate_filter_terms: list = []
+
+            for raw_text, output in resolved_map.items():
+                if output is None:
+                    continue
+
+                # Aggregate candidate_filter_terms for term_validator
+                all_candidate_filter_terms.extend(output.candidate_filter_terms)
+
+                # Convert to TermMatch-compatible dict for schema_builder_node
+                match_dict = _resolver_output_to_term_match_dict(output)
+                if match_dict is not None:
+                    term_resolution[raw_text] = match_dict
+
+            logger.info(
+                f"[TERM_RESOLVER] semantic_intent path: "
+                f"{len(raw_texts)} raw_text(s), "
+                f"{len(term_resolution)} resolved, "
+                f"{len(all_candidate_filter_terms)} filter candidate(s)"
+            )
+            return {
+                "term_resolution":        term_resolution,
+                "candidate_filter_terms": all_candidate_filter_terms,
+            }
+
+        # ── LEGACY PATH: raw user_query resolution ────────────────────────
         user_query = state.get("user_query", "")
         result = term_vector_store.resolve(user_query)
 
