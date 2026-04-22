@@ -807,9 +807,8 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
 - order_direction: "DESC" varsayılan; "en az", "en düşük", "artan" ifadeleri → "ASC"
 
 ## column_hint
-- **filter_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden gerçek DB kolon adını seç.
-- **dimension ve comparison_value için yaz** — biliyorsan mutlaka ekle.
-- Emin değilsen MEVCUT KOLON ADLARI listesine bak; uygun kolon yoksa None bırak.
+- **filter_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden gerçek DB kolon adını seç. Uygun kolon bulamazsan, entity_type'ı dimension olarak işaretle.
+- **dimension ve comparison_value için**: biliyorsan mutlaka ekle; emin değilsen None bırak.
 
 ## ÖNEMLİ KISITLAMALAR
 - SQL ifadeleri YAZMA (WHERE, GROUP BY, SELECT, HAVING vb.)
