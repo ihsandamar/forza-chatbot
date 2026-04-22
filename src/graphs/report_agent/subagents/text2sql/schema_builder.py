@@ -185,7 +185,7 @@ def build_query_schema(
     # ------------------------------------------------------------------
     # 5. select_columns — empty when aggregations are present
     # ------------------------------------------------------------------
-    select_columns: List[str] = [] if aggregations else []
+    select_columns: List[str] = []
 
     # ------------------------------------------------------------------
     # 6. order_by / limit from intent

@@ -1,16 +1,20 @@
 """
-Text2SQL Subagent Nodes (v2)
+Text2SQL Subgraph Nodes (v3 — SemanticIntent Architecture)
 
-8 node:
-    create_table         - Pure Python: tablo oluştur (no-op if no query config)
-    business_rules       - Pure Python + optional LLM: ChromaDB semantic search → auto_rules
-                           (llm sağlanırsa non-default aday kurallar LLM ile validate edilir)
-    term_resolver        - Pure Python + interrupt(): term_dict match → term_filters (guaranteed) + term_hints (LLM advisory)
-    sql_architect        - LLM (STRUCTURED OUTPUT): user_query → QuerySchema (field mapping only)
-    value_resolver       - Pure Python: fuzzy match + interrupt() if low confidence
-    sql_generator        - Pure Python: QuerySchema + term_filters + auto_rules → T-SQL (NO LLM)
-    sql_executor         - Pure Python: SQL çalıştır, hata → retry
-    cleanup_table        - Pure Python: tabloyu drop et (no-op if no query config)
+NEW QUERY PIPELINE:
+  business_rules       - BusinessRulesStore semantic search → auto_rules
+  semantic_extractor   - LLM (SemanticIntent): user_query → entities/metrics/time
+  term_resolver        - ChromaDB: entity/metric raw_texts → TermMatch map
+  term_validator       - LLM gate: approves candidate_filter_terms
+  schema_builder       - Python: SemanticIntent + TermMatch → QuerySchema (deterministic)
+  value_resolver       - Python + DB: filter value_hint → resolved DB value
+  sql_generator        - Pure Python: QuerySchema → T-SQL
+  sql_executor         - pyodbc: T-SQL → results
+
+MODIFY QUERY:
+  modify_sql           - LLM: active_sql + modification request → modified SQL
+
+Retry on sql_error → semantic_extractor (max MAX_RETRY times)
 """
 import asyncio
 import json
@@ -539,7 +543,6 @@ def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
         return {
             "term_filters":           term_filters,
             "candidate_filter_terms": result.candidate_filter_terms,
-            "term_hints":             hints_text,
         }
 
     return term_resolver_node
@@ -550,18 +553,7 @@ def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
 # =============================================================================
 
 def create_term_validator_node(llm) -> Callable:
-    """
-    Parallel LLM gate: TermVectorStore'un ürettiği filter adaylarını doğrular.
-
-    BusinessRulesValidationResult ile aynı pattern:
-      - candidate_filter_terms'i state'ten okur (term_resolver üretir)
-      - LLM her terimin kullanıcı tarafından gerçekten kastetilip kastetilmediğine karar verir
-      - Onaylananlar → validated_term_filters (sql_generator bunu okur)
-      - Reddedilenler → validated_term_filters'a GİRMEZ
-
-    term_resolver, sql_architect, schema_validator ile PARALLEL çalışır.
-    Latency: 0 — schema_merge zaten üç node'u bekler.
-    """
+    """LLM gate that validates candidate_filter_terms from term_resolver output."""
     structured_llm = llm.with_structured_output(TermValidationResult)
 
     def _format_candidate_filters(candidate_filter_terms: list) -> str:
