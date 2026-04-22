@@ -838,7 +838,8 @@ Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
 
 ## column_hint
 - **filter_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden gerçek DB kolon adını seç. Uygun kolon bulamazsan, entity_type'ı dimension olarak işaretle.
-- **dimension ve comparison_value için**: biliyorsan mutlaka ekle; emin değilsen None bırak.
+- **dimension için ZORUNLU** — MEVCUT KOLON ADLARI listesinden seç.
+- **comparison_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden seç.
 
 ## ÖNEMLİ KISITLAMALAR
 - SQL ifadeleri YAZMA (WHERE, GROUP BY, SELECT, HAVING vb.)
