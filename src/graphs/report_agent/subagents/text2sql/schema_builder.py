@@ -165,6 +165,7 @@ def build_query_schema(
             effective_st = SemanticTime(
                 raw_text=intent.time.raw_text,
                 breakdown=True,
+                granularity=intent.time.granularity,
             )
 
         try:

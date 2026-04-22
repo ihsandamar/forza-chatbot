@@ -96,3 +96,31 @@ def test_son_hafta():
     assert dd.unit == "week"
     assert dd.amount == -2
     assert gran == "weekly"
+
+
+def test_granularity_field_overrides_period_unit():
+    """st.granularity verilmişse period biriminden türetilen değer ezilmeli."""
+    from src.graphs.report_agent.subagents.text2sql.date_parser import parse_semantic_time
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticTime
+    # "son 1 senede" normalde yearly — ama granularity="monthly" → monthly
+    st = SemanticTime(raw_text="son 1 senede", breakdown=True, granularity="monthly")
+    _, gran = parse_semantic_time(st, date(2026, 4, 22))
+    assert gran == "monthly"
+
+
+def test_granularity_field_overrides_for_gecen_yil():
+    """'geçen yıl' normalde yearly — granularity='weekly' ile ezilmeli."""
+    from src.graphs.report_agent.subagents.text2sql.date_parser import parse_semantic_time
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticTime
+    st = SemanticTime(raw_text="geçen yıl", breakdown=True, granularity="weekly")
+    _, gran = parse_semantic_time(st, date(2026, 4, 22))
+    assert gran == "weekly"
+
+
+def test_granularity_none_falls_back_to_period_unit():
+    """granularity=None olduğunda mevcut period-birim davranışı korunmalı."""
+    from src.graphs.report_agent.subagents.text2sql.date_parser import parse_semantic_time
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticTime
+    st = SemanticTime(raw_text="son 1 senede", breakdown=True, granularity=None)
+    _, gran = parse_semantic_time(st, date(2026, 4, 22))
+    assert gran == "yearly"

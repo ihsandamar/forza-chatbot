@@ -74,7 +74,7 @@ def parse_semantic_time(
         n, unit = int(m.group(1)), m.group(2)
         dd = DateDescriptor(type="relative", unit=_UNIT_MAP[unit], amount=-n)
         if st.breakdown:
-            gran = _GRAN_MAP.get(unit)
+            gran = st.granularity or _GRAN_MAP.get(unit)
         return dd, gran
 
     # "geçen yıl/ay"
@@ -83,7 +83,7 @@ def parse_semantic_time(
         unit = m.group(1)
         dd = DateDescriptor(type="relative", unit=_UNIT_MAP[unit], amount=-1)
         if st.breakdown:
-            gran = _GRAN_MAP.get(unit)
+            gran = st.granularity or _GRAN_MAP.get(unit)
         return dd, gran
 
     # "bu yıl/ay/gün/çeyrek"
@@ -92,7 +92,7 @@ def parse_semantic_time(
         period_key = m.group(1)
         dd = DateDescriptor(type="current_period", period=_PERIOD_MAP[period_key])
         if st.breakdown:
-            gran = _GRAN_MAP.get(period_key)
+            gran = st.granularity or _GRAN_MAP.get(period_key)
         return dd, gran
 
     # "YYYY" exact year
@@ -108,7 +108,7 @@ def parse_semantic_time(
         if m:
             year = m.group(1)
             dd = DateDescriptor(type="exact", value=f"{year}-{month_num:02d}-01")
-            gran = "monthly" if st.breakdown else None
+            gran = (st.granularity or "monthly") if st.breakdown else None
             return dd, gran
 
     # "DD [ay adı]"
