@@ -52,7 +52,7 @@ class DateDescriptor(BaseModel):
       "15 ocak"   → type=exact, value="{current_year}-01-15"
     """
     type: Literal["exact", "relative", "current_period"]
-    unit:   Optional[Literal["day", "month", "year", "quarter"]] = None
+    unit:   Optional[Literal["day", "month", "year", "quarter", "week"]] = None
     amount: Optional[int] = None    # Geçmiş: negatif, gelecek: pozitif
     period: Optional[Literal["day", "month", "year", "quarter"]] = None
     value:  Optional[str] = None    # "YYYY-MM-DD" formatı (exact için)
