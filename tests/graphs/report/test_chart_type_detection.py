@@ -182,3 +182,114 @@ async def test_revisualize_chart_type_none_when_not_specified():
     result = await _run_classify("bunu farklı göster", llm)
     assert result["wants_visualization"] is True
     assert result["requested_chart_type"] is None
+
+
+# ---------------------------------------------------------------------------
+# viz_decider_node fast-return path
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_viz_decider_fast_return_uses_chart_x_hint():
+    """requested_chart_type set → viz_decider returns x_field=chart_x_hint."""
+    from unittest.mock import AsyncMock, MagicMock
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import create_viz_decider_node
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output = MagicMock(return_value=MagicMock())
+
+    node = create_viz_decider_node(mock_llm)
+    state = {
+        "results": [{"BranchName": "Istanbul", "RowAmount": 1000}],
+        "data_profile": {
+            "row_count": 1,
+            "column_count": 2,
+            "dimension_columns": ["BranchName"],
+            "metric_columns": ["RowAmount"],
+            "time_column": None,
+            "columns": [],
+        },
+        "wants_visualization": True,
+        "requested_chart_type": "bar_chart",
+        "chart_x_hint": "BranchName",
+        "comparison_dimension": None,
+        "query_type": "RANKING",
+        "time_granularity": None,
+    }
+    result = await node(state)
+    viz = result["viz_decision"]
+    assert viz["chart_type"] == "bar_chart"
+    assert viz["x_field"] == "BranchName"
+    assert viz["needs_graph"] is True
+    # LLM must NOT have been called (fast-return)
+    mock_llm.with_structured_output.return_value.ainvoke.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_viz_decider_fast_return_x_field_none_when_no_hint():
+    """requested_chart_type set, chart_x_hint=None → x_field=None (validator fills it)."""
+    from unittest.mock import MagicMock
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import create_viz_decider_node
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output = MagicMock(return_value=MagicMock())
+
+    node = create_viz_decider_node(mock_llm)
+    state = {
+        "results": [{"BranchName": "Istanbul", "RowAmount": 1000}],
+        "data_profile": {
+            "row_count": 1,
+            "column_count": 2,
+            "dimension_columns": ["BranchName"],
+            "metric_columns": ["RowAmount"],
+            "time_column": None,
+            "columns": [],
+        },
+        "wants_visualization": True,
+        "requested_chart_type": "pie_chart",
+        "chart_x_hint": None,
+        "comparison_dimension": None,
+        "query_type": "RANKING",
+        "time_granularity": None,
+    }
+    result = await node(state)
+    viz = result["viz_decision"]
+    assert viz["chart_type"] == "pie_chart"
+    assert viz["x_field"] is None
+    assert viz["needs_graph"] is True
+
+
+@pytest.mark.asyncio
+async def test_viz_decider_fast_return_bypasses_rule_based():
+    """requested_chart_type overrides rule-based decision (e.g. RANKING → bar_chart normally, but user wants pie)."""
+    from unittest.mock import MagicMock
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import create_viz_decider_node
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output = MagicMock(return_value=MagicMock())
+
+    node = create_viz_decider_node(mock_llm)
+    state = {
+        "results": [
+            {"ProductName": "A", "RowAmount": 500},
+            {"ProductName": "B", "RowAmount": 300},
+        ],
+        "data_profile": {
+            "row_count": 2,
+            "column_count": 2,
+            "dimension_columns": ["ProductName"],
+            "metric_columns": ["RowAmount"],
+            "time_column": None,
+            "columns": [],
+        },
+        "wants_visualization": True,
+        "requested_chart_type": "sunburst",  # overrides rule-based bar_chart for RANKING
+        "chart_x_hint": None,
+        "comparison_dimension": None,
+        "query_type": "RANKING",
+        "time_granularity": None,
+    }
+    result = await node(state)
+    viz = result["viz_decision"]
+    assert viz["chart_type"] == "sunburst"
+    assert viz["needs_graph"] is True
+    mock_llm.with_structured_output.return_value.ainvoke.assert_not_called()

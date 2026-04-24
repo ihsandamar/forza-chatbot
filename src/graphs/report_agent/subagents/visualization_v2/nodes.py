@@ -313,15 +313,15 @@ def create_viz_decider_node(llm) -> Callable:
             logger.info(
                 f"[V2:VIZ_DECIDER] Intent: chart_type={_requested_chart}, x_hint={_x_hint}"
             )
-            return {"viz_decision": {
-                "needs_graph": True,
-                "chart_type": _requested_chart,
-                "x_field": _x_hint,
-                "y_field": None,
-                "series_field": _comp_dim,
-                "reason": f"User requested {_requested_chart}"
-                          + (f" (x={_x_hint})" if _x_hint else ""),
-            }}
+            return {"viz_decision": ChartSpec(
+                needs_graph=True,
+                chart_type=_requested_chart,
+                x_field=_x_hint,
+                y_field=None,
+                series_field=_comp_dim,
+                reason=f"User requested {_requested_chart}"
+                       + (f" (x={_x_hint})" if _x_hint else ""),
+            ).model_dump()}
 
         # Rule-based fast path (no user chart preference)
         rule_decision = _rule_based_decision(
