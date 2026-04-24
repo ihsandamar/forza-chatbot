@@ -118,34 +118,36 @@ def create_classify_intent_node(llm) -> Callable:
             or (result.use_result_type == "revisualize")
         )
 
-        # chart_type: viz_decider (Task 11) sorumludur — burada None bırakılır.
-        chart_type: Optional[str] = None
+        chart_type = result.chart_type
+        chart_x_hint = result.chart_x_hint
 
-        # revisualize'da user_query SQL semantic query'yi kirletmemesi için
-        # viz_request ayrı bir alana yazılır; diğer pathlerde None (reset).
+        if chart_type:
+            logger.info(f"[CLASSIFY] chart_type={chart_type}, chart_x_hint={chart_x_hint}")
+
         is_revisualize = result.use_result_type == "revisualize"
         return_dict = {
-            "user_query": user_query,   # downstream SQL node'lar (term_resolver, sql_architect) okur
-            "viz_request": user_query if is_revisualize else None,  # viz_decider'ın özel alanı
+            "user_query": user_query,
+            "viz_request": user_query if is_revisualize else None,
             "intent_type": result.intent_type,
             "query_type": result.query_type,
             "intent_confidence": result.confidence,
             "wants_visualization": wants_viz,
             "requested_chart_type": chart_type,
+            "chart_x_hint": chart_x_hint,
             "use_result_type": result.use_result_type,
-            "compute_operation": result.compute_operation,  # compute path için (avg/sum/count/min/max)
-            "visualization_output": None,  # önceki tur çıktısını temizle
-            "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
-            "time_granularity": None,       # her turda temizle — stale state önle
+            "compute_operation": result.compute_operation,
+            "visualization_output": None,
+            "pre_built_sql": None,
+            "time_granularity": None,
             "time_breakdown": result.time_breakdown,
-            "modification_hints": None,   # her turda temizle
-            "semantic_intent": None,        # her turda temizle — NLU pipeline yeniden çalışır
-            "term_resolution": None,        # her turda temizle — NLU pipeline yeniden çalışır
+            "modification_hints": None,
+            "semantic_intent": None,
+            "term_resolution": None,
             "_clarification_count": 0 if result.intent_type != "VAGUE_QUERY" else state.get("_clarification_count", 0),
             "_skip_vague_check": False,
-            "text2sql_clarification": None,   # each turn: clear
-            "text2sql_answers": None,           # each turn: clear
-            "_hitl_answered": False,            # each turn: clear
+            "text2sql_clarification": None,
+            "text2sql_answers": None,
+            "_hitl_answered": False,
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:

@@ -71,6 +71,7 @@ class VisualizationState(TypedDict, total=False):
     time_granularity: Optional[str]       # from text2sql, for chart type decision
     comparison_dimension: Optional[str]   # from text2sql, entity column for multi-dim charts
     requested_chart_type: Optional[str]   # from intent classification
+    chart_x_hint: Optional[str]           # x-axis kolon ipucu — classify_intent'ten gelir
 
     # --- Internal ---
     data_profile: Optional[DataProfile]   # typed — DataProfile defined above

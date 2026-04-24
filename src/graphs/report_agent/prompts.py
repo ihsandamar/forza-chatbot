@@ -13,13 +13,18 @@ class IntentClassificationResult(BaseModel):
     intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT", "VAGUE_QUERY"]
     query_type: Literal["SINGLE", "LISTING", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
-    wants_visualization: bool = False           # Kullanıcı açıkça grafik/chart istedi mi?
+    wants_visualization: bool = False
+    chart_type: Optional[Literal[
+        "bar_chart", "line_chart", "pie_chart", "scatter_chart",
+        "heatmap", "sunburst", "treemap",
+    ]] = None
+    chart_x_hint: Optional[str] = None
     use_result_type: Optional[Literal["new_query", "revisualize", "compute", "modify_context"]] = None
     compute_operation: Optional[Literal["sum", "avg", "count", "min", "max"]] = None
-    modification_action: Optional[str] = None   # "add_filter" | "remove_filter" | "change_limit" | "change_order"
-    modification_target: Optional[str] = None   # "şehir", "tarih", "limit"
-    modification_value: Optional[str] = None    # "Ankara", "2024-01", "50"
-    time_breakdown: bool = False                 # True: dönemsel kırılım var ("aylık", "haftalık", "günlük", "yıllık")
+    modification_action: Optional[str] = None
+    modification_target: Optional[str] = None
+    modification_value: Optional[str] = None
+    time_breakdown: bool = False
 
     @field_validator("confidence")
     @classmethod
@@ -171,6 +176,28 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
   → Hem sorgu hem grafik istiyorsa (ör: "satışları bar chart olarak göster") True
 - False: Sadece veri/tablo istiyor, grafik talep etmiyor (DEFAULT)
   → "şube satışları nedir?", "top 10 ürün" gibi salt veri sorguları → False
+
+**chart_type:** (SADECE wants_visualization=True olduğunda doldur, aksi halde null)
+- Kullanıcı belirli bir grafik tipi belirtiyorsa tespit et:
+  - "bar chart", "bar grafik", "çubuk grafik", "sütun grafik", "histogram" → "bar_chart"
+  - "line chart", "çizgi grafik", "line grafik", "trend grafik" → "line_chart"
+  - "pie chart", "pasta grafik", "pasta dilimi" → "pie_chart"
+  - "scatter", "dağılım grafik" → "scatter_chart"
+  - "heatmap", "ısı haritası" → "heatmap"
+  - "sunburst", "sunbrust" (yazım hatası toleransı) → "sunburst"
+  - "treemap", "tree map" → "treemap"
+- Kullanıcı grafik tipini belirtmiyorsa (sadece "grafik göster", "görselleştir") → null
+- wants_visualization=False ise HER ZAMAN null
+
+**chart_x_hint:** (SADECE chart_type dolu VE kullanıcı x-ekseninde hangi boyutu istediğini açıkça belirtiyorsa)
+- Kullanıcı "X bazında", "X'e göre", "X kırılımında" gibi ifadelerle belirli bir boyut adı veriyorsa → o ismi yaz
+- Belirtmiyorsa → null
+- Örnekler:
+  - "BranchName bazında bar chart yap" → "BranchName"
+  - "kategorilere göre pasta grafik" → "CategoryName"
+  - "ürün bazında çizgi grafik" → "ProductName"
+  - "sadece bar chart yap" → null (kolon belirtilmemiş)
+  - "satışları bar chart olarak göster" → null (boyut belirtilmemiş)
 
 **confidence:** 0.0-1.0 güven skoru.
 - 0.90+: Kesin
