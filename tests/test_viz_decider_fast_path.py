@@ -46,8 +46,8 @@ def test_time_series_query_gets_line_chart():
     assert decision["needs_graph"] is True
 
 
-def test_listing_query_gets_table():
-    """LISTING query should produce table (no graph)."""
+def test_listing_query_falls_through_to_llm():
+    """LISTING + no special dimension → None (LLM fallback decides how to visualize)."""
     from src.graphs.report_agent.subagents.visualization_v2.nodes import (
         _rule_based_decision,
     )
@@ -58,9 +58,7 @@ def test_listing_query_gets_table():
         "time_column": None, "has_time_series": False,
     }
     decision = _rule_based_decision("LISTING", wants_viz=True, profile=profile)
-    assert decision is not None
-    assert decision["chart_type"] == "table"
-    assert decision["needs_graph"] is False
+    assert decision is None
 
 
 def test_comparison_query_gets_grouped_bar():
@@ -193,3 +191,49 @@ def test_non_city_single_dimension_does_not_get_turkey_map():
     )
     assert decision is not None
     assert decision["chart_type"] != "turkey_map"
+
+
+# ---------------------------------------------------------------------------
+# LISTING misclassification regression tests
+# Bug: queries like "Son 1 yılda illere göre satışlar görsel olarak" were
+# classified as LISTING → forced needs_graph: False, ignoring wants_viz=True.
+# ---------------------------------------------------------------------------
+
+def test_listing_with_city_dim_and_viz_gets_turkey_map():
+    """LISTING + city column + wants_viz=True → turkey_map fires (not forced to table).
+
+    Regression for: 'Son 1 senede espresso kategorisindeki illere göre satışını
+    görsel olarak' → LLM returned query_type=LISTING → no chart rendered.
+    """
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+    profile = {
+        "row_count": 10,
+        "dimension_columns": ["BranchCityName"],
+        "metric_columns": ["TotalSales"],
+        "time_column": None,
+    }
+    decision = _rule_based_decision(
+        "LISTING", wants_viz=True, profile=profile,
+        time_granularity=None, comparison_dimension=None,
+    )
+    assert decision is not None
+    assert decision["chart_type"] == "turkey_map"
+    assert decision["needs_graph"] is True
+
+
+def test_listing_with_non_city_dim_and_viz_falls_through_to_llm():
+    """LISTING + non-city dim + wants_viz=True → None (LLM fallback, not forced table)."""
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+    profile = {
+        "row_count": 15,
+        "dimension_columns": ["ProductName"],
+        "metric_columns": ["RowAmount"],
+        "time_column": None,
+    }
+    decision = _rule_based_decision(
+        "LISTING", wants_viz=True, profile=profile,
+        time_granularity=None, comparison_dimension=None,
+    )
+    assert decision is None

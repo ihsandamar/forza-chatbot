@@ -59,17 +59,31 @@ def test_all_chart_types_produce_html():
         {"Dim": "B", "Dim2": "Y", "Val": 200},
         {"Dim": "C", "Dim2": "Z", "Val": 300},
     ]
+    turkey_results = [
+        {"BranchCityName": "Istanbul", "Val": 100},
+        {"BranchCityName": "Ankara", "Val": 200},
+        {"BranchCityName": "Izmir", "Val": 300},
+    ]
 
     for chart_type in _BUILDERS:
         # heatmap requires series_field (entity column) to build pivot table
         needs_series = chart_type in ("comparison", "heatmap")
-        decision = {
-            "chart_type": chart_type,
-            "x_field": "Dim", "y_field": "Val",
-            "series_field": "Dim2" if needs_series else None,
-            "title": f"Test {chart_type}",
-        }
-        html = render_chart(decision, results, {})
+        if chart_type == "turkey_map":
+            decision = {
+                "chart_type": "turkey_map",
+                "x_field": "BranchCityName", "y_field": "Val",
+                "series_field": None,
+                "title": "Test turkey_map",
+            }
+            html = render_chart(decision, turkey_results, {})
+        else:
+            decision = {
+                "chart_type": chart_type,
+                "x_field": "Dim", "y_field": "Val",
+                "series_field": "Dim2" if needs_series else None,
+                "title": f"Test {chart_type}",
+            }
+            html = render_chart(decision, results, {})
         assert html is not None, f"{chart_type} returned None"
         assert "plotly" in html.lower(), f"{chart_type} missing plotly reference"
 

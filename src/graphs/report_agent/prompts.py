@@ -146,9 +146,10 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 
 **query_type:**
 - SINGLE: Tek bir metrik veya toplam (ör: "toplam ciro nedir?", "kaç adisyon açıldı?")
-- LISTING: Belirli bir boyut filtrelenip başka bir boyutun detayı listeleniyor
-  (ör: "dürümler kategorisindeki ürünler", "Ankara şubesindeki satışlar", "paket servisteki kategoriler")
-  → Bir boyut değer filtresi, diğer boyut GROUP BY
+- LISTING: Belirli bir boyut filtrelenip başka bir boyutun **sadece isimleri/öğeleri** listeleniyor — metrik/toplam hesaplanmıyor
+  (ör: "dürümler kategorisindeki ürünler", "paket servisteki kategoriler", "Ankara'daki şubeler hangileri")
+  → Bir boyut değer filtresi, diğer boyut GROUP BY, TOPLAM YOK — sadece eleman listesi
+  ⚠️ "illere göre satış", "şubelere göre ciro" gibi metrik hesaplayan sorgular LISTING DEĞİL → RANKING
 - RANKING: Sıralama / top-N / en fazla / en az
 - COMPARISON: İki veya daha fazla grubun karşılaştırması — SADECE zaman granülaritesi (haftalık/aylık/günlük vb.) YOKSA
   ✅ "dürümler ve içecek kategorilerini karşılaştır" → COMPARISON (zaman kırılımı yok)
@@ -160,12 +161,14 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   ✅ "her ay ne kadar satıldı" → TIME_SERIES_COMPARISON (periyodik kırılım)
   ✅ "dürümler ve hammade kategorilerini haftalık karşılaştır" → TIME_SERIES_COMPARISON (entity + haftalık = dönemsel kırılım!)
   ✅ "A ve B'yi aylık/günlük/saatlik/yıllık bazda karşılaştır" → TIME_SERIES_COMPARISON (entity + zaman granülaritesi)
-  ❌ "son 1 yılda carilere göre ciro" → LISTING (tek dönem filtresi + boyut kırılımı)
-  ❌ "geçen ay şubelere göre satışlar" → LISTING (tek dönem filtresi + boyut kırılımı)
+  ❌ "son 1 yılda carilere göre ciro" → RANKING (tarih filtresi + metrik toplam + boyut GROUP BY = sıralama)
+  ❌ "geçen ay şubelere göre satışlar" → RANKING (tarih filtresi + metrik toplam + boyut GROUP BY = sıralama)
   ❌ "bu yılın en çok satan ürünleri" → RANKING
   KURAL 1: Sorgu aylık/yıllık/haftalık/günlük/saatlik KIRILIM istiyorsa → TIME_SERIES_COMPARISON
   KURAL 2: "X ve Y'yi [periyot] bazda karşılaştır" kalıbı → zaman granülaritesi + entity = TIME_SERIES_COMPARISON
-  KURAL 3: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY = LISTING
+  KURAL 3: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY
+    → Ciro/satış/tutar/adet gibi metrik hesaplanıyorsa → RANKING
+    → Sadece isimleri listele ("hangi ürünler", "kimler") → LISTING
 
 TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
 - "saate göre ciro dağılımı" → TIME_SERIES_COMPARISON (aggregate: hour_of_day)

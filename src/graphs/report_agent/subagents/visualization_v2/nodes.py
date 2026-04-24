@@ -151,13 +151,6 @@ def _rule_based_decision(
     if not metric_cols:
         return None
 
-    if query_type == "LISTING":
-        return {
-            "needs_graph": False, "chart_type": "table",
-            "x_field": None, "y_field": None, "series_field": None,
-            "reason": "LISTING -> table",
-        }
-
     if query_type == "SINGLE" and row_count == 1 and len(metric_cols) == 1:
         return {
             "needs_graph": False, "chart_type": "single_value",
