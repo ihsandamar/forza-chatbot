@@ -14,7 +14,6 @@ CIZIM KATMANI: template_renderer, response_builder
 import datetime as _dt
 import json
 import logging
-import re as _re
 from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.runnables import RunnableConfig
@@ -29,57 +28,6 @@ from src.graphs.report_agent.subagents.text2sql.nodes import AGGREGATE_PERIOD_GR
 logger = logging.getLogger(__name__)
 
 NO_GRAPH_TYPES = {"single_value", "simple_list", "table"}
-
-# ---------------------------------------------------------------------------
-# Chart type keyword detection — moved from report_agent/nodes.py (Task 11).
-# Fallback when LLM structured output returns None for chart_type.
-#
-# Design: bare English single-words ("bar", "line", "pie") intentionally
-# excluded — they are collision-prone substrings in Turkish text (e.g.
-# "kabartma" contains "bar"). Only compound English forms and clearly
-# chart-specific Turkish keywords are included.
-# ---------------------------------------------------------------------------
-_CHART_KEYWORD_MAP: dict = {
-    # sunburst — includes the common typo that triggered this fix
-    "sunburst": "sunburst",
-    "sunbrust": "sunburst",
-    # heatmap
-    "heatmap": "heatmap",
-    "ısıharitası": "heatmap",   # Turkish: "ısı haritası" → stripped spaces
-    # treemap
-    "treemap": "treemap",
-    # bar chart — compound only (bare "bar" is a collision risk in Turkish)
-    "barchart": "bar_chart",
-    "çubuk": "bar_chart",
-    "cubuk": "bar_chart",
-    # line chart — compound only
-    "linechart": "line_chart",
-    "çizgi": "line_chart",
-    "cizgi": "line_chart",
-    # pie chart — compound only
-    "piechart": "pie_chart",
-    "pasta": "pie_chart",
-    # scatter chart — compound only
-    "scatterchart": "scatter_chart",
-}
-
-
-def _detect_chart_type_from_query(text: str) -> Optional[str]:
-    """Keyword fallback for chart type. No LLM, no I/O.
-
-    Normalizes input (lowercase, collapse whitespace/hyphens/underscores) then
-    checks for substrings against _CHART_KEYWORD_MAP.
-
-    Returns canonical chart type string (e.g. "sunburst") or None if no
-    keyword found. Pure function — safe to call from any context.
-    """
-    if not text or not text.strip():
-        return None
-    normalized = _re.sub(r"[\s_\-]", "", text.lower())
-    for keyword, chart_type in _CHART_KEYWORD_MAP.items():
-        if keyword in normalized:
-            return chart_type
-    return None
 
 
 def _get_configurable(config: Optional[RunnableConfig], key: str, fallback):
@@ -361,14 +309,18 @@ def create_viz_decider_node(llm) -> Callable:
         # --- Chart type override from intent classification ---
         _requested_chart = state.get("requested_chart_type")
         if _requested_chart:
-            logger.info(f"[V2:VIZ_DECIDER] Intent requested chart type: {_requested_chart}")
+            _x_hint = state.get("chart_x_hint")
+            logger.info(
+                f"[V2:VIZ_DECIDER] Intent: chart_type={_requested_chart}, x_hint={_x_hint}"
+            )
             return {"viz_decision": {
                 "needs_graph": True,
                 "chart_type": _requested_chart,
-                "x_field": None,
+                "x_field": _x_hint,
                 "y_field": None,
                 "series_field": _comp_dim,
-                "reason": f"User requested {_requested_chart}",
+                "reason": f"User requested {_requested_chart}"
+                          + (f" (x={_x_hint})" if _x_hint else ""),
             }}
 
         # Rule-based fast path (no user chart preference)
@@ -420,14 +372,6 @@ def create_viz_decider_node(llm) -> Callable:
                 "chart_type": safe_chart,
                 "reason": decision.reason + " [override: user requested chart]",
             })
-
-        # Keyword fallback: if LLM returned no chart_type, try keyword detection
-        query_text = state.get("viz_request") or state.get("user_query") or ""
-        if not getattr(decision, "chart_type", None) and query_text:
-            keyword_chart = _detect_chart_type_from_query(query_text)
-            if keyword_chart:
-                logger.info(f"[V2:VIZ_DECIDER] Keyword fallback: {keyword_chart}")
-                decision = decision.model_copy(update={"chart_type": keyword_chart})
 
         logger.info(
             f"[V2:VIZ_DECIDER] LLM: {decision.chart_type}, "
