@@ -153,10 +153,11 @@ def test_city_dimension_with_time_does_not_get_turkey_map():
         "time_column": "DocumentDate",
     }
     decision = _rule_based_decision(
-        "TIME_SERIES_COMPARISON", wants_viz=True, profile=profile,
-        time_granularity=None, comparison_dimension="BranchCityName",
+        "RANKING", wants_viz=True, profile=profile,
+        time_granularity=None, comparison_dimension=None,
     )
-    assert decision is None or decision["chart_type"] != "turkey_map"
+    assert decision is not None
+    assert decision["chart_type"] != "turkey_map"
 
 
 def test_city_dimension_with_other_dims_does_not_get_turkey_map():
