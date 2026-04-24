@@ -60,10 +60,17 @@ def normalize_city_name(name: str) -> str:
 def load_turkey_geojson() -> Optional[dict]:
     """
     Load Turkey provinces GeoJSON from the bundled asset file.
-    Returns None if the asset file does not exist (renderer falls back gracefully).
+    Returns None if the file does not exist or cannot be parsed.
     """
     if not TURKEY_GEOJSON_PATH.exists():
         return None
     import json
-    with open(TURKEY_GEOJSON_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    import logging
+    try:
+        with open(TURKEY_GEOJSON_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        logging.getLogger(__name__).warning(
+            f"[TURKEY_GEO] Failed to load turkey_provinces.geojson: {exc}"
+        )
+        return None
