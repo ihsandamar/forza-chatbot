@@ -16,7 +16,7 @@ class IntentClassificationResult(BaseModel):
     wants_visualization: bool = False
     chart_type: Optional[Literal[
         "bar_chart", "line_chart", "pie_chart", "scatter_chart",
-        "heatmap", "sunburst", "treemap", "comparison",
+        "heatmap", "sunburst", "treemap", "comparison", "turkey_map",
     ]] = None
     chart_x_hint: Optional[str] = None
     use_result_type: Optional[Literal["new_query", "revisualize", "compute", "modify_context"]] = None
