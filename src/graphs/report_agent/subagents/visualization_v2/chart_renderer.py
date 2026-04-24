@@ -306,6 +306,60 @@ def _build_heatmap(df: pd.DataFrame, spec: dict) -> go.Figure:
     return fig
 
 
+def _build_turkey_map(df: pd.DataFrame, spec: dict) -> go.Figure:
+    """
+    Render a Turkey province choropleth map.
+
+    Expects:
+        x_field: city/province column (dimension)
+        y_field: metric column (color intensity)
+    """
+    from src.graphs.report_agent.subagents.visualization_v2.turkey_geo import (
+        load_turkey_geojson,
+        normalize_city_name,
+    )
+
+    x = spec.get("x_field")
+    y = spec.get("y_field")
+    title = spec.get("title") or ""
+
+    if not x or not y or x not in df.columns or y not in df.columns:
+        return None
+
+    geojson = load_turkey_geojson()
+    if geojson is None:
+        return None
+
+    # Build lookup: normalized GeoJSON province name -> original GeoJSON name
+    name_lookup: dict = {}
+    for feature in geojson.get("features", []):
+        original = feature.get("properties", {}).get("name", "")
+        if original:
+            name_lookup[normalize_city_name(original)] = original
+
+    df = df.copy()
+    df["_geo_loc"] = df[x].apply(
+        lambda v: name_lookup.get(normalize_city_name(str(v))) if v else None
+    )
+    df_mapped = df.dropna(subset=["_geo_loc"])
+
+    if df_mapped.empty:
+        return None
+
+    fig = px.choropleth(
+        df_mapped,
+        geojson=geojson,
+        locations="_geo_loc",
+        featureidkey="properties.name",
+        color=y,
+        hover_name=x,
+        color_continuous_scale="Blues",
+        title=title,
+    )
+    fig.update_geos(fitbounds="locations", visible=False)
+    return fig
+
+
 _BUILDERS = {
     "bar_chart": _build_bar,
     "line_chart": _build_line,
@@ -316,6 +370,7 @@ _BUILDERS = {
     "treemap": _build_treemap,
     "comparison": _build_comparison,
     "heatmap": _build_heatmap,
+    "turkey_map": _build_turkey_map,
 }
 
 

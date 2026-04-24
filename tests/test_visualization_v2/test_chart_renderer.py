@@ -201,3 +201,82 @@ def test_column_metadata_used_as_labels(bar_results, col_meta):
     }
     html = render_chart(spec, bar_results, col_meta)
     assert "Sube adi" in html or "Sube" in html
+
+
+def test_turkey_map_renders_with_mock_geojson():
+    """turkey_map renders choropleth HTML when GeoJSON is available."""
+    from unittest.mock import patch
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    _MINIMAL_GEOJSON = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[28.0, 41.0], [29.0, 41.0], [29.0, 42.0], [28.0, 42.0], [28.0, 41.0]]]
+                },
+                "properties": {"name": "İstanbul"},
+            },
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[32.0, 39.0], [33.0, 39.0], [33.0, 40.0], [32.0, 40.0], [32.0, 39.0]]]
+                },
+                "properties": {"name": "Ankara"},
+            },
+        ],
+    }
+
+    results = [
+        {"BranchCityName": "Istanbul", "TotalSales": 50000},
+        {"BranchCityName": "Ankara", "TotalSales": 35000},
+    ]
+    spec = {
+        "chart_type": "turkey_map",
+        "x_field": "BranchCityName",
+        "y_field": "TotalSales",
+        "title": "İl Bazında Satışlar",
+    }
+
+    with patch(
+        "src.graphs.report_agent.subagents.visualization_v2.turkey_geo.load_turkey_geojson",
+        return_value=_MINIMAL_GEOJSON,
+    ):
+        html = render_chart(spec, results, {})
+
+    assert html is not None
+    assert "plotly" in html.lower()
+
+
+def test_turkey_map_returns_none_when_no_geojson():
+    """turkey_map returns None gracefully when GeoJSON asset is missing."""
+    from unittest.mock import patch
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    results = [{"BranchCityName": "Istanbul", "TotalSales": 50000}]
+    spec = {
+        "chart_type": "turkey_map",
+        "x_field": "BranchCityName",
+        "y_field": "TotalSales",
+    }
+
+    with patch(
+        "src.graphs.report_agent.subagents.visualization_v2.turkey_geo.load_turkey_geojson",
+        return_value=None,
+    ):
+        html = render_chart(spec, results, {})
+
+    assert html is None
+
+
+def test_turkey_map_returns_none_when_x_field_missing():
+    """turkey_map returns None when spec has no x_field."""
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    results = [{"BranchCityName": "Istanbul", "TotalSales": 50000}]
+    spec = {"chart_type": "turkey_map", "x_field": None, "y_field": "TotalSales"}
+    html = render_chart(spec, results, {})
+    assert html is None

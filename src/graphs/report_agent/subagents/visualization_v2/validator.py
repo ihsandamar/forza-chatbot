@@ -161,6 +161,11 @@ def validate_spec(
             spec["chart_type"] = "bar_chart"
             logger.info("[VALIDATOR] Rule 3: heatmap without series_field -> bar_chart")
 
+    if chart_type == "turkey_map":
+        if not spec.get("x_field") or not spec.get("y_field"):
+            spec["chart_type"] = "bar_chart"
+            logger.info("[VALIDATOR] Rule 3: turkey_map missing x/y field -> bar_chart")
+
     # Rule 5: Multi-metric validation
     y_fields = spec.get("y_fields")
     if y_fields:
