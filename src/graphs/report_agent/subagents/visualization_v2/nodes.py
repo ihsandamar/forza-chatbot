@@ -23,6 +23,7 @@ from src.graphs.report_agent.subagents.visualization_v2.models import ChartSpec
 from src.graphs.report_agent.subagents.visualization_v2.prompts import VIZ_DECIDER_PROMPT
 from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
 from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+from src.graphs.report_agent.subagents.visualization_v2.turkey_geo import detect_city_column
 from src.graphs.report_agent.subagents.text2sql.nodes import AGGREGATE_PERIOD_GRANULARITIES
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,24 @@ def _rule_based_decision(
             "needs_graph": True, "chart_type": "line_chart",
             "x_field": None, "y_field": None, "series_field": None,
             "reason": "Time series -> line chart",
+        }
+
+    # --- TURKEY MAP: single city dimension, no time axis, no time granularity ---
+    _city_col = detect_city_column(dim_cols)
+    if (
+        _city_col
+        and not time_col
+        and not time_granularity
+        and len(dim_cols) == 1
+        and metric_cols
+    ):
+        return {
+            "needs_graph": True,
+            "chart_type": "turkey_map",
+            "x_field": _city_col,
+            "y_field": None,
+            "series_field": None,
+            "reason": f"City dimension ({_city_col}) + no time axis -> Turkey province map",
         }
 
     # --- COMPARISON / RANKING with multiple dimensions -> sunburst ---

@@ -60,6 +60,7 @@ Kullanici grafik turu belirtmisse onu kullan:
 - "sunburst/hiyerarsik" → sunburst
 - "treemap/agac harita" → treemap
 - "heatmap/ısı haritası" → heatmap
+- "türkiye haritası", "il haritası", "şehir haritası", "il bazında harita" → turkey_map
 
 Belirtmemisse veri profiline gore:
 - Tek sayi → single_value (needs_graph=False)
@@ -70,6 +71,7 @@ Belirtmemisse veri profiline gore:
 - Oran/pay dagilimi → pie_chart
 - 2+ dimension hiyerarsi → sunburst veya treemap
 - Entity + toplu dağılım (hour_of_day/day_of_week/day_of_month) → heatmap
+- İl/şehir boyutu + metrik + zaman yok → turkey_map
 
 ### orientation
 - Kategori sayisi fazlaysa (10+) → "h" (yatay bar daha okunur)
@@ -90,6 +92,13 @@ Belirtmemisse veri profiline gore:
   → "ürünlerin saatlere göre satışları" → x_field="Saat", series_field="ProductName"
 - Kullanıcı "heatmap" veya "ısı haritası" derse → chart_type="heatmap"
 - 2 boyut + 1 metrik + toplu dağılım periyodu varsa heatmap öner
+
+### 🗺️ TÜRKİYE İL HARİTASI KURALLARI
+- turkey_map = Türkiye illerini metrik değere göre renklendiren choropleth harita
+- ZORUNLU ALANLAR: x_field = il/şehir kolonu (ör. BranchCityName), y_field = metrik
+- Zaman ekseni OLMAMALI (zamanla değişen şehir verisinde line_chart daha uygun)
+- Kullanıcı "harita", "il bazında", "şehirlere göre", "türkiye haritası" derse → turkey_map
+- Otomatik seçim: tek şehir boyutu + zaman yok + kullanıcı grafik tipi belirtmemişse → turkey_map
 
 ### top_n
 - Pie chart icin 10'dan fazla kategori varsa → top_n=10 oner

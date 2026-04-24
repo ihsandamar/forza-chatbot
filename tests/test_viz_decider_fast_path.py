@@ -120,3 +120,75 @@ def test_time_series_comparison_without_dimension_returns_none():
     # No comparison_dimension → should fall through to LLM
     result = _rule_based_decision("TIME_SERIES_COMPARISON", wants_viz=True, profile=profile)
     assert result is None
+
+
+def test_city_dimension_no_time_gets_turkey_map():
+    """Single city dimension + no time + no granularity → turkey_map auto-selected."""
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+    profile = {
+        "row_count": 10,
+        "dimension_columns": ["BranchCityName"],
+        "metric_columns": ["TotalSales"],
+        "time_column": None,
+    }
+    decision = _rule_based_decision(
+        "RANKING", wants_viz=True, profile=profile,
+        time_granularity=None, comparison_dimension=None,
+    )
+    assert decision is not None
+    assert decision["chart_type"] == "turkey_map"
+    assert decision["x_field"] == "BranchCityName"
+    assert decision["needs_graph"] is True
+
+
+def test_city_dimension_with_time_does_not_get_turkey_map():
+    """City dimension + time column → does NOT auto-select turkey_map."""
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+    profile = {
+        "row_count": 10,
+        "dimension_columns": ["BranchCityName"],
+        "metric_columns": ["TotalSales"],
+        "time_column": "DocumentDate",
+    }
+    decision = _rule_based_decision(
+        "TIME_SERIES_COMPARISON", wants_viz=True, profile=profile,
+        time_granularity=None, comparison_dimension="BranchCityName",
+    )
+    assert decision is None or decision["chart_type"] != "turkey_map"
+
+
+def test_city_dimension_with_other_dims_does_not_get_turkey_map():
+    """City + other dimension → does NOT auto-select turkey_map (multiple dims)."""
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+    profile = {
+        "row_count": 10,
+        "dimension_columns": ["BranchCityName", "CategoryName"],
+        "metric_columns": ["TotalSales"],
+        "time_column": None,
+    }
+    decision = _rule_based_decision(
+        "RANKING", wants_viz=True, profile=profile,
+        time_granularity=None, comparison_dimension=None,
+    )
+    assert decision is None or decision["chart_type"] != "turkey_map"
+
+
+def test_non_city_single_dimension_does_not_get_turkey_map():
+    """BranchName alone (no city hints) → does NOT get turkey_map."""
+    from src.graphs.report_agent.subagents.visualization_v2.nodes import _rule_based_decision
+
+    profile = {
+        "row_count": 5,
+        "dimension_columns": ["BranchName"],
+        "metric_columns": ["TotalSales"],
+        "time_column": None,
+    }
+    decision = _rule_based_decision(
+        "RANKING", wants_viz=True, profile=profile,
+        time_granularity=None, comparison_dimension=None,
+    )
+    assert decision is not None
+    assert decision["chart_type"] != "turkey_map"
