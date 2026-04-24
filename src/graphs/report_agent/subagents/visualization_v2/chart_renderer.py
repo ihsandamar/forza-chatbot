@@ -339,7 +339,7 @@ def _build_turkey_map(df: pd.DataFrame, spec: dict) -> go.Figure:
 
     df = df.copy()
     df["_geo_loc"] = df[x].apply(
-        lambda v: name_lookup.get(normalize_city_name(str(v))) if v else None
+        lambda v: name_lookup.get(normalize_city_name(str(v).strip())) if v else None
     )
     df_mapped = df.dropna(subset=["_geo_loc"])
 

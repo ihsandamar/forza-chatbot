@@ -25,7 +25,11 @@ def detect_city_column(dim_cols: List[str]) -> Optional[str]:
     """
     for col in dim_cols:
         normalized = col.lower().replace("_", "").replace(" ", "")
-        if normalized in _CITY_HINTS or "city" in normalized or "sehir" in normalized:
+        if (normalized in _CITY_HINTS
+                or normalized.startswith("city")
+                or normalized.endswith("city")
+                or normalized.startswith("sehir")
+                or normalized.endswith("sehir")):
             return col
     return None
 
