@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 # =============================================================================
@@ -16,7 +16,7 @@ class IntentClassificationResult(BaseModel):
     wants_visualization: bool = False
     chart_type: Optional[Literal[
         "bar_chart", "line_chart", "pie_chart", "scatter_chart",
-        "heatmap", "sunburst", "treemap",
+        "heatmap", "sunburst", "treemap", "comparison",
     ]] = None
     chart_x_hint: Optional[str] = None
     use_result_type: Optional[Literal["new_query", "revisualize", "compute", "modify_context"]] = None
@@ -32,6 +32,12 @@ class IntentClassificationResult(BaseModel):
         if not 0.0 <= v <= 1.0:
             raise ValueError("confidence must be between 0.0 and 1.0")
         return v
+
+    @model_validator(mode="after")
+    def clear_chart_hints_when_no_chart_type(self) -> "IntentClassificationResult":
+        if self.chart_type is None:
+            self.chart_x_hint = None
+        return self
 
 
 class ChartTypeResult(BaseModel):
@@ -186,6 +192,7 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
   - "heatmap", "ısı haritası" → "heatmap"
   - "sunburst", "sunbrust" (yazım hatası toleransı) → "sunburst"
   - "treemap", "tree map" → "treemap"
+  - "karşılaştırma grafiği", "comparison chart" → "comparison"
 - Kullanıcı grafik tipini belirtmiyorsa (sadece "grafik göster", "görselleştir") → null
 - wants_visualization=False ise HER ZAMAN null
 
