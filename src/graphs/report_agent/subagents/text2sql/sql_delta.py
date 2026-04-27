@@ -51,7 +51,7 @@ class SqlDeltaApplicator:
                 r"(?:CAST\s*\(\s*)?"
                 rf"\[{esc}\][^)]*\)?"
                 r"\s*(?:NOT\s+)?(?:LIKE|=|!=|>=|<=|>|<)\s*"
-                r"(?:'[^']*'|[\w.(),-]+)"
+                r"(?:CAST\s*\([^)]+\)|'[^']*'|[\w.(),-]+)"
             )
             sql = re.sub(r"\s+AND\s+" + cond, "", sql, flags=re.IGNORECASE)
             sql = re.sub(cond + r"\s+AND\s+", "", sql, flags=re.IGNORECASE)
