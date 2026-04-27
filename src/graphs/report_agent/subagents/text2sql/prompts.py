@@ -824,7 +824,18 @@ Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
 
 ## time.breakdown KURALI
 - **True** — Zaman KIRILIMı isteniyor: "aylık", "haftalık", "günlük", "yıllık" kırılım
+- **True** — Zaman BOYUTU SUPERLATİFİ: "en çok sattığı gün", "hangi ayda en fazla", "en yüksek cirolu hafta"
+  → Bu kalıplar GROUP BY date gerektirir → breakdown=True, granularity belirlenir
 - **False** — Sadece zaman FİLTRESİ: "son 3 ay", "bu yıl", "2024", "ocak 2024"
+
+## TÜRKÇE ZAMAN BOYUTU TANIMLAMA (KRİTİK)
+"X'in en çok/en az/en fazla/en yüksek/en düşük olduğu/sattığı GÜN/AY/HAFTA/SAAT hangisidir/nedir"
+kalıbı = zaman boyutu isteği → breakdown=True, raw_text=null, granularity belirlenir:
+  "en çok sattığı gün hangisidir"    → time: {{raw_text: null, breakdown: true, granularity: "daily"}}
+  "en yüksek cirolu ay hangisidir"   → time: {{raw_text: null, breakdown: true, granularity: "monthly"}}
+  "en fazla satış yapılan hafta"     → time: {{raw_text: null, breakdown: true, granularity: "weekly"}}
+  "hangi saatte en çok sipariş"      → time: {{raw_text: null, breakdown: true, granularity: "hourly"}}
+  "haftanın hangi günü en fazla"     → time: {{raw_text: null, breakdown: true, granularity: "day_of_week"}}
 
 ## time.granularity KURALI (breakdown=True ise doldur, aksi halde null)
 - "aylık", "her ay", "ay bazında", "aylık olarak"    → granularity: "monthly"

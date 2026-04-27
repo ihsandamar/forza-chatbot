@@ -137,6 +137,11 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 - NEW_QUERY: Kullanıcı tamamen yeni bir sorgu istiyor, önceki bağlamla ilgisi yok
 - MODIFY_QUERY: Önceki sorguyu değiştirmek istiyor (filtre ekle/çıkar, sırala, limitı değiştir)
   → Aktif SQL olmadan ASLA MODIFY_QUERY seçme
+  → MODIFY_QUERY SINIRI: Sadece filtre/sıralama/limit değişikliklerini kapsar.
+    "Boyut pivot" (GROUP BY boyutunu tamamen değiştirme) MODIFY_QUERY DEĞİLDİR → NEW_QUERY seç.
+    Boyut pivot örnekleri: "en çok sattığı gün hangisidir", "hangi ayda en fazla ciro var",
+    "en yüksek satışın olduğu hafta", "hangi saatte en çok sipariş geliyor"
+    Bu sorgularda "bu ürün/bu şube" gibi zamirler olsa bile → NEW_QUERY (bağlam K3 ile çözülür)
 - VAGUE_QUERY: Sorgu çok genel/belirsiz — SQL'e çevrilemeyecek kadar spesifik değil
   → Dönem belirtmemiş, filtre/kırılım yok, ne istediği açık değil
   → Örnekler: "satış durumu nedir", "ciro", "durum ne", "satışlar nasıl"
@@ -186,6 +191,14 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
 - "saate göre ciro dağılımı" → TIME_SERIES_COMPARISON (aggregate: hour_of_day)
 - "haftanın günlerine göre satış" → TIME_SERIES_COMPARISON (aggregate: day_of_week)
 - "ayın günlerine göre adet" → TIME_SERIES_COMPARISON (aggregate: day_of_month)
+
+TIME_SERIES_COMPARISON ayrıca ZAMAN BOYUTU SUPERLATİF sorgularını kapsar (dimension pivot):
+✅ "bu ürünün en çok sattığı gün hangisidir" → TIME_SERIES_COMPARISON (gün = zaman boyutu, GROUP BY gün)
+✅ "hangi ayda en fazla ciro var" → TIME_SERIES_COMPARISON
+✅ "en yüksek satışın olduğu hafta" → TIME_SERIES_COMPARISON
+✅ "hangi saatte en çok sipariş geliyor" → TIME_SERIES_COMPARISON
+KURAL: "X'in/hangi [GÜN/AY/HAFTA/SAAT] en çok/en az/en yüksek/en düşük" kalıbı = TIME_SERIES_COMPARISON
+Bu sorgular MODIFY_QUERY DEĞİLDİR — GROUP BY boyutu tamamen değiştiğinden NEW_QUERY olarak işlenir.
 
 ⚠️ FARK: "günlük satışlar" = TIME_SERIES (trend), "haftanın günlerine göre" = TIME_SERIES (dağılım)
   İkisi de TIME_SERIES_COMPARISON. Ayrım text2sql katmanında time_granularity ile yapılır.

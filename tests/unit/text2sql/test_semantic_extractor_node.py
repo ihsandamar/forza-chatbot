@@ -163,3 +163,43 @@ def test_prompt_mandates_column_hint_for_comparison_value():
     assert cv_idx != -1
     cv_section = SEMANTIC_EXTRACTOR_PROMPT[cv_idx:cv_idx + 400]
     assert "ZORUNLU" in cv_section, "column_hint must be declared ZORUNLU for comparison_value entities"
+
+
+def test_semantic_extractor_prompt_covers_turkish_superlative_day_pattern():
+    """SEMANTIC_EXTRACTOR_PROMPT must teach LLM that 'en çok sattığı gün' = breakdown=True + daily."""
+    from src.graphs.report_agent.subagents.text2sql.prompts import SEMANTIC_EXTRACTOR_PROMPT
+    # The prompt must contain the superlative time dimension pattern
+    assert "en çok sattığı gün" in SEMANTIC_EXTRACTOR_PROMPT, (
+        "SEMANTIC_EXTRACTOR_PROMPT must include 'en çok sattığı gün' as example for "
+        "breakdown=True, granularity='daily'"
+    )
+    # Verify it maps to breakdown=True
+    idx = SEMANTIC_EXTRACTOR_PROMPT.find("en çok sattığı gün")
+    surrounding = SEMANTIC_EXTRACTOR_PROMPT[idx:idx + 150]
+    assert "daily" in surrounding or "breakdown" in surrounding, (
+        "'en çok sattığı gün' example must be near 'daily' or 'breakdown'"
+    )
+
+
+def test_intent_classifier_prompt_covers_dimension_pivot_as_new_query():
+    """INTENT_CLASSIFIER_PROMPT must explain that dimension pivot queries need NEW_QUERY not MODIFY_QUERY."""
+    from src.graphs.report_agent.prompts import INTENT_CLASSIFIER_PROMPT
+    assert "dimension pivot" in INTENT_CLASSIFIER_PROMPT.lower() or \
+           "en çok sattığı gün" in INTENT_CLASSIFIER_PROMPT or \
+           "boyut değişikliği" in INTENT_CLASSIFIER_PROMPT, (
+        "INTENT_CLASSIFIER_PROMPT must explain that 'which day/month/week X is highest' "
+        "requires NEW_QUERY (dimension pivot), not MODIFY_QUERY"
+    )
+
+
+def test_intent_classifier_prompt_covers_superlative_time_as_time_series():
+    """'X'in en çok olduğu gün/ay' must be classified as TIME_SERIES_COMPARISON."""
+    from src.graphs.report_agent.prompts import INTENT_CLASSIFIER_PROMPT
+    # Must have examples showing superlative+time → TIME_SERIES_COMPARISON
+    assert "en çok" in INTENT_CLASSIFIER_PROMPT and "TIME_SERIES_COMPARISON" in INTENT_CLASSIFIER_PROMPT
+    # Find where "en çok" and time dimension appear together near TIME_SERIES_COMPARISON
+    idx = INTENT_CLASSIFIER_PROMPT.find("en çok sattığı gün")
+    assert idx != -1, (
+        "INTENT_CLASSIFIER_PROMPT must contain 'en çok sattığı gün' example "
+        "showing it maps to TIME_SERIES_COMPARISON"
+    )
