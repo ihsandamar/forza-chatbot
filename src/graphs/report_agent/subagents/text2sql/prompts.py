@@ -827,6 +827,22 @@ Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
 - "ayın günlerine göre"                               → granularity: "day_of_month"
 - Açık granülarite kelimesi yoksa                     → granularity: null
 
+## time.raw_text KURALI (KRİTİK — CRASH ÖNLEME)
+raw_text YALNIZCA date_parser'ın çözebileceği bir tarih aralığı ifadesi olmalıdır.
+Granularity kelimesi ("gün", "ay", "hafta", "yıl") tek başına raw_text OLAMAZ.
+
+DOĞRU:
+  "bunu gün bazında kır"          → time: {{raw_text: null, breakdown: true,  granularity: "daily"}}
+  "bunu aylık göster"             → time: {{raw_text: null, breakdown: true,  granularity: "monthly"}}
+  "son 1 yılda aylık karşılaştır" → time: {{raw_text: "son 1 yılda", breakdown: true, granularity: "monthly"}}
+  "son 3 ayda satışlar"           → time: {{raw_text: "son 3 ayda", breakdown: false, granularity: null}}
+
+YANLIŞ — CRASH YARATIR:
+  "bunu gün bazında kır" → time: {{raw_text: "gün", ...}}
+  "aylık göster"         → time: {{raw_text: "aylık", ...}}
+
+Kural: Sorguda açık bir tarih aralığı yoksa → raw_text: null
+
 **Örnekler:**
   "son 1 yılda aylık karşılaştır" → time: {{raw_text: "son 1 yılda", breakdown: true, granularity: "monthly"}}
   "son 3 ayda haftalık trend"     → time: {{raw_text: "son 3 ayda", breakdown: true, granularity: "weekly"}}

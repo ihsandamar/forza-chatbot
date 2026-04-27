@@ -18,7 +18,7 @@ class SemanticMetric(BaseModel):
 
 
 class SemanticTime(BaseModel):
-    raw_text: str
+    raw_text: Optional[str] = None
     breakdown: bool  # True = GROUP BY kırılımı, False = WHERE filtresi
     granularity: Optional[Literal[
         "monthly", "weekly", "daily", "yearly", "hourly",

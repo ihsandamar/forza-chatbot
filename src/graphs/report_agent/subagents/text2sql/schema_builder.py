@@ -47,9 +47,9 @@ def _agg_alias(function: str, column: str) -> str:
 
 def build_query_schema(
     intent: SemanticIntent,
-    term_resolution: Dict[str, TermMatch],
-    query_type: str,
-    time_breakdown: bool,
+    term_resolution: Optional[Dict[str, TermMatch]] = None,
+    query_type: str = "SINGLE",
+    time_breakdown: bool = False,
     today: Optional[date] = None,
 ) -> QuerySchema:
     """Convert SemanticIntent + TermMatch map to a QuerySchema deterministically.
@@ -69,6 +69,8 @@ def build_query_schema(
     """
     if today is None:
         today = date.today()
+    if term_resolution is None:
+        term_resolution = {}
 
     filters: List[SchemaFilter] = []
     aggregations: List[SchemaAggregation] = []
@@ -170,14 +172,18 @@ def build_query_schema(
                 granularity=intent.time.granularity,
             )
 
-        try:
-            date_descriptor, gran = parse_semantic_time(effective_st, today)
-        except SemanticExtractionError as exc:
-            raise SchemaBuilderError(
-                f"Tarih ifadesi çözümlenemedi: {intent.time.raw_text!r}",
-                error_code="DATE_PARSE_ERROR",
-                context={"raw_text": intent.time.raw_text, "cause": str(exc)},
-            ) from exc
+        if not effective_st.raw_text:
+            date_descriptor = None
+            gran = effective_st.granularity
+        else:
+            try:
+                date_descriptor, gran = parse_semantic_time(effective_st, today)
+            except SemanticExtractionError as exc:
+                raise SchemaBuilderError(
+                    f"Tarih ifadesi çözümlenemedi: {intent.time.raw_text!r}",
+                    error_code="DATE_PARSE_ERROR",
+                    context={"raw_text": intent.time.raw_text, "cause": str(exc)},
+                ) from exc
 
         if date_descriptor is not None:
             filters.append(

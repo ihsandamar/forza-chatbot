@@ -322,3 +322,41 @@ def test_dimension_entity_does_not_set_comparison_dimension_outside_time_series(
     schema = build_query_schema(intent, term_resolution, "LISTING", False)
     assert schema.comparison_dimension is None
     assert "DocumentKindName" in schema.group_by
+
+
+def test_granularity_only_raw_text_null_no_crash():
+    """raw_text=None, granularity='daily' → crash yok, date filter eklenmez."""
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticTime,
+    )
+
+    intent = SemanticIntent(
+        entities=[],
+        metrics=[],
+        time=SemanticTime(raw_text=None, breakdown=True, granularity="daily"),
+        raw_query="bunu gün bazında kır",
+    )
+    result = build_query_schema(intent, time_breakdown=True)
+
+    assert result.time_granularity == "daily"
+    assert not any(f.column == "DocumentDate" for f in result.filters)
+
+
+def test_granularity_only_raw_text_empty_string_no_crash():
+    """raw_text='' (boş string) → crash yok, granularity korunur."""
+    from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+    from src.graphs.report_agent.subagents.text2sql.semantic_models import (
+        SemanticIntent, SemanticTime,
+    )
+
+    intent = SemanticIntent(
+        entities=[],
+        metrics=[],
+        time=SemanticTime(raw_text="", breakdown=True, granularity="monthly"),
+        raw_query="aylık göster",
+    )
+    result = build_query_schema(intent, time_breakdown=True)
+
+    assert result.time_granularity == "monthly"
+    assert not any(f.column == "DocumentDate" for f in result.filters)
