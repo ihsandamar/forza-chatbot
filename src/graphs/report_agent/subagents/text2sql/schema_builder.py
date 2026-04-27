@@ -172,7 +172,7 @@ def build_query_schema(
                 granularity=intent.time.granularity,
             )
 
-        if not effective_st.raw_text:
+        if not (effective_st.raw_text or "").strip():
             date_descriptor = None
             gran = effective_st.granularity
         else:
