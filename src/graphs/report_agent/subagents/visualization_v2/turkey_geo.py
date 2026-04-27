@@ -14,7 +14,7 @@ TURKEY_GEOJSON_PATH = _ASSET_DIR / "turkey_provinces.geojson"
 # Column name fragments (lowercased, stripped of _ and space) that indicate a city dimension
 _CITY_HINTS = frozenset({
     "city", "cityname", "sehir", "sehiradi",
-    "branchcity", "branchcityname", "iladi", "il",
+    "branchcity", "branchcityname", "iladi",
 })
 
 
