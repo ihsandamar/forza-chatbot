@@ -412,49 +412,41 @@ class TestResponseGenerator:
 # RUN TESTS
 # =============================================================================
 
-def test_sql_modification_result_has_modification_hints():
-    """SqlModificationResult şeması modification_hints alanını içermeli."""
-    from src.graphs.report_agent.prompts import SqlModificationResult, ModificationHint
+def test_sql_delta_has_add_filters():
+    """SqlDelta şeması add_filters alanını içermeli."""
+    from src.graphs.report_agent.prompts import SqlDelta, FilterDelta
 
-    result = SqlModificationResult(
-        modified_sql="SELECT * FROM T WHERE [CategoryName] = 'DURUMLER'",
+    delta = SqlDelta(
         explanation="Kategori filtresi eklendi",
         confidence=0.9,
-        modification_hints=[
-            ModificationHint(column="CategoryName", embedded_value="dürümler")
-        ],
+        add_filters=[FilterDelta(column="CategoryName", operator="=", value="'dürümler'")],
     )
-    assert len(result.modification_hints) == 1
-    assert result.modification_hints[0].column == "CategoryName"
-    assert result.modification_hints[0].embedded_value == "dürümler"
+    assert len(delta.add_filters) == 1
+    assert delta.add_filters[0].column == "CategoryName"
+    assert delta.add_filters[0].value == "'dürümler'"
 
 
-def test_sql_modification_result_hints_default_empty():
-    """modification_hints default boş liste olmalı (geriye dönük uyumluluk)."""
-    from src.graphs.report_agent.prompts import SqlModificationResult
+def test_sql_delta_add_filters_default_empty():
+    """add_filters default boş liste olmalı."""
+    from src.graphs.report_agent.prompts import SqlDelta
 
-    result = SqlModificationResult(
-        modified_sql="SELECT * FROM T",
-        explanation="test",
-        confidence=0.9,
-    )
-    assert result.modification_hints == []
+    delta = SqlDelta(explanation="test", confidence=0.9)
+    assert delta.add_filters == []
 
 
 def test_modify_sql_node_returns_modification_hints():
     """modify_sql_node modification_hints döndürmeli."""
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
-    from src.graphs.report_agent.prompts import SqlModificationResult, ModificationHint
+    from src.graphs.report_agent.prompts import SqlDelta, FilterDelta
 
-    mock_result = SqlModificationResult(
-        modified_sql="SELECT * FROM T WHERE [CategoryName] = 'dürümler'",
+    mock_delta = SqlDelta(
         explanation="test",
         confidence=0.9,
-        modification_hints=[ModificationHint(column="CategoryName", embedded_value="dürümler")],
+        add_filters=[FilterDelta(column="CategoryName", operator="=", value="'dürümler'")],
     )
     mock_llm = MagicMock()
-    mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(return_value=mock_result)
+    mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(return_value=mock_delta)
 
     from src.graphs.report_agent.nodes import create_modify_sql_node
     node = create_modify_sql_node(mock_llm, column_metadata={})

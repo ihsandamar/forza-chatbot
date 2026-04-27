@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 from typing import Callable, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -8,9 +7,10 @@ from langgraph.types import interrupt
 
 from src.graphs.report_agent.prompts import (
     EntityExtractionResult,
+    FilterDelta,
     IntentClassificationResult,
     QueryClarificationResult,
-    SqlModificationResult,
+    SqlDelta,
     ENTITY_EXTRACTOR_PROMPT,
     INTENT_CLASSIFIER_PROMPT,
     QUERY_CLARIFICATION_PROMPT,
@@ -18,12 +18,6 @@ from src.graphs.report_agent.prompts import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Post-processing: [DocumentDate] =/BETWEEN 'YYYY-...' → CAST([DocumentDate] AS DATE) ...
-_DATE_EQ_RE = re.compile(
-    r"\[DocumentDate\]\s*(=|BETWEEN)",
-    re.IGNORECASE,
-)
 
 CONFIDENCE_THRESHOLD = 0.70
 MODIFY_AMBIGUITY_THRESHOLD = 0.85  # MODIFY_QUERY için ayrı eşik — daha yüksek güven gerekir
@@ -172,10 +166,11 @@ def _resolve_intent_from_answer(
 
 
 def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
-    """SQL Modifier: active_sql + intent → modified_sql.
-    Text2SQL subgraph bypass eder, doğrudan executor'a gider.
-    """
-    structured_llm = llm.with_structured_output(SqlModificationResult)
+    """SQL Modifier: active_sql + SqlDelta → modified_sql via SqlDeltaApplicator."""
+    from src.graphs.report_agent.context_builder import build_query_context_summary
+    from src.graphs.report_agent.subagents.text2sql.sql_delta import SqlDeltaApplicator
+
+    structured_llm = llm.with_structured_output(SqlDelta)
 
     async def modify_sql_node(state: dict) -> dict:
         active_sql = state.get("active_sql", "")
@@ -183,80 +178,56 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
             logger.warning("[MODIFY_SQL] No active SQL, fallback to NEW_QUERY")
             return {"intent_type": "NEW_QUERY"}
 
-        # Sonuçların ilk 5 satırını al (token limiti için)
-        active_results = state.get("active_results") or []
-        results_preview = json.dumps(
-            active_results[:5], ensure_ascii=False, default=str
-        ) if active_results else "Sonuç yok"
-
-        # Konuşma geçmişi: zamir referanslarını ("bu ürün", "o şube") çözmek için
-        # Son 6 mesajı al (modification_request ile çakışma zararsız)
-        messages = state.get("messages") or []
-        context_lines: list[str] = []
-        for msg in messages[-6:]:
-            if isinstance(msg, HumanMessage):
-                role = "Kullanıcı"
-            elif isinstance(msg, AIMessage):
-                role = "Asistan"
-            else:
-                continue
-            content = msg.content[:200] if msg.content else ""
-            context_lines.append(f"{role}: {content}")
-        conversation_context = "\n".join(context_lines) if context_lines else "Yok"
+        query_context = build_query_context_summary(
+            state.get("active_results"),
+            state.get("active_filters"),
+        )
 
         prompt = SQL_MODIFIER_PROMPT.format(
             active_sql=active_sql,
-            active_filters=json.dumps(state.get("active_filters") or [], ensure_ascii=False),
-            active_results=results_preview,
+            query_context=query_context,
             modification_request=state.get("user_query", ""),
             column_metadata=json.dumps(column_metadata, ensure_ascii=False, indent=2),
-            conversation_context=conversation_context,
         )
 
-        result: SqlModificationResult = await structured_llm.ainvoke(prompt)
+        delta: SqlDelta = await structured_llm.ainvoke(prompt)
 
         logger.info(
-            f"[MODIFY_SQL] confidence={result.confidence:.2f} "
-            f"explanation={result.explanation[:80]}"
+            f"[MODIFY_SQL] confidence={delta.confidence:.2f} "
+            f"explanation={delta.explanation[:80]}"
         )
 
-        # Düşük güven: kullanıcıya sor
-        if result.confidence < 0.5:
+        if delta.confidence < 0.5:
             logger.warning(
-                f"[MODIFY_SQL] Low confidence ({result.confidence:.2f}), "
-                f"interrupting user"
+                f"[MODIFY_SQL] Low confidence ({delta.confidence:.2f}), interrupting user"
             )
             answer = interrupt({
                 "type": "clarification",
                 "question": (
                     f"İsteğinizi tam anlayamadım: \"{state.get('user_query', '')}\"\n"
-                    f"Şu şekilde anladım: {result.explanation}\n"
+                    f"Şu şekilde anladım: {delta.explanation}\n"
                     "Doğru mu, yoksa daha açık belirtir misiniz?"
                 ),
             })
-            # Kullanıcı açıklama yaptıysa yeni query olarak tekrar dene
             if answer and isinstance(answer, str) and answer.strip():
                 return {
                     "user_query": answer.strip(),
                     "intent_type": "MODIFY_QUERY",
                 }
 
-        # Post-processing: datetime kolon güvenlik ağı
-        # [DocumentDate] = '...' → CAST([DocumentDate] AS DATE) = '...'
-        modified_sql = _DATE_EQ_RE.sub(
-            lambda m: f"CAST([DocumentDate] AS DATE) {m.group(1)}",
-            result.modified_sql,
-        )
-        if modified_sql != result.modified_sql:
-            logger.info("[MODIFY_SQL] DocumentDate CAST post-processing uygulandı")
-
+        modified_sql = SqlDeltaApplicator().apply(active_sql, delta)
         logger.info(f"[MODIFY_SQL] → {modified_sql[:120]}")
-        logger.info(f"[MODIFY_SQL] {len(result.modification_hints)} hint(s) üretildi")
-        # pre_built_sql: sql_generator bu alanı görünce yeniden SQL üretmez,
-        # direkt bu SQL'i kullanır (CategoryName filtresi, doğru aggregation kolonları korunur).
+
+        modification_hints = [
+            {"column": f.column, "embedded_value": f.value.strip("'")}
+            for f in delta.add_filters
+            if f.operator == "="
+        ]
+        logger.info(f"[MODIFY_SQL] {len(modification_hints)} hint(s) üretildi")
+
         return {
             "pre_built_sql": modified_sql,
-            "modification_hints": [h.model_dump() for h in result.modification_hints],
+            "modification_hints": modification_hints,
         }
 
     return modify_sql_node

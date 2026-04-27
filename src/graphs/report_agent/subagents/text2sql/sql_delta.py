@@ -49,9 +49,9 @@ class SqlDeltaApplicator:
             esc = re.escape(col)
             cond = (
                 r"(?:CAST\s*\(\s*)?"
-                rf"\[{esc}\][^)]*\)?"
+                rf"\[{esc}\](?:\s*AS\s+\w+\s*\))?"
                 r"\s*(?:NOT\s+)?(?:LIKE|=|!=|>=|<=|>|<)\s*"
-                r"(?:CAST\s*\([^)]+\)|'[^']*'|[\w.(),-]+)"
+                r"(?:CAST\s*\([^)]+\)|'[^']*'|[\w.,-]+)"
             )
             sql = re.sub(r"\s+AND\s+" + cond, "", sql, flags=re.IGNORECASE)
             sql = re.sub(cond + r"\s+AND\s+", "", sql, flags=re.IGNORECASE)

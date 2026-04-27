@@ -55,13 +55,25 @@ class ModificationHint(BaseModel):
     embedded_value: str  # SQL'e yazılan birebir string (örn: "dürümler")
 
 
-class SqlModificationResult(BaseModel):
-    """MODIFY_QUERY — mevcut SQL üzerine delta uygular."""
+class FilterDelta(BaseModel):
+    """Tek bir WHERE koşulu değişikliği."""
 
-    modified_sql: str
-    explanation: str
-    confidence: float       # 0.0-1.0: referans çözümleme ve değişiklik doğruluğuna güven
-    modification_hints: List[ModificationHint] = []
+    column: str
+    operator: Literal["=", "!=", "LIKE", "NOT LIKE", ">", "<", ">=", "<=", "BETWEEN"]
+    value: str  # SQL-ready: "'Ankara'", "'%latte%'", "DATEADD(month,-1,GETDATE())"
+
+
+class SqlDelta(BaseModel):
+    """MODIFY_QUERY — LLM ne değişsin söyler, Python uygular."""
+
+    add_filters:           List[FilterDelta] = []
+    remove_filter_columns: List[str] = []
+    change_limit:          Optional[int] = None
+    change_orderby:        Optional[str] = None
+    change_groupby:        Optional[str] = None
+    change_select:         Optional[str] = None
+    explanation:           str
+    confidence:            float
 
 
 class EntityExtractionResult(BaseModel):
@@ -221,19 +233,17 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
 - False: Dönemsel kırılım YOK (salt zaman filtresi veya zaman yok)
 """
 
-SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre değiştir.
-
-## KONUŞMA GEÇMİŞİ
-{conversation_context}
+SQL_MODIFIER_PROMPT = """Kullanıcının isteğini anlayıp SADECE ne değişmesi gerektiğini SqlDelta formatında döndür.
+SQL yazmana gerek yok — değişiklikleri struct olarak belirt, Python uygulayacak.
 
 ## MEVCUT SQL
 {active_sql}
 
-## AKTİF FİLTRELER
-{active_filters}
+## AKTİF BAĞLAM
+{query_context}
 
-## ÖNCEKİ SORGU SONUÇLARI (ilk 5 satır)
-{active_results}
+Aktif filtreler zaten SQL'de var — bunları add_filters'a EKLEME.
+Sadece kullanıcının talep ettiği YENİ değişiklikleri yaz.
 
 ## KULLANICI İSTEĞİ
 {modification_request}
@@ -242,52 +252,30 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 {column_metadata}
 
 ## KURALLAR
-⚠️ KESİNLİKLE: Mümkün olduğunca mevcut SQL'in yapısını koru. Kullanıcı sadece filtre/tarih/limit değişikliği istiyorsa SELECT, GROUP BY, ORDER BY'a dokunma. Ancak kullanıcı farklı bir gruplama, farklı kolonlar veya farklı bir analiz perspektifi istiyorsa (ör: "haftanın gününe göre", "aylık kırılımda") yapısal değişiklik yapabilirsin — bu durumda WHERE koşullarını mümkün olduğunca koru.
 
-- Kullanıcının isteğini TAMAMEN karşıla — birden fazla değişiklik isteniyorsa HEPSİNİ uygula
-- Değişiklik gerektirmeyen kısımları koru (ör: sadece tarih değişiyorsa GROUP BY'a dokunma)
-- Yeni filtre: WHERE clause'a ekle (varsa AND ile bağla)
-- Limit değişikliği: sadece TOP N değerini güncelle
-- Sıralama değişikliği: sadece ORDER BY clause'u güncelle
-- Geçerli T-SQL (SQL Server) üret, syntax hatası olmasın
-- explanation alanında ne değiştirdiğini kısaca açıkla
+⚠️ add_filters: Kullanıcı yeni bir filtre ekliyorsa (ör: "Ankara şubesi için"):
+  column = DB kolon adı ("BranchName"), operator = "=", value = SQL-ready string ("'Ankara'")
 
-⚠️ TARİH KARŞILAŞTIRMA: DocumentDate datetime kolonudur (saat bilgisi içerir).
-Belirli bir güne filtre koyarken ASLA `[DocumentDate] = '2026-02-15'` yazma — eşleşmez!
-HER ZAMAN `CAST([DocumentDate] AS DATE) = '2026-02-15'` kullan.
-Tarih aralığı için: `CAST([DocumentDate] AS DATE) BETWEEN '...' AND '...'` kullan.
+⚠️ remove_filter_columns: Kullanıcı mevcut filtreyi kaldırıyorsa sadece kolon adını listele.
+  AKTİF BAĞLAM'da gösterilmeyen filtreleri kaldırma — onlar SQL'de zaten yok.
 
-⚠️ LIKE KULLANIMI: "İçeren", "geçen", "başlayan", "biten" gibi kısmi arama ifadelerinde LIKE operatörü kullanırken HER ZAMAN wildcard (%) kullan:
-- "isminde X geçen" / "X içeren" → [ProductName] LIKE '%X%'
-- ASLA [ProductName] LIKE 'X' yazma — bu sadece TAM EŞLEŞMEyi bulur, kısmi eşleşme YAPMAZ!
-- Doğru: AND [ProductName] LIKE '%LATTE%'   (LATTE içeren tüm ürünler)
-- Yanlış: AND [ProductName] LIKE 'LATTE'     (sadece tam olarak "LATTE" olanlar)
+⚠️ change_select: SADECE yapısal değişiklikler için (farklı GROUP BY, zaman kırılımı).
+  Örnek — "aylık kır": change_select="DATEPART(month, [DocumentDate]) AS Month, SUM([RowAmount]) AS Total"
 
-⚠️ SONUÇ REFERANSI: Kullanıcı "bu ürün", "o şube", "bu gün" gibi önceki sonuca veya konuşmaya referans veriyorsa:
-1. KONUŞMA GEÇMİŞİ bölümündeki mesajlardan referansın ne olduğunu belirle (ör: "bu ürün" → AI yanıtında bahsedilen ürün adı)
-2. ÖNCEKİ SORGU SONUÇLARI bölümündeki gerçek değerleri kullanarak SQL'e doğru filtre ekle
-3. Sonuçlarda bir tarih değeri varsa ve kullanıcı "bu gün" diyorsa → o tarihi yaz, bugünün tarihini DEĞİL
+⚠️ TARİH DEĞERİ: add_filters ile tarih eklerken SQL-ready date string kullan.
+  CAST EKLEMENİ GEREKMEZ — Python otomatik ekler.
+  Örnek: value="'2024-01-01'" veya value="DATEADD(month,-1,GETDATE())"
 
-⚠️ YAPISAL DEĞİŞİKLİK: Kullanıcı sorgunun yapısını değiştirmek istiyorsa (farklı GROUP BY, farklı SELECT kolonları, farklı aggregation),
-SELECT/GROUP BY/ORDER BY'ı kullanıcının isteğine göre yeniden yaz. WHERE koşullarını mümkün olduğunca koru.
+⚠️ LIKE: Kısmi arama için her zaman % wildcard kullan. Örnek: value="'%LATTE%'"
+
+⚠️ SONUÇ REFERANSI: "bu ürün", "bu şube" → AKTİF BAĞLAM'daki gerçek değeri kullan.
+  Bağlamda ProductName: ["Latte", "Espresso"] varsa "bu ürün" → value="'Latte'"
 
 ## CONFIDENCE
-confidence alanına 0.0–1.0 arası bir değer ver:
-- 1.0: İstek açık, referanslar net, değişiklik kesin doğru
-- 0.7-0.9: İstek anlaşılıyor ama küçük belirsizlikler var (ör: "bu" neyi kastettiği %90 belli)
-- 0.5-0.7: Referans belirsiz — "bu ürün" deniyor ama konuşmada birden fazla entity geçiyor
-- <0.5: Ne istendiği veya referans çözülemedi
-
-## MODIFICATION_HINTS
-Kullanıcının yazdığı ve SQL'e literal olarak gömdüğün her STRING FİLTRE DEĞERİ için bir hint ver:
-- column: hangi DB kolonunu kullandığın (örn: "CategoryName")
-- embedded_value: SQL'e yazdığın BİREBİR string — büyük/küçük harf dahil (örn: "dürümler")
-
-ÖNEMLİ KURALLAR:
-- Sadece kullanıcı inputundan gelen STRING değerleri için hint ver
-- Tarih ifadeleri (DATEADD, BETWEEN, '2024-01-01'), sayısal değerler (TOP 10) için hint VERME
-- Kolon adları için hint VERME — sadece WHERE koşulundaki değerler
-- Zaten çözülmüş değerler (active_filters içindeki resolved değerler) için hint VERME
+- 1.0: İstek açık, referanslar net
+- 0.7-0.9: Küçük belirsizlikler var
+- 0.5-0.7: Referans belirsiz
+- <0.5: Ne istendiği çözülemedi — interrupt tetiklenecek
 """
 
 ENTITY_EXTRACTOR_PROMPT = """Kullanıcı önceki sorgu sonuçlarından bir entity seçmek istiyor.
