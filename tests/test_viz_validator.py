@@ -183,3 +183,145 @@ def test_pie_chart_with_few_categories_no_top_n():
     validated = validate_spec(spec, results, profile)
 
     assert validated.get("top_n") is None
+
+
+# ---------------------------------------------------------------------------
+# Rule 3: treemap hierarchy_fields auto-build
+# ---------------------------------------------------------------------------
+
+def test_treemap_hierarchy_fields_auto_built_from_dims():
+    """
+    Rule 3: treemap with two dimension columns and no hierarchy_fields should
+    auto-build hierarchy_fields = [dim0, dim1] in validate_spec.
+    This mirrors sunburst Rule 3 (line 139 in validator.py).
+    """
+    from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
+
+    results = [
+        {"CategoryName": "ESPRESSO", "ProductName": "LATTE", "ToplamCiro": 45670088.322},
+        {"CategoryName": "CAYLAR", "ProductName": "FINCAN CAY", "ToplamCiro": 26019640.035},
+        {"CategoryName": "ESPRESSO", "ProductName": "AMERICANO", "ToplamCiro": 22954983.834},
+    ]
+    profile = _base_profile(
+        dimension_columns=["CategoryName", "ProductName"],
+        metric_columns=["ToplamCiro"],
+    )
+    spec = {
+        "needs_graph": True,
+        "chart_type": "treemap",
+        "x_field": "CategoryName",   # validator already filled this
+        "y_field": "ToplamCiro",
+        "hierarchy_fields": None,
+        "series_field": None,
+    }
+
+    validated = validate_spec(spec, results, profile)
+
+    assert validated["chart_type"] == "treemap"
+    assert validated.get("hierarchy_fields") == ["CategoryName", "ProductName"], (
+        "validate_spec must auto-build hierarchy_fields for treemap from dimension_columns"
+    )
+
+
+def test_treemap_single_dim_no_hierarchy_fields_built():
+    """
+    If only one dimension column exists, hierarchy_fields should NOT be auto-built
+    (single-level treemap via x_field fallback is fine).
+    """
+    from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
+
+    results = [
+        {"CategoryName": "ESPRESSO", "ToplamCiro": 45670088.322},
+        {"CategoryName": "CAYLAR", "ToplamCiro": 26019640.035},
+    ]
+    profile = _base_profile(
+        dimension_columns=["CategoryName"],
+        metric_columns=["ToplamCiro"],
+    )
+    spec = {
+        "needs_graph": True,
+        "chart_type": "treemap",
+        "x_field": "CategoryName",
+        "y_field": "ToplamCiro",
+        "hierarchy_fields": None,
+        "series_field": None,
+    }
+
+    validated = validate_spec(spec, results, profile)
+
+    # Single dim: hierarchy_fields should stay None (x_field fallback handles it)
+    assert validated.get("hierarchy_fields") is None
+
+
+def test_treemap_renderer_with_two_dim_columns():
+    """
+    _build_treemap with hierarchy_fields=["CategoryName","ProductName"] and
+    values="ToplamCiro" must render a valid treemap figure (no exception, non-None).
+    """
+    import pandas as pd
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    results = [
+        {"CategoryName": "ESPRESSO", "ProductName": "LATTE", "ToplamCiro": 45670088.322},
+        {"CategoryName": "CAYLAR", "ProductName": "FINCAN CAY", "ToplamCiro": 26019640.035},
+        {"CategoryName": "ESPRESSO", "ProductName": "AMERICANO", "ToplamCiro": 22954983.834},
+        {"CategoryName": "ESPRESSO", "ProductName": "WHITE CHOCOLATE MOCHA", "ToplamCiro": 19879734.984},
+    ]
+    spec = {
+        "needs_graph": True,
+        "chart_type": "treemap",
+        "hierarchy_fields": ["CategoryName", "ProductName"],
+        "x_field": None,
+        "y_field": "ToplamCiro",
+        "series_field": None,
+        "title": "Kategori > Ürün Ciro",
+        "top_n": None,
+        "sort_by": None,
+        "sort_order": None,
+        "orientation": None,
+        "y_fields": None,
+    }
+
+    html = render_chart(spec, results, {})
+
+    assert html is not None, (
+        "_build_treemap must return a figure for valid hierarchy_fields + values"
+    )
+    assert "plotly" in html.lower()
+
+
+def test_treemap_renderer_drops_invalid_path_columns():
+    """
+    _build_treemap must not crash if a path column doesn't exist in the DataFrame.
+    Instead it should filter it out and render with the valid columns, or return None
+    gracefully if no valid path columns remain.
+    """
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    results = [
+        {"CategoryName": "ESPRESSO", "ToplamCiro": 45670088.322},
+        {"CategoryName": "CAYLAR", "ToplamCiro": 26019640.035},
+    ]
+    spec = {
+        "needs_graph": True,
+        "chart_type": "treemap",
+        "hierarchy_fields": ["CategoryName", "NonExistentColumn"],  # one invalid
+        "x_field": None,
+        "y_field": "ToplamCiro",
+        "series_field": None,
+        "title": None,
+        "top_n": None,
+        "sort_by": None,
+        "sort_order": None,
+        "orientation": None,
+        "y_fields": None,
+    }
+
+    # Must not raise — either renders (with valid columns only) or gracefully returns None
+    try:
+        html = render_chart(spec, results, {})
+        # If it renders, it must be valid HTML
+        if html is not None:
+            assert "plotly" in html.lower()
+    except Exception as e:
+        pytest.fail(f"render_chart must not raise, got: {e}")

@@ -156,6 +156,18 @@ def validate_spec(
             spec["chart_type"] = "bar_chart"
             logger.info("[VALIDATOR] Rule 3: sunburst with time axis -> bar_chart")
 
+    if chart_type == "treemap" and not spec.get("hierarchy_fields"):
+        # Auto-build hierarchy_fields from x_field + remaining dims (mirrors sunburst Rule 3).
+        # Required because the _requested_chart fast path in viz_decider_node skips field
+        # resolution; without hierarchy_fields, _build_treemap falls back to single-level
+        # path which crashes on duplicate category values.
+        x = spec.get("x_field")
+        if x and x in actual_columns:
+            remaining = [d for d in dimension_cols if d != x and d in actual_columns]
+            if remaining:
+                spec["hierarchy_fields"] = [x] + remaining[:2]
+                logger.info(f"[VALIDATOR] Treemap: hierarchy_fields <- {spec['hierarchy_fields']}")
+
     if chart_type == "heatmap":
         if not spec.get("series_field"):
             spec["chart_type"] = "bar_chart"
