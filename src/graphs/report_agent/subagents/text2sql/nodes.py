@@ -1374,12 +1374,20 @@ def create_semantic_extractor_node(llm, column_metadata: dict) -> Callable:
         else:
             conversation_context = "Yeni konuşma, önceki bağlam yok."
 
+        from src.graphs.report_agent.context_builder import build_query_context_summary
+
+        query_context = build_query_context_summary(
+            state.get("active_results"),
+            state.get("active_filters"),
+        )
+
         prompt = SEMANTIC_EXTRACTOR_PROMPT.format(
             user_query=user_query,
             query_type=query_type,
             column_names=column_names,
             conversation_context=conversation_context,
             sql_error=sql_error,
+            query_context=query_context,
         )
 
         logger.info(f"[SEMANTIC_EXTRACTOR] Extracting intent: {user_query[:80]} (type={query_type})")

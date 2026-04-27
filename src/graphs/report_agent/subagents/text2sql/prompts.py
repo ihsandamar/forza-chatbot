@@ -765,6 +765,15 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
 ## KONUŞMA BAĞLAMI
 {conversation_context}
 
+## ÖNCEKİ SORGU BAĞLAMI
+{query_context}
+
+Kullanıcı "bu ürün", "bu şube", "bunu", "şunu" gibi referans kullanıyorsa →
+yukarıdaki değerlerden en uygununu seç, direkt isme çevir.
+
+Örnek: "bu ürün için detay" + bağlamda ProductName: ["Latte", "Espresso"]
+→ entity: {{raw_text: "Latte", entity_type: "filter_value", column_hint: "ProductName"}}
+
 ## ÖNCEKİ SQL HATASI (varsa — farklı çıkarım dene)
 {sql_error}
 
