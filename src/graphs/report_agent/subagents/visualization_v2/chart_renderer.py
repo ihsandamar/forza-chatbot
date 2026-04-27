@@ -256,6 +256,15 @@ def _build_treemap(df: pd.DataFrame, spec: dict) -> go.Figure:
         s = spec.get("series_field")
         x = spec.get("x_field")
         path = [p for p in [s, x] if p]
+    # Guard: keep only path columns that actually exist in the DataFrame
+    path = [c for c in path if c in df.columns]
+    if not path:
+        return None
+    # Drop rows with None/NaN in path columns — Plotly raises
+    # "None entries cannot have not-None children" on NULL hierarchy values
+    df = df.dropna(subset=path)
+    if df.empty:
+        return None
     return px.treemap(df, path=path, values=spec.get("y_field"), title=spec.get("title") or "")
 
 

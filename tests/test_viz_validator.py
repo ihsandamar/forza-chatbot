@@ -325,3 +325,42 @@ def test_treemap_renderer_drops_invalid_path_columns():
             assert "plotly" in html.lower()
     except Exception as e:
         pytest.fail(f"render_chart must not raise, got: {e}")
+
+
+def test_treemap_renderer_handles_null_path_values():
+    """
+    _build_treemap must handle NULL values in path columns without crashing.
+    Real data often has rows with NULL CategoryName or ProductName.
+    Plotly raises 'None entries cannot have not-None children' — same as sunburst.
+    The fix: dropna on path columns before calling px.treemap (mirror _build_sunburst).
+    """
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    results = [
+        {"CategoryName": "ESPRESSO", "ProductName": "LATTE", "ToplamCiro": 45670088.322},
+        {"CategoryName": None, "ProductName": "UNKNOWN", "ToplamCiro": 5000.0},  # NULL category
+        {"CategoryName": "CAYLAR", "ProductName": "FINCAN CAY", "ToplamCiro": 26019640.035},
+        {"CategoryName": "ESPRESSO", "ProductName": None, "ToplamCiro": 3000.0},  # NULL product
+    ]
+    spec = {
+        "needs_graph": True,
+        "chart_type": "treemap",
+        "hierarchy_fields": ["CategoryName", "ProductName"],
+        "x_field": None,
+        "y_field": "ToplamCiro",
+        "series_field": None,
+        "title": "Test",
+        "top_n": None,
+        "sort_by": None,
+        "sort_order": None,
+        "orientation": None,
+        "y_fields": None,
+    }
+
+    html = render_chart(spec, results, {})
+
+    # Must render (non-null rows are enough) — must NOT crash and return None
+    assert html is not None, (
+        "_build_treemap must drop null path rows and render the valid subset, "
+        "not crash silently and fall back to table"
+    )
