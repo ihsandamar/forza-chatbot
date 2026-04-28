@@ -247,6 +247,10 @@ def _build_sunburst(df: pd.DataFrame, spec: dict) -> go.Figure:
         df = df.dropna(subset=valid_path_cols)
     if df.empty:
         return None
+    # Sabit kök düğüm — treemap ile aynı nedenle gerekli (boş root label)
+    df = df.copy()
+    df["__root__"] = "Toplam"
+    path = ["__root__"] + path
     return px.sunburst(df, path=path, values=spec.get("y_field"), title=spec.get("title") or "")
 
 
@@ -265,7 +269,12 @@ def _build_treemap(df: pd.DataFrame, spec: dict) -> go.Figure:
     df = df.dropna(subset=path)
     if df.empty:
         return None
-    return px.treemap(df, path=path, values=spec.get("y_field"), title=spec.get("title") or "")
+    # Sabit kök düğüm ekle: px.treemap'in otomatik kök düğümü boş label üretir
+    # ("" label'lı root → grand total görünmez). "Toplam" kolonu ile düzeltiriz.
+    df = df.copy()
+    df["__root__"] = "Toplam"
+    full_path = ["__root__"] + path
+    return px.treemap(df, path=full_path, values=spec.get("y_field"), title=spec.get("title") or "")
 
 
 def _build_comparison(df: pd.DataFrame, spec: dict) -> go.Figure:

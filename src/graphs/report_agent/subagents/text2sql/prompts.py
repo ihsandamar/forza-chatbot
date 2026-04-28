@@ -50,12 +50,14 @@ class DateDescriptor(BaseModel):
       "son 3 ay"  → type=relative, unit=month, amount=-3
       "bu yıl"    → type=current_period, period=year
       "15 ocak"   → type=exact, value="{current_year}-01-15"
+      "aralık 2025" → type=exact, value="2025-12-01", end_value="2026-01-01"
     """
     type: Literal["exact", "relative", "current_period"]
     unit:   Optional[Literal["day", "month", "year", "quarter", "week"]] = None
     amount: Optional[int] = None    # Geçmiş: negatif, gelecek: pozitif
     period: Optional[Literal["day", "month", "year", "quarter"]] = None
     value:  Optional[str] = None    # "YYYY-MM-DD" formatı (exact için)
+    end_value: Optional[str] = None  # Varsa: >= value AND < end_value (ay/yıl aralığı)
 
 
 class SchemaFilter(BaseModel):

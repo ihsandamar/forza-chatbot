@@ -143,7 +143,16 @@ def build_text2sql_graph(
             return END
         return "sql_generator"
 
-    graph.add_edge("schema_builder",     "value_resolver")
+    def _route_after_schema_builder(state: dict) -> str:
+        if state.get("text2sql_clarification"):
+            return END
+        return "value_resolver"
+
+    graph.add_conditional_edges(
+        "schema_builder",
+        _route_after_schema_builder,
+        {END: END, "value_resolver": "value_resolver"},
+    )
     graph.add_conditional_edges(
         "value_resolver",
         _route_after_value_resolver,

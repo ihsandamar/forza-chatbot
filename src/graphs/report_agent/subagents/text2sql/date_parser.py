@@ -60,6 +60,13 @@ _GRANULARITY_KEYWORDS = {
 }
 
 
+def _next_month_start(year: int, month: int) -> str:
+    """Verilen ay-yılın bir sonraki ayının ilk gününü 'YYYY-MM-01' olarak döndürür."""
+    if month == 12:
+        return f"{year + 1}-01-01"
+    return f"{year}-{month + 1:02d}-01"
+
+
 def detect_granularity_from_query(raw_query: str) -> Optional[str]:
     """Scan raw_query for explicit granularity keywords. Returns first match or None."""
     q = raw_query.lower()
@@ -113,14 +120,29 @@ def parse_semantic_time(
             gran = st.granularity or _GRAN_MAP.get(unit)
         return dd, gran
 
-    # "geçen yıl/ay"
-    m = re.match(r"geçen\s*(yıl|ay)", text)
+    # "geçen/geçtiğimiz yıl/ay"
+    m = re.match(r"(?:geçen|geçtiğimiz)\s*(yıl|ay)$", text)
     if m:
         unit = m.group(1)
         dd = DateDescriptor(type="relative", unit=_UNIT_MAP[unit], amount=-1)
         if st.breakdown:
             gran = st.granularity or _GRAN_MAP.get(unit)
         return dd, gran
+
+    # "geçtiğimiz [ay_adı] [ayı]" — en son geçmiş o ay (ör. "geçtiğimiz aralık ayı")
+    m = re.match(r"geçtiğimiz\s+(\S+?)(?:\s+ay[ıi]?)?$", text)
+    if m:
+        month_name = m.group(1).lower()
+        month_num = _TR_MONTH_MAP.get(month_name)
+        if month_num is not None:
+            year = today.year if month_num < today.month else today.year - 1
+            dd = DateDescriptor(
+                type="exact",
+                value=f"{year}-{month_num:02d}-01",
+                end_value=_next_month_start(year, month_num),
+            )
+            gran = (st.granularity or "monthly") if st.breakdown else None
+            return dd, gran
 
     # "bu yıl/ay/gün/çeyrek"
     m = re.match(r"bu\s*(yıl|ay|gün|çeyrek)", text)
@@ -142,8 +164,12 @@ def parse_semantic_time(
     for month_name, month_num in _TR_MONTH_MAP.items():
         m = re.match(rf"{re.escape(month_name)}\s+(\d{{4}})", text)
         if m:
-            year = m.group(1)
-            dd = DateDescriptor(type="exact", value=f"{year}-{month_num:02d}-01")
+            year_int = int(m.group(1))
+            dd = DateDescriptor(
+                type="exact",
+                value=f"{year_int}-{month_num:02d}-01",
+                end_value=_next_month_start(year_int, month_num),
+            )
             gran = (st.granularity or "monthly") if st.breakdown else None
             return dd, gran
 

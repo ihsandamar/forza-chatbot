@@ -38,6 +38,7 @@ from src.graphs.report_agent.subagents.text2sql.prompts import (
     TERM_VALIDATOR_PROMPT,
     SEMANTIC_EXTRACTOR_PROMPT,
 )
+from src.graphs.report_agent.subagents.text2sql.exceptions import SchemaBuilderError
 from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
 from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticIntent, TermMatch
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
@@ -92,6 +93,7 @@ _KEY_PREFIX_VR_NEW_MANUAL   = "vr_new_manual__"
 _KEY_PREFIX_VR_MOD_NF       = "vr_mod_not_found__"
 _KEY_PREFIX_VR_MOD_CHOICE   = "vr_mod_choice__"
 _KEY_PREFIX_VR_MOD_MANUAL   = "vr_mod_manual__"
+_KEY_PREFIX_DATE            = "date_parse__"
 
 
 def _get_cached_answer(answers: list | None, source_key: str) -> str | None:
@@ -1423,12 +1425,25 @@ def create_schema_builder_node() -> Callable:
         query_type      = state.get("query_type", "SINGLE")
         time_breakdown  = state.get("time_breakdown", False)
         today           = date.today()
+        answers         = state.get("text2sql_answers") or []
 
         logger.info(
             f"[SCHEMA_BUILDER] INPUT: semantic_intent={bool(intent_dict)}, "
             f"term_resolution={len(resolution_dict)} terms, "
             f"query_type={query_type}, time_breakdown={time_breakdown}"
         )
+
+        # Önceki HITL turunda kullanıcı düzeltilmiş tarih verdiyse intent_dict'e yansıt
+        time_data = intent_dict.get("time") or {}
+        original_date_text = (time_data.get("raw_text") or "").strip()
+        if original_date_text:
+            cached_date = _get_cached_answer(answers, _KEY_PREFIX_DATE + original_date_text)
+            if cached_date:
+                intent_dict = dict(intent_dict)
+                intent_dict["time"] = {**time_data, "raw_text": cached_date.strip()}
+                logger.info(
+                    f"[SCHEMA_BUILDER] Cached date answer: '{original_date_text}' → '{cached_date.strip()}'"
+                )
 
         # Reconstruct SemanticIntent from dict
         intent = SemanticIntent.model_validate(intent_dict)
@@ -1446,13 +1461,31 @@ def create_schema_builder_node() -> Callable:
                     similarity=float(tm_data.get("similarity", 1.0)),
                 )
 
-        schema = build_query_schema(
-            intent=intent,
-            term_resolution=term_resolution_map,
-            query_type=query_type,
-            time_breakdown=time_breakdown,
-            today=today,
-        )
+        try:
+            schema = build_query_schema(
+                intent=intent,
+                term_resolution=term_resolution_map,
+                query_type=query_type,
+                time_breakdown=time_breakdown,
+                today=today,
+            )
+        except SchemaBuilderError as exc:
+            if exc.error_code == "DATE_PARSE_ERROR":
+                raw_text = exc.context.get("raw_text", original_date_text)
+                source_key = _KEY_PREFIX_DATE + (original_date_text or raw_text)
+                question = (
+                    f"'{raw_text}' tarih ifadesi anlaşılamadı. "
+                    f"Lütfen ay ve yılı açık olarak belirtin (örn: Aralık 2024 veya 2024-12):"
+                )
+                logger.warning(f"[SCHEMA_BUILDER] DATE_PARSE_ERROR for '{raw_text}', asking user")
+                return {
+                    "text2sql_clarification": {
+                        "type": "input",
+                        "question": question,
+                        "source": source_key,
+                    }
+                }
+            raise
 
         logger.info(
             f"[SCHEMA_BUILDER] DECISION: filters={len(schema.filters)}, "

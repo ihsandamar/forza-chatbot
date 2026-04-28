@@ -58,7 +58,14 @@ def _resolve_date_filter(col_expr: str, descriptor: Dict[str, Any], operator: st
 
     if d_type == "exact":
         val = descriptor.get("value", "")
-        # DocumentDate datetime kolonu — CAST ile gün seviyesinde karşılaştır
+        end_val = descriptor.get("end_value")
+        if end_val:
+            # Ay/yıl aralığı: >= başlangıç AND < bitiş
+            return (
+                f"CAST({col_expr} AS DATE) >= '{val}' "
+                f"AND CAST({col_expr} AS DATE) < '{end_val}'"
+            )
+        # Tekil gün — CAST ile gün seviyesinde karşılaştır
         return f"CAST({col_expr} AS DATE) {operator} '{val}'"
 
     elif d_type == "relative":
