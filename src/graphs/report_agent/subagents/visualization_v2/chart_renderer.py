@@ -247,6 +247,10 @@ def _build_sunburst(df: pd.DataFrame, spec: dict) -> go.Figure:
         df = df.dropna(subset=valid_path_cols)
     if df.empty:
         return None
+    # Sabit kök düğüm — treemap ile aynı nedenle gerekli (boş root label)
+    df = df.copy()
+    df["__root__"] = "Toplam"
+    path = ["__root__"] + path
     return px.sunburst(df, path=path, values=spec.get("y_field"), title=spec.get("title") or "")
 
 
@@ -256,7 +260,21 @@ def _build_treemap(df: pd.DataFrame, spec: dict) -> go.Figure:
         s = spec.get("series_field")
         x = spec.get("x_field")
         path = [p for p in [s, x] if p]
-    return px.treemap(df, path=path, values=spec.get("y_field"), title=spec.get("title") or "")
+    # Guard: keep only path columns that actually exist in the DataFrame
+    path = [c for c in path if c in df.columns]
+    if not path:
+        return None
+    # Drop rows with None/NaN in path columns — Plotly raises
+    # "None entries cannot have not-None children" on NULL hierarchy values
+    df = df.dropna(subset=path)
+    if df.empty:
+        return None
+    # Sabit kök düğüm ekle: px.treemap'in otomatik kök düğümü boş label üretir
+    # ("" label'lı root → grand total görünmez). "Toplam" kolonu ile düzeltiriz.
+    df = df.copy()
+    df["__root__"] = "Toplam"
+    full_path = ["__root__"] + path
+    return px.treemap(df, path=full_path, values=spec.get("y_field"), title=spec.get("title") or "")
 
 
 def _build_comparison(df: pd.DataFrame, spec: dict) -> go.Figure:
@@ -306,6 +324,97 @@ def _build_heatmap(df: pd.DataFrame, spec: dict) -> go.Figure:
     return fig
 
 
+def _build_turkey_map(df: pd.DataFrame, spec: dict) -> go.Figure:
+    """
+    Render a Turkey province choropleth map.
+
+    All 81 provinces are shown. Provinces with data are colored (Blues scale);
+    provinces with no data appear in light grey.
+
+    Expects:
+        x_field: city/province column (dimension)
+        y_field: metric column (color intensity)
+    """
+    from src.graphs.report_agent.subagents.visualization_v2.turkey_geo import (
+        load_turkey_geojson,
+        normalize_city_name,
+    )
+
+    x = spec.get("x_field")
+    y = spec.get("y_field")
+    title = spec.get("title") or ""
+
+    if not x or not y or x not in df.columns or y not in df.columns:
+        return None
+
+    geojson = load_turkey_geojson()
+    if geojson is None:
+        return None
+
+    # Build lookup: normalized GeoJSON province name -> original GeoJSON name
+    name_lookup: dict = {}
+    all_province_names: list = []
+    for feature in geojson.get("features", []):
+        original = feature.get("properties", {}).get("name", "")
+        if original:
+            name_lookup[normalize_city_name(original)] = original
+            all_province_names.append(original)
+
+    df = df.copy()
+    df["_geo_loc"] = df[x].apply(
+        lambda v: name_lookup.get(normalize_city_name(str(v).strip())) if v else None
+    )
+    df_mapped = df.dropna(subset=["_geo_loc"]).copy()
+    df_mapped[y] = pd.to_numeric(df_mapped[y], errors="coerce")
+    df_mapped = df_mapped.dropna(subset=[y])
+
+    if df_mapped.empty:
+        return None
+
+    z_min = float(df_mapped[y].min())
+    z_max = float(df_mapped[y].max())
+    if z_min == z_max:
+        z_max = z_min + 1
+
+    fig = go.Figure()
+
+    # Trace 1: all 81 provinces in light grey (background for provinces with no data)
+    fig.add_trace(go.Choropleth(
+        geojson=geojson,
+        locations=all_province_names,
+        z=[0] * len(all_province_names),
+        featureidkey="properties.name",
+        colorscale=[[0, "#d4d4d4"], [1, "#d4d4d4"]],
+        showscale=False,
+        marker_line_color="white",
+        marker_line_width=0.5,
+        text=all_province_names,
+        hovertemplate="%{text}: Veri yok<extra></extra>",
+        name="",
+    ))
+
+    # Trace 2: provinces with data, colored in Blues scale
+    fig.add_trace(go.Choropleth(
+        geojson=geojson,
+        locations=df_mapped["_geo_loc"].tolist(),
+        z=df_mapped[y].tolist(),
+        featureidkey="properties.name",
+        colorscale="Blues",
+        zmin=z_min,
+        zmax=z_max,
+        colorbar=dict(title=y),
+        marker_line_color="white",
+        marker_line_width=0.5,
+        text=df_mapped[x].tolist(),
+        hovertemplate="%{text}: %{z:,.0f}<extra></extra>",
+        name="",
+    ))
+
+    fig.update_layout(title=title, showlegend=False)
+    fig.update_geos(fitbounds="locations", visible=False)
+    return fig
+
+
 _BUILDERS = {
     "bar_chart": _build_bar,
     "line_chart": _build_line,
@@ -316,6 +425,7 @@ _BUILDERS = {
     "treemap": _build_treemap,
     "comparison": _build_comparison,
     "heatmap": _build_heatmap,
+    "turkey_map": _build_turkey_map,
 }
 
 

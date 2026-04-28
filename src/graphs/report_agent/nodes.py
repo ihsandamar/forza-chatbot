@@ -1,19 +1,16 @@
-import asyncio
 import json
 import logging
-import re
 from typing import Callable, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import interrupt
 
 from src.graphs.report_agent.prompts import (
-    ChartTypeResult,
     EntityExtractionResult,
+    FilterDelta,
     IntentClassificationResult,
     QueryClarificationResult,
-    SqlModificationResult,
-    CHART_TYPE_PROMPT,
+    SqlDelta,
     ENTITY_EXTRACTOR_PROMPT,
     INTENT_CLASSIFIER_PROMPT,
     QUERY_CLARIFICATION_PROMPT,
@@ -22,68 +19,8 @@ from src.graphs.report_agent.prompts import (
 
 logger = logging.getLogger(__name__)
 
-# Post-processing: [DocumentDate] =/BETWEEN 'YYYY-...' → CAST([DocumentDate] AS DATE) ...
-_DATE_EQ_RE = re.compile(
-    r"\[DocumentDate\]\s*(=|BETWEEN)",
-    re.IGNORECASE,
-)
-
 CONFIDENCE_THRESHOLD = 0.70
 MODIFY_AMBIGUITY_THRESHOLD = 0.85  # MODIFY_QUERY için ayrı eşik — daha yüksek güven gerekir
-
-# ---------------------------------------------------------------------------
-# Chart type keyword detection — deterministic fallback for LLM structured output.
-#
-# LLM with structured Literal fields can return None for typos like "sunbrust".
-# This pure function covers that gap without touching the LLM call.
-#
-# Design: bare English single-words ("bar", "line", "pie") intentionally excluded
-# — they are collision-prone substrings in Turkish text (e.g. "kabartma" contains
-# "bar"). Only compound English forms and clearly chart-specific Turkish keywords
-# are included.
-# ---------------------------------------------------------------------------
-_CHART_KEYWORD_MAP: dict[str, str] = {
-    # sunburst — includes the common typo that triggered this fix
-    "sunburst": "sunburst",
-    "sunbrust": "sunburst",
-    # heatmap
-    "heatmap": "heatmap",
-    "ısıharitası": "heatmap",   # Turkish: "ısı haritası" → stripped spaces
-    # treemap
-    "treemap": "treemap",
-    # bar chart — compound only (bare "bar" is a collision risk in Turkish)
-    "barchart": "bar_chart",
-    "çubuk": "bar_chart",
-    "cubuk": "bar_chart",
-    # line chart — compound only
-    "linechart": "line_chart",
-    "çizgi": "line_chart",
-    "cizgi": "line_chart",
-    # pie chart — compound only
-    "piechart": "pie_chart",
-    "pasta": "pie_chart",
-    # scatter chart — compound only
-    "scatterchart": "scatter_chart",
-}
-
-
-def _detect_chart_type_from_query(text: str) -> Optional[str]:
-    """Deterministic chart type extraction from user query text.
-
-    Normalizes input (lowercase, collapse whitespace/hyphens/underscores) then
-    checks for substrings against _CHART_KEYWORD_MAP.
-
-    Returns canonical chart type string (e.g. "sunburst") or None if no keyword found.
-    Pure function — no LLM, no I/O, safe to call from any context.
-    """
-    if not text or not text.strip():
-        return None
-    # Normalize: lowercase, strip whitespace/separators (keep Turkish chars like ı, ş, ç)
-    normalized = re.sub(r"[\s_\-]", "", text.lower())
-    for keyword, chart_type in _CHART_KEYWORD_MAP.items():
-        if keyword in normalized:
-            return chart_type
-    return None
 
 
 def create_classify_intent_node(llm) -> Callable:
@@ -91,7 +28,6 @@ def create_classify_intent_node(llm) -> Callable:
     Confidence < 0.70 ise interrupt() ile kullanıcıya sorar.
     """
     structured_llm = llm.with_structured_output(IntentClassificationResult)
-    chart_llm = llm.with_structured_output(ChartTypeResult)
 
     async def classify_intent_node(state: dict) -> dict:
         logger.info(f"[REPORT_AGENT] ===== classify_intent_node ENTERED ===== query: {state.get('messages', [{}])[-1].content[:80] if state.get('messages') else 'NO_MESSAGES'}")
@@ -128,39 +64,12 @@ def create_classify_intent_node(llm) -> Callable:
             result_count=len(active_results),
         )
 
-        # chart prompt — user_query'de { } varsa format hatası; güvenli fallback
-        try:
-            chart_prompt_str = CHART_TYPE_PROMPT.format(user_query=user_query)
-        except (KeyError, ValueError):
-            chart_prompt_str = CHART_TYPE_PROMPT.format(user_query="")
-
-        # Paralel çağrı — return_exceptions=True: chart_llm hatası intent çağrısını öldürmez
-        gather_results = await asyncio.gather(
-            structured_llm.ainvoke(prompt),
-            chart_llm.ainvoke(chart_prompt_str),
-            return_exceptions=True,
-        )
-        intent_raw, chart_raw = gather_results[0], gather_results[1]
-
-        # intent_llm hatası: node'un normal exception mekanizmasına bırak
-        if isinstance(intent_raw, Exception):
-            raise intent_raw
-
-        result: IntentClassificationResult = intent_raw
-
-        # chart_llm hatası → graceful degrade, deterministic fallback'e düşer
-        chart_type_from_llm: Optional[str] = None
-        if isinstance(chart_raw, Exception):
-            logger.warning(
-                f"[CLASSIFY] chart_llm failed ({type(chart_raw).__name__}): {chart_raw}"
-            )
-        elif chart_raw is not None:
-            chart_type_from_llm = chart_raw.chart_type
+        result: IntentClassificationResult = await structured_llm.ainvoke(prompt)
 
         logger.info(
             f"[CLASSIFY] {result.intent_type}/{result.query_type} "
             f"conf={result.confidence:.2f} wants_viz={result.wants_visualization} "
-            f"chart_type_llm={chart_type_from_llm}"
+            f"time_breakdown={result.time_breakdown}"
         )
 
         # Max clarification tur aşıldıysa VAGUE_QUERY'yi NEW_QUERY'ye zorla
@@ -197,53 +106,42 @@ def create_classify_intent_node(llm) -> Callable:
             })
             result = _resolve_intent_from_answer(result, answer)
 
-        # Keyword detection — LLM'den bağımsız çalışır (wants_viz gate'inden önce)
-        explicit_chart = _detect_chart_type_from_query(user_query)
-
         # revisualize her zaman görselleştirme talebidir.
-        # Açık chart keyword'ü de wants_viz'i zorla True yapar —
-        # intent LLM supervisor context'i nedeniyle False dönse bile.
         wants_viz = (
             result.wants_visualization
             or (result.use_result_type == "revisualize")
-            or bool(explicit_chart)
         )
-        if explicit_chart and not (result.wants_visualization or result.use_result_type == "revisualize"):
-            logger.info(f"[CLASSIFY] wants_viz overridden True by explicit keyword: '{explicit_chart}'")
 
-        # Merge: chart_type sadece visualization isteklerinde kullanılır.
-        # Bu blok interrupt+resolve SONRASINDA hesaplanır; revisualize path'inde
-        # wants_viz doğru şekilde True gelir.
-        chart_type: Optional[str] = None
-        if wants_viz:
-            chart_type = chart_type_from_llm
-            if chart_type is None:
-                chart_type = explicit_chart  # pre-computed, ikinci _detect çağrısı yok
-                if chart_type:
-                    logger.info(f"[CLASSIFY] Keyword fallback chart type: '{chart_type}'")
+        chart_type = result.chart_type
+        chart_x_hint = result.chart_x_hint
 
-        # revisualize'da user_query SQL semantic query'yi kirletmemesi için
-        # viz_request ayrı bir alana yazılır; diğer pathlerde None (reset).
+        if chart_type:
+            logger.info(f"[CLASSIFY] chart_type={chart_type}, chart_x_hint={chart_x_hint}")
+
         is_revisualize = result.use_result_type == "revisualize"
         return_dict = {
-            "user_query": user_query,   # downstream SQL node'lar (term_resolver, sql_architect) okur
-            "viz_request": user_query if is_revisualize else None,  # viz_decider'ın özel alanı
+            "user_query": user_query,
+            "viz_request": user_query if is_revisualize else None,
             "intent_type": result.intent_type,
             "query_type": result.query_type,
             "intent_confidence": result.confidence,
             "wants_visualization": wants_viz,
             "requested_chart_type": chart_type,
+            "chart_x_hint": chart_x_hint,
             "use_result_type": result.use_result_type,
-            "compute_operation": result.compute_operation,  # compute path için (avg/sum/count/min/max)
-            "visualization_output": None,  # önceki tur çıktısını temizle
-            "pre_built_sql": None,          # her turda temizle — yeni tur için geçersiz kıl
-            "time_granularity": None,       # her turda temizle — stale state önle
-            "modification_hints": None,   # her turda temizle
+            "compute_operation": result.compute_operation,
+            "visualization_output": None,
+            "pre_built_sql": None,
+            "time_granularity": None,
+            "time_breakdown": result.time_breakdown,
+            "modification_hints": None,
+            "semantic_intent": None,
+            "term_resolution": None,
             "_clarification_count": 0 if result.intent_type != "VAGUE_QUERY" else state.get("_clarification_count", 0),
             "_skip_vague_check": False,
-            "text2sql_clarification": None,   # each turn: clear
-            "text2sql_answers": None,           # each turn: clear
-            "_hitl_answered": False,            # each turn: clear
+            "text2sql_clarification": None,
+            "text2sql_answers": None,
+            "_hitl_answered": False,
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:
@@ -268,10 +166,11 @@ def _resolve_intent_from_answer(
 
 
 def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
-    """SQL Modifier: active_sql + intent → modified_sql.
-    Text2SQL subgraph bypass eder, doğrudan executor'a gider.
-    """
-    structured_llm = llm.with_structured_output(SqlModificationResult)
+    """SQL Modifier: active_sql + SqlDelta → modified_sql via SqlDeltaApplicator."""
+    from src.graphs.report_agent.context_builder import build_query_context_summary
+    from src.graphs.report_agent.subagents.text2sql.sql_delta import SqlDeltaApplicator
+
+    structured_llm = llm.with_structured_output(SqlDelta)
 
     async def modify_sql_node(state: dict) -> dict:
         active_sql = state.get("active_sql", "")
@@ -279,80 +178,56 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
             logger.warning("[MODIFY_SQL] No active SQL, fallback to NEW_QUERY")
             return {"intent_type": "NEW_QUERY"}
 
-        # Sonuçların ilk 5 satırını al (token limiti için)
-        active_results = state.get("active_results") or []
-        results_preview = json.dumps(
-            active_results[:5], ensure_ascii=False, default=str
-        ) if active_results else "Sonuç yok"
-
-        # Konuşma geçmişi: zamir referanslarını ("bu ürün", "o şube") çözmek için
-        # Son 6 mesajı al (modification_request ile çakışma zararsız)
-        messages = state.get("messages") or []
-        context_lines: list[str] = []
-        for msg in messages[-6:]:
-            if isinstance(msg, HumanMessage):
-                role = "Kullanıcı"
-            elif isinstance(msg, AIMessage):
-                role = "Asistan"
-            else:
-                continue
-            content = msg.content[:200] if msg.content else ""
-            context_lines.append(f"{role}: {content}")
-        conversation_context = "\n".join(context_lines) if context_lines else "Yok"
+        query_context = build_query_context_summary(
+            state.get("active_results"),
+            state.get("active_filters"),
+        )
 
         prompt = SQL_MODIFIER_PROMPT.format(
             active_sql=active_sql,
-            active_filters=json.dumps(state.get("active_filters") or [], ensure_ascii=False),
-            active_results=results_preview,
+            query_context=query_context,
             modification_request=state.get("user_query", ""),
             column_metadata=json.dumps(column_metadata, ensure_ascii=False, indent=2),
-            conversation_context=conversation_context,
         )
 
-        result: SqlModificationResult = await structured_llm.ainvoke(prompt)
+        delta: SqlDelta = await structured_llm.ainvoke(prompt)
 
         logger.info(
-            f"[MODIFY_SQL] confidence={result.confidence:.2f} "
-            f"explanation={result.explanation[:80]}"
+            f"[MODIFY_SQL] confidence={delta.confidence:.2f} "
+            f"explanation={delta.explanation[:80]}"
         )
 
-        # Düşük güven: kullanıcıya sor
-        if result.confidence < 0.5:
+        if delta.confidence < 0.5:
             logger.warning(
-                f"[MODIFY_SQL] Low confidence ({result.confidence:.2f}), "
-                f"interrupting user"
+                f"[MODIFY_SQL] Low confidence ({delta.confidence:.2f}), interrupting user"
             )
             answer = interrupt({
                 "type": "clarification",
                 "question": (
                     f"İsteğinizi tam anlayamadım: \"{state.get('user_query', '')}\"\n"
-                    f"Şu şekilde anladım: {result.explanation}\n"
+                    f"Şu şekilde anladım: {delta.explanation}\n"
                     "Doğru mu, yoksa daha açık belirtir misiniz?"
                 ),
             })
-            # Kullanıcı açıklama yaptıysa yeni query olarak tekrar dene
             if answer and isinstance(answer, str) and answer.strip():
                 return {
                     "user_query": answer.strip(),
                     "intent_type": "MODIFY_QUERY",
                 }
 
-        # Post-processing: datetime kolon güvenlik ağı
-        # [DocumentDate] = '...' → CAST([DocumentDate] AS DATE) = '...'
-        modified_sql = _DATE_EQ_RE.sub(
-            lambda m: f"CAST([DocumentDate] AS DATE) {m.group(1)}",
-            result.modified_sql,
-        )
-        if modified_sql != result.modified_sql:
-            logger.info("[MODIFY_SQL] DocumentDate CAST post-processing uygulandı")
-
+        modified_sql = SqlDeltaApplicator().apply(active_sql, delta)
         logger.info(f"[MODIFY_SQL] → {modified_sql[:120]}")
-        logger.info(f"[MODIFY_SQL] {len(result.modification_hints)} hint(s) üretildi")
-        # pre_built_sql: sql_generator bu alanı görünce yeniden SQL üretmez,
-        # direkt bu SQL'i kullanır (CategoryName filtresi, doğru aggregation kolonları korunur).
+
+        modification_hints = [
+            {"column": f.column, "embedded_value": f.value.strip("'")}
+            for f in delta.add_filters
+            if f.operator == "="
+        ]
+        logger.info(f"[MODIFY_SQL] {len(modification_hints)} hint(s) üretildi")
+
         return {
             "pre_built_sql": modified_sql,
-            "modification_hints": [h.model_dump() for h in result.modification_hints],
+            "modification_hints": modification_hints,
         }
 
     return modify_sql_node

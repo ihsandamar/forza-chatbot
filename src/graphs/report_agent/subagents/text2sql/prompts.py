@@ -50,12 +50,14 @@ class DateDescriptor(BaseModel):
       "son 3 ay"  → type=relative, unit=month, amount=-3
       "bu yıl"    → type=current_period, period=year
       "15 ocak"   → type=exact, value="{current_year}-01-15"
+      "aralık 2025" → type=exact, value="2025-12-01", end_value="2026-01-01"
     """
     type: Literal["exact", "relative", "current_period"]
-    unit:   Optional[Literal["day", "month", "year", "quarter"]] = None
+    unit:   Optional[Literal["day", "month", "year", "quarter", "week"]] = None
     amount: Optional[int] = None    # Geçmiş: negatif, gelecek: pozitif
     period: Optional[Literal["day", "month", "year", "quarter"]] = None
     value:  Optional[str] = None    # "YYYY-MM-DD" formatı (exact için)
+    end_value: Optional[str] = None  # Varsa: >= value AND < end_value (ay/yıl aralığı)
 
 
 class SchemaFilter(BaseModel):
@@ -741,4 +743,144 @@ BUSINESS_RULES_VALIDATOR_PROMPT = """Kullanıcı sorgusunu analiz et. Aşağıda
 
 applicable_rule_ids'e sadece gerçekten geçerli olan kural ID'lerini yaz.
 Emin olmadığında → listeye EKLEME (eksik kural, çelişen kuraldan iyidir).
+"""
+
+
+# =============================================================================
+# SEMANTIC EXTRACTOR PROMPT — SemanticIntent structured output (~70 lines)
+# LLM KATMANI: SQL bilgisi YOK, DB verisi YOK. Sadece "ne istendi?" sorusu.
+# =============================================================================
+
+SEMANTIC_EXTRACTOR_PROMPT = """Sen bir semantik analiz uzmanısın. Kullanıcı sorgusunu analiz et ve yapılandırılmış semantik çıkarım üret.
+
+SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusunu yanıtla.
+
+## KULLANICI SORUSU
+{user_query}
+
+## SORGU TİPİ (intent_resolver tarafından belirlendi)
+{query_type}
+
+## MEVCUT KOLON ADLARI (column_hint için referans — değerler değil)
+{column_names}
+
+## KONUŞMA BAĞLAMI
+{conversation_context}
+
+## ÖNCEKİ SORGU BAĞLAMI
+{query_context}
+
+Kullanıcı "bu ürün", "bu şube", "bunu", "şunu" gibi referans kullanıyorsa →
+yukarıdaki değerlerden en uygununu seç, direkt isme çevir.
+
+Örnek: "bu ürün için detay" + bağlamda ProductName: ["Latte", "Espresso"]
+→ entity: {{raw_text: "Latte", entity_type: "filter_value", column_hint: "ProductName"}}
+
+## ÖNCEKİ SQL HATASI (varsa — farklı çıkarım dene)
+{sql_error}
+
+---
+
+## entity_type KURALLARI
+
+## raw_text = KANONİK KÖK FORM (TÜM entity tipleri — KRİTİK)
+raw_text DAIMA sözlük/kök formunu içermeli. Türkçe çekim, çoğul, hal ekleri raw_text'e DAHİL EDİLMEZ.
+Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
+
+✅ DOĞRU:   "platformlara göre"     → raw_text: "platform"
+✅ DOĞRU:   "şubelerdeki satışlar"  → raw_text: "şube"
+✅ DOĞRU:   "ürünlerin performansı" → raw_text: "ürün"
+✅ DOĞRU:   "kategorisindeki"       → raw_text: "kategori"
+❌ YASAK:   "platformlara göre"     → raw_text: "platformlara"
+❌ YASAK:   "şubelerdeki satışlar"  → raw_text: "şubelerdeki"
+
+**"filter_value"**: Sorguda filtre değeri olan spesifik kavram.
+  KURAL 1 — raw_text = SAF DEĞER (Türkçe gramer ekleri dahil değil):
+    "espresso kategorisi" → raw_text="espresso"     (NOT "espresso kategorisi")
+    "Ankara şubesi"       → raw_text="Ankara"        (NOT "Ankara şubesi")
+    "dürümler kategorisi" → raw_text="dürümler"      (NOT "dürümler kategorisi")
+  KURAL 2 — column_hint = filter_value için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
+    "espresso kategorisi" → entity("espresso",  filter_value, column_hint="CategoryName")
+    "Ankara şubesi"       → entity("Ankara",    filter_value, column_hint="BranchName")
+    "dürümler kategorisi" → entity("dürümler",  filter_value, column_hint="CategoryName")
+    "son 1 yılda"         → entity DEĞİL, time alanına yaz
+
+**"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir.
+  column_hint = dimension için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
+  - "ürünlere göre"       → entity("ürün",      dimension, column_hint="ProductName")
+  - "kategoriler bazında" → entity("kategori",  dimension, column_hint="CategoryName")
+  - "platformlara göre"   → entity("platform",  dimension, column_hint="DocumentKindName")
+  - "şubelere göre"       → entity("şube",      dimension, column_hint="BranchName")
+
+**"comparison_value"**: COMPARISON sorgusunda karşılaştırılan iki veya daha fazla spesifik değer.
+  column_hint = comparison_value için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
+  - "dürümler ve içecek karşılaştır" → entity("dürümler", comparison_value, column_hint="CategoryName") + entity("içecek", comparison_value, column_hint="CategoryName")
+  - Her iki değer AYRI entity olarak yazılır
+
+## aggregation_hint KURALLARI
+- "ciro", "tutar", "gelir", "satış tutarı" → SUM
+- "adet", "miktar", "kaç tane", "sayısı" → COUNT
+- "ortalama", "ort." → AVG
+- "en yüksek", "maksimum", "max" → MAX
+- "en düşük", "minimum", "min" → MIN
+
+## time.breakdown KURALI
+- **True** — Zaman KIRILIMı isteniyor: "aylık", "haftalık", "günlük", "yıllık" kırılım
+- **True** — Zaman BOYUTU SUPERLATİFİ: "en çok sattığı gün", "hangi ayda en fazla", "en yüksek cirolu hafta"
+  → Bu kalıplar GROUP BY date gerektirir → breakdown=True, granularity belirlenir
+- **False** — Sadece zaman FİLTRESİ: "son 3 ay", "bu yıl", "2024", "ocak 2024"
+
+## TÜRKÇE ZAMAN BOYUTU TANIMLAMA (KRİTİK)
+"X'in en çok/en az/en fazla/en yüksek/en düşük olduğu/sattığı GÜN/AY/HAFTA/SAAT hangisidir/nedir"
+kalıbı = zaman boyutu isteği → breakdown=True, raw_text=null, granularity belirlenir:
+  "en çok sattığı gün hangisidir"    → time: {{raw_text: null, breakdown: true, granularity: "daily"}}
+  "en yüksek cirolu ay hangisidir"   → time: {{raw_text: null, breakdown: true, granularity: "monthly"}}
+  "en fazla satış yapılan hafta"     → time: {{raw_text: null, breakdown: true, granularity: "weekly"}}
+  "hangi saatte en çok sipariş"      → time: {{raw_text: null, breakdown: true, granularity: "hourly"}}
+  "haftanın hangi günü en fazla"     → time: {{raw_text: null, breakdown: true, granularity: "day_of_week"}}
+
+## time.granularity KURALI (breakdown=True ise doldur, aksi halde null)
+- "aylık", "her ay", "ay bazında", "aylık olarak"    → granularity: "monthly"
+- "haftalık", "her hafta", "hafta bazında"            → granularity: "weekly"
+- "günlük", "her gün", "gün bazında"                  → granularity: "daily"
+- "yıllık", "her yıl", "yıl bazında"                  → granularity: "yearly"
+- "saatlik", "saat bazında"                           → granularity: "hourly"
+- "haftanın günlerine göre"                           → granularity: "day_of_week"
+- "ayın günlerine göre"                               → granularity: "day_of_month"
+- Açık granülarite kelimesi yoksa                     → granularity: null
+
+## time.raw_text KURALI (KRİTİK — CRASH ÖNLEME)
+raw_text YALNIZCA date_parser'ın çözebileceği bir tarih aralığı ifadesi olmalıdır.
+Granularity kelimesi ("gün", "ay", "hafta", "yıl") tek başına raw_text OLAMAZ.
+
+DOĞRU:
+  "bunu gün bazında kır"          → time: {{raw_text: null, breakdown: true,  granularity: "daily"}}
+  "bunu aylık göster"             → time: {{raw_text: null, breakdown: true,  granularity: "monthly"}}
+  "son 1 yılda aylık karşılaştır" → time: {{raw_text: "son 1 yılda", breakdown: true, granularity: "monthly"}}
+  "son 3 ayda satışlar"           → time: {{raw_text: "son 3 ayda", breakdown: false, granularity: null}}
+
+YANLIŞ — CRASH YARATIR:
+  "bunu gün bazında kır" → time: {{raw_text: "gün", ...}}
+  "aylık göster"         → time: {{raw_text: "aylık", ...}}
+
+Kural: Sorguda açık bir tarih aralığı yoksa → raw_text: null
+
+**Örnekler:**
+  "son 1 yılda aylık karşılaştır" → time: {{raw_text: "son 1 yılda", breakdown: true, granularity: "monthly"}}
+  "son 3 ayda haftalık trend"     → time: {{raw_text: "son 3 ayda", breakdown: true, granularity: "weekly"}}
+  "son 6 ayda satışlar"           → time: {{raw_text: "son 6 ayda", breakdown: false, granularity: null}}
+
+## limit ve order_direction
+- limit: Sayı varsa ("top 10", "en çok satan 5 ürün") → o sayı, yoksa null
+- order_direction: "DESC" varsayılan; "en az", "en düşük", "artan" ifadeleri → "ASC"
+
+## column_hint
+- **filter_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden gerçek DB kolon adını seç. Emin değilsen en yakın kolonu seç; Python fuzzy match ile çözecektir.
+- **dimension için ZORUNLU** — MEVCUT KOLON ADLARI listesinden seç.
+- **comparison_value için ZORUNLU** — MEVCUT KOLON ADLARI listesinden seç.
+
+## ÖNEMLİ KISITLAMALAR
+- SQL ifadeleri YAZMA (WHERE, GROUP BY, SELECT, HAVING vb.)
+- raw_query: Orijinal sorguyu AYNEN kopyala
+- Aynı kavramı hem filter_value hem dimension olarak ekleme
 """

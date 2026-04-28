@@ -1,16 +1,20 @@
 """
-Text2SQL Subagent Nodes (v2)
+Text2SQL Subgraph Nodes (v3 — SemanticIntent Architecture)
 
-8 node:
-    create_table         - Pure Python: tablo oluştur (no-op if no query config)
-    business_rules       - Pure Python + optional LLM: ChromaDB semantic search → auto_rules
-                           (llm sağlanırsa non-default aday kurallar LLM ile validate edilir)
-    term_resolver        - Pure Python + interrupt(): term_dict match → term_filters (guaranteed) + term_hints (LLM advisory)
-    sql_architect        - LLM (STRUCTURED OUTPUT): user_query → QuerySchema (field mapping only)
-    value_resolver       - Pure Python: fuzzy match + interrupt() if low confidence
-    sql_generator        - Pure Python: QuerySchema + term_filters + auto_rules → T-SQL (NO LLM)
-    sql_executor         - Pure Python: SQL çalıştır, hata → retry
-    cleanup_table        - Pure Python: tabloyu drop et (no-op if no query config)
+NEW QUERY PIPELINE:
+  business_rules       - BusinessRulesStore semantic search → auto_rules
+  semantic_extractor   - LLM (SemanticIntent): user_query → entities/metrics/time
+  term_resolver        - ChromaDB: entity/metric raw_texts → TermMatch map
+  term_validator       - LLM gate: approves candidate_filter_terms
+  schema_builder       - Python: SemanticIntent + TermMatch → QuerySchema (deterministic)
+  value_resolver       - Python + DB: filter value_hint → resolved DB value
+  sql_generator        - Pure Python: QuerySchema → T-SQL
+  sql_executor         - pyodbc: T-SQL → results
+
+MODIFY QUERY:
+  modify_sql           - LLM: active_sql + modification request → modified SQL
+
+Retry on sql_error → semantic_extractor (max MAX_RETRY times)
 """
 import asyncio
 import json
@@ -28,15 +32,17 @@ from langchain_core.runnables import RunnableConfig
 
 from src.graphs.report_agent.subagents.text2sql.prompts import (
     QuerySchema,
-    SchemaValidationResult,
     BusinessRulesValidationResult,
     TermValidationResult,
-    SQL_ARCHITECT_PROMPT,
-    SCHEMA_VALIDATOR_PROMPT,
     BUSINESS_RULES_VALIDATOR_PROMPT,
     TERM_VALIDATOR_PROMPT,
+    SEMANTIC_EXTRACTOR_PROMPT,
 )
+from src.graphs.report_agent.subagents.text2sql.exceptions import SchemaBuilderError
+from src.graphs.report_agent.subagents.text2sql.schema_builder import build_query_schema
+from src.graphs.report_agent.subagents.text2sql.semantic_models import SemanticIntent, TermMatch
 from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql, _DATE_COLUMNS
+from src.graphs.report_agent.subagents.text2sql.column_resolver import ColumnResolver
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.stores import BusinessRulesStore, TermStore
 
@@ -87,6 +93,7 @@ _KEY_PREFIX_VR_NEW_MANUAL   = "vr_new_manual__"
 _KEY_PREFIX_VR_MOD_NF       = "vr_mod_not_found__"
 _KEY_PREFIX_VR_MOD_CHOICE   = "vr_mod_choice__"
 _KEY_PREFIX_VR_MOD_MANUAL   = "vr_mod_manual__"
+_KEY_PREFIX_DATE            = "date_parse__"
 
 
 def _get_cached_answer(answers: list | None, source_key: str) -> str | None:
@@ -386,20 +393,135 @@ async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str,
 # NODE 3: TERM RESOLVER
 # =============================================================================
 
-def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
+def create_term_resolver_node(
+    term_vector_store: TermStore,
+    column_resolver: Optional[ColumnResolver] = None,
+) -> Callable:
     """
     Semantic term resolution + optional interrupt():
-    user_query → term_filters (Python-guaranteed WHERE filters)
-               + term_hints  (LLM advisory column name hints)
 
-    Conflict resolution: unambiguous high-specificity terms suppress ambiguous
-    interrupts for the same column (e.g., 'ciro' suppresses 'ne kadar sattı').
+    NEW (semantic_intent present):
+        Reads SemanticIntent.entities/metrics raw_texts, calls resolve_terms() in
+        batch, converts results to term_resolution (raw_text → TermMatch dict) for
+        schema_builder_node, and aggregates candidate_filter_terms for term_validator.
 
-    term_filters: sql_generator'da QuerySchema'ya merge edilir, LLM override edilir.
-    term_hints:   sql_architect prompt'una inject edilir.
+    LEGACY (no semantic_intent — backward compat):
+        user_query → term_filters (Python-guaranteed WHERE filters)
+                   + term_hints  (LLM advisory column name hints)
+
+    Conflict resolution (legacy path): unambiguous high-specificity terms suppress
+    ambiguous interrupts for the same column (e.g., 'ciro' suppresses 'ne kadar sattı').
+
+    Args:
+        term_vector_store: ChromaDB-backed term resolution store.
+        column_resolver:   Optional ColumnResolver. When provided and a raw_text
+                           has no ChromaDB match, resolves via alias table +
+                           column_hint fallback. Applies to both entities and metrics.
     """
 
+    def _resolver_output_to_term_match_dict(output) -> Optional[dict]:
+        """
+        Convert a TermResolverOutput to a TermMatch-compatible dict.
+
+        Uses the first candidate_filter_terms entry to extract column_name and
+        filter_structured. Returns None if the output has no resolved terms
+        (empty candidate_filter_terms and no term_filters).
+        """
+        # Prefer candidate_filter_terms (richer data with column, filter_structured)
+        if output.candidate_filter_terms:
+            cft = output.candidate_filter_terms[0]
+            return {
+                "column_name": cft.get("column", ""),
+                "filter_structured": cft.get("filter_structured"),
+                "specificity": 1.0,
+                "similarity": 1.0,
+            }
+        # Fall back to term_filters if no candidate_filter_terms
+        if output.term_filters:
+            tf = output.term_filters[0]
+            return {
+                "column_name": tf.get("column", ""),
+                "filter_structured": {k: v for k, v in tf.items() if k != "logical_operator"},
+                "specificity": 1.0,
+                "similarity": 1.0,
+            }
+        return None
+
     async def term_resolver_node(state: dict) -> dict:
+        # ── NEW PATH: SemanticIntent-based resolution ─────────────────────
+        intent_dict = state.get("semantic_intent")
+        if intent_dict:
+            intent = SemanticIntent.model_validate(intent_dict)
+
+            raw_texts: list[str] = (
+                [e.raw_text for e in intent.entities]
+                + [m.raw_text for m in intent.metrics]
+            )
+
+            resolved_map = term_vector_store.resolve_terms(raw_texts)
+            # resolved_map: {raw_text → TermResolverOutput}
+
+            term_resolution: dict = {}
+            all_candidate_filter_terms: list = []
+
+            for raw_text, output in resolved_map.items():
+                # Aggregate candidate_filter_terms for term_validator
+                all_candidate_filter_terms.extend(output.candidate_filter_terms)
+
+                # Convert to TermMatch-compatible dict for schema_builder_node
+                match_dict = _resolver_output_to_term_match_dict(output)
+                if match_dict is not None:
+                    term_resolution[raw_text] = match_dict
+
+            # ColumnResolver fallback for unresolved raw_texts
+            # Applies to all entity types AND metrics.
+            if column_resolver is not None:
+                # Entities: raw_text + optional column_hint
+                for entity in intent.entities:
+                    if entity.raw_text not in term_resolution:
+                        resolved_col = column_resolver.resolve(
+                            entity.raw_text, entity.column_hint
+                        )
+                        if resolved_col:
+                            term_resolution[entity.raw_text] = {
+                                "column_name": resolved_col,
+                                "filter_structured": None,
+                                "specificity": 0.5,
+                                "similarity": 0.0,
+                            }
+                            logger.info(
+                                f"[TERM_RESOLVER] resolver fallback (entity): "
+                                f"'{entity.raw_text}' → '{resolved_col}'"
+                            )
+
+                # Metrics: raw_text only (no column_hint on SemanticMetric)
+                for metric in intent.metrics:
+                    if metric.raw_text not in term_resolution:
+                        resolved_col = column_resolver.resolve(metric.raw_text)
+                        if resolved_col:
+                            term_resolution[metric.raw_text] = {
+                                "column_name": resolved_col,
+                                "filter_structured": None,
+                                "specificity": 0.5,
+                                "similarity": 0.0,
+                            }
+                            logger.info(
+                                f"[TERM_RESOLVER] resolver fallback (metric): "
+                                f"'{metric.raw_text}' → '{resolved_col}'"
+                            )
+
+            logger.info(
+                f"[TERM_RESOLVER] semantic_intent path: "
+                f"{len(raw_texts)} raw_text(s), "
+                f"{len(term_resolution)} resolved, "
+                f"{len(all_candidate_filter_terms)} filter candidate(s)"
+            )
+            return {
+                "term_resolution":        term_resolution,
+                "candidate_filter_terms": all_candidate_filter_terms,
+            }
+
+        # ── LEGACY PATH: raw user_query resolution ────────────────────────
         user_query = state.get("user_query", "")
         result = term_vector_store.resolve(user_query)
 
@@ -467,7 +589,6 @@ def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
         return {
             "term_filters":           term_filters,
             "candidate_filter_terms": result.candidate_filter_terms,
-            "term_hints":             hints_text,
         }
 
     return term_resolver_node
@@ -478,18 +599,7 @@ def create_term_resolver_node(term_vector_store: TermStore) -> Callable:
 # =============================================================================
 
 def create_term_validator_node(llm) -> Callable:
-    """
-    Parallel LLM gate: TermVectorStore'un ürettiği filter adaylarını doğrular.
-
-    BusinessRulesValidationResult ile aynı pattern:
-      - candidate_filter_terms'i state'ten okur (term_resolver üretir)
-      - LLM her terimin kullanıcı tarafından gerçekten kastetilip kastetilmediğine karar verir
-      - Onaylananlar → validated_term_filters (sql_generator bunu okur)
-      - Reddedilenler → validated_term_filters'a GİRMEZ
-
-    term_resolver, sql_architect, schema_validator ile PARALLEL çalışır.
-    Latency: 0 — schema_merge zaten üç node'u bekler.
-    """
+    """LLM gate that validates candidate_filter_terms from term_resolver output."""
     structured_llm = llm.with_structured_output(TermValidationResult)
 
     def _format_candidate_filters(candidate_filter_terms: list) -> str:
@@ -551,208 +661,6 @@ def create_term_validator_node(llm) -> Callable:
         return {"validated_term_filters": validated_term_filters}
 
     return term_validator_node
-
-
-# =============================================================================
-# NODE 1: SQL ARCHITECT
-# =============================================================================
-
-def create_sql_architect_node(llm, column_metadata: Dict[str, Any]) -> Callable:
-    """
-    LLM (STRUCTURED OUTPUT): user_query → QuerySchema (field mapping only).
-
-    LLM sadece field mapping yapar:
-      - Hangi kolon aggregate edilecek
-      - Hangi kolon group by
-      - Hangi filtreler (DateDescriptor ile tarihler)
-    Business rules Python (sql_generator) tarafından auto_rules'dan uygulanır.
-    """
-    structured_llm = llm.with_structured_output(QuerySchema)
-
-    async def sql_architect_node(state: dict, *, config: RunnableConfig = None) -> dict:
-        user_query         = state.get("user_query", "")
-        query_type         = state.get("query_type", "SINGLE")
-        active_sql         = state.get("active_sql")
-        active_filters     = state.get("active_filters") or []
-        sql_error          = state.get("sql_error") or "Yok"
-        effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
-        logger.info(f"[SQL_ARCHITECT] column_metadata: {len(effective_metadata)} keys, closure fallback: {len(column_metadata)} keys")
-        today              = date.today()
-
-        # Konuşma bağlamı
-        conversation_context = "Yeni sorgu, önceki bağlam yok."
-        if active_sql:
-            conversation_context = f"Önceki SQL: {active_sql[:300]}"
-            if active_filters:
-                conversation_context += f"\nAktif filtreler: {json.dumps(active_filters[:3], ensure_ascii=False)}"
-
-        # Terim eşleştirme — term_resolver_node zaten state'e yazdı
-        term_hints = state.get("term_hints") or "Özel terim eşleşmesi bulunamadı."
-
-        prompt = SQL_ARCHITECT_PROMPT.format(
-            term_hints=term_hints,
-            user_query=user_query,
-            query_type=query_type,
-            today_date=today.isoformat(),
-            current_year=today.year,
-            current_month=today.month,
-            current_quarter=(today.month - 1) // 3 + 1,
-            column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
-            conversation_context=conversation_context,
-            sql_error=sql_error,
-        )
-
-        logger.info(f"[SQL_ARCHITECT] Planning: {user_query[:80]} (type={query_type})")
-        schema: QuerySchema = await structured_llm.ainvoke(prompt)
-        logger.info(
-            f"[SQL_ARCHITECT] Schema: filters={len(schema.filters)}, "
-            f"aggs={len(schema.aggregations)}, group_by={schema.group_by}, "
-            f"limit={schema.limit}"
-        )
-        return {
-            "query_schema": schema.model_dump(),
-            "sql_error": None,
-        }
-
-    return sql_architect_node
-
-
-# =============================================================================
-# NODE 1.5: SCHEMA VALIDATOR (sql_architect ile PARALLEL çalışır)
-# =============================================================================
-
-def create_schema_validator_node(llm, column_metadata: Dict[str, Any]) -> Callable:
-    """
-    LLM (STRUCTURED OUTPUT): user_query → SchemaValidationResult.
-
-    sql_architect ile paralel çalışır — architect çıktısını GÖRMEZ.
-    Sadece GROUP BY, filters, limit üzerine bağımsız second-opinion üretir.
-    merge_schemas node'u iki çıktıyı birleştirir.
-    """
-    structured_llm = llm.with_structured_output(SchemaValidationResult)
-
-    async def schema_validator_node(state: dict, *, config: RunnableConfig = None) -> dict:
-        user_query         = state.get("user_query", "")
-        query_type         = state.get("query_type", "SINGLE")
-        term_hints         = state.get("term_hints") or "Özel terim eşleşmesi bulunamadı."
-        effective_metadata = _get_configurable(config, "column_metadata", column_metadata)
-        today              = date.today()
-
-        prompt = SCHEMA_VALIDATOR_PROMPT.format(
-            user_query=user_query,
-            query_type=query_type,
-            today_date=today.isoformat(),
-            current_year=today.year,
-            current_month=today.month,
-            current_quarter=(today.month - 1) // 3 + 1,
-            column_metadata=json.dumps(effective_metadata, ensure_ascii=False, indent=2),
-            term_hints=term_hints,
-        )
-
-        logger.info(f"[SCHEMA_VALIDATOR] Validating: {user_query[:80]} (type={query_type})")
-        result: SchemaValidationResult = await structured_llm.ainvoke(prompt)
-        logger.info(
-            f"[SCHEMA_VALIDATOR] group_by={result.group_by}, "
-            f"filters={len(result.filters)}, limit={result.limit} | {result.reasoning[:80]}"
-        )
-        return {"schema_validation": result.model_dump()}
-
-    return schema_validator_node
-
-
-# =============================================================================
-# NODE 1.9: SCHEMA MERGE (fan-in: sql_architect + schema_validator + term_validator)
-# =============================================================================
-
-async def schema_merge_node(state: dict) -> dict:
-    """
-    Pure Python: sql_architect + schema_validator çıktılarını birleştir.
-
-    Merge stratejisi:
-      group_by  → validator otoritedir (kullanıcının gerçek niyetine bakar).
-                  Validator boş döndürdüyse architect'inkini kullan.
-      filters   → architect + validator'ın eksik bulduklarının union'ı.
-                  Aynı column'dan sadece biri (architect öncelikli, validator ekler).
-      limit     → validator setlendiyse kazanır, yoksa architect.
-      diğerleri → architect çıktısı korunur (aggregations, order_by, select_columns).
-    """
-    arch_schema = state.get("query_schema")
-    validation  = state.get("schema_validation")
-
-    if not arch_schema:
-        logger.warning("[SCHEMA_MERGE] No query_schema from architect, skipping merge")
-        return {}
-
-    if not validation:
-        logger.warning("[SCHEMA_MERGE] No schema_validation, using architect output as-is")
-        return {}
-
-    # --- GROUP BY merge ---
-    validator_group_by = validation.get("group_by") or []
-    arch_group_by      = arch_schema.get("group_by") or []
-
-    if validator_group_by:
-        # Validator'ın listesi ana liste — architect'te olup validator'da olmayan kolonları düşür
-        merged_group_by = list(validator_group_by)
-        logger.info(
-            f"[SCHEMA_MERGE] group_by: architect={arch_group_by} → validator={merged_group_by}"
-        )
-    else:
-        # Validator boş döndü → architect'e güven
-        merged_group_by = arch_group_by
-        logger.info(f"[SCHEMA_MERGE] group_by: validator empty, keeping architect={merged_group_by}")
-
-    # --- Filters merge ---
-    arch_filters  = list(arch_schema.get("filters") or [])
-    val_filters   = validation.get("filters") or []
-
-    # Mevcut kolonları takip et (column bazlı dedup — architect öncelikli)
-    existing_cols = {f.get("column") for f in arch_filters if f.get("column")}
-
-    added = []
-    for vf in val_filters:
-        col = vf.get("column")
-        if col and col not in existing_cols:
-            arch_filters.append(vf)
-            existing_cols.add(col)
-            added.append(col)
-
-    if added:
-        logger.info(f"[SCHEMA_MERGE] filters: validator added missing columns: {added}")
-
-    # --- Deduplication: aynı condition'ı iki kez ekleme ---
-    # value_hint dahil edilir — COMPARISON sorgularında aynı kolon farklı
-    # value_hint ile iki ayrı filtre olabilir (örn: dürümler OR içecek).
-    seen_filter_keys: set = set()
-    deduped_filters = []
-    for f in arch_filters:
-        key = (f.get("column"), f.get("operator"), f.get("value"), f.get("value_hint"))
-        if key not in seen_filter_keys:
-            deduped_filters.append(f)
-            seen_filter_keys.add(key)
-    arch_filters = deduped_filters
-
-    # --- Limit merge ---
-    val_limit  = validation.get("limit")
-    arch_limit = arch_schema.get("limit")
-    merged_limit = val_limit if val_limit is not None else arch_limit
-
-    if val_limit is not None and val_limit != arch_limit:
-        logger.info(f"[SCHEMA_MERGE] limit: validator={val_limit} overrides architect={arch_limit}")
-
-    # --- Birleştir ---
-    merged_schema = {
-        **arch_schema,
-        "group_by": merged_group_by,
-        "filters":  arch_filters,
-        "limit":    merged_limit,
-    }
-
-    logger.info(
-        f"[SCHEMA_MERGE] Final: group_by={merged_group_by}, "
-        f"filters={len(arch_filters)}, limit={merged_limit}"
-    )
-    return {"query_schema": merged_schema}
 
 
 # =============================================================================
@@ -1259,6 +1167,7 @@ def create_sql_generator_node(
                 "cari":     "CustomerName",
                 "kasiyer":  "CashierName",
                 "şehir":    "BranchCityName",
+                "platform": "DocumentKindName",
                 "kanal":    "DocumentKindName",
                 "kurye":    "DeliveryUserName",
                 "masa":     "TableNo",
@@ -1427,6 +1336,167 @@ def create_sql_executor_node(connection_string: str) -> Callable:
                 }
 
     return sql_executor_node
+
+
+# =============================================================================
+# NODE: SEMANTIC EXTRACTOR
+# =============================================================================
+
+def create_semantic_extractor_node(llm, column_metadata: dict) -> Callable:
+    """
+    LLM (STRUCTURED OUTPUT): user_query → SemanticIntent.
+
+    Reads:  state["user_query"], state["query_type"], state.get("messages", []),
+            state.get("sql_error")
+    Uses:   column_metadata closure — DB column catalog injected at graph-build time
+    Writes: {"semantic_intent": SemanticIntent.model_dump()}
+
+    No SQL knowledge required — pure "what did the user want?" extraction.
+    """
+    structured_llm = llm.with_structured_output(SemanticIntent)
+    col_meta = column_metadata or {}
+
+    async def semantic_extractor_node(state: dict) -> dict:
+        user_query   = state.get("user_query", "")
+        query_type   = state.get("query_type", "SINGLE")
+        messages     = state.get("messages") or []
+        sql_error    = state.get("sql_error") or "Yok"
+
+        column_names = ", ".join(col_meta.keys()) if col_meta else "Bilinmiyor"
+
+        # Build conversation context from message history (last 3 pairs at most)
+        if messages:
+            last_msgs = messages[-6:]  # up to 3 human+ai pairs
+            conv_lines = []
+            for m in last_msgs:
+                role = getattr(m, "type", None) or (m.get("role") if isinstance(m, dict) else "?")
+                content = getattr(m, "content", None) or (m.get("content") if isinstance(m, dict) else str(m))
+                conv_lines.append(f"{role}: {content[:200]}")
+            conversation_context = "\n".join(conv_lines)
+        else:
+            conversation_context = "Yeni konuşma, önceki bağlam yok."
+
+        from src.graphs.report_agent.context_builder import build_query_context_summary
+
+        query_context = build_query_context_summary(
+            state.get("active_results"),
+            state.get("active_filters"),
+        )
+
+        prompt = SEMANTIC_EXTRACTOR_PROMPT.format(
+            user_query=user_query,
+            query_type=query_type,
+            column_names=column_names,
+            conversation_context=conversation_context,
+            sql_error=sql_error,
+            query_context=query_context,
+        )
+
+        logger.info(f"[SEMANTIC_EXTRACTOR] Extracting intent: {user_query[:80]} (type={query_type})")
+        result: SemanticIntent = await structured_llm.ainvoke(prompt)
+        logger.info(
+            f"[SEMANTIC_EXTRACTOR] entities={len(result.entities)}, "
+            f"metrics={len(result.metrics)}, time={result.time}"
+        )
+        return {"semantic_intent": result.model_dump()}
+
+    return semantic_extractor_node
+
+
+# =============================================================================
+# NODE: SCHEMA BUILDER
+# =============================================================================
+
+def create_schema_builder_node() -> Callable:
+    """
+    Pure Python: semantic_intent + term_resolution → QuerySchema.
+
+    Reads:  state["semantic_intent"] (dict from SemanticIntent.model_dump()),
+            state.get("term_resolution", {}) (dict of raw_text → TermMatch dict),
+            state["query_type"], state.get("time_breakdown", False)
+    Writes: {"query_schema": QuerySchema.model_dump()}
+
+    No LLM involved. Deterministic conversion via build_query_schema().
+    """
+
+    async def schema_builder_node(state: dict) -> dict:
+        intent_dict     = state.get("semantic_intent") or {}
+        resolution_dict = state.get("term_resolution") or {}
+        query_type      = state.get("query_type", "SINGLE")
+        time_breakdown  = state.get("time_breakdown", False)
+        today           = date.today()
+        answers         = state.get("text2sql_answers") or []
+
+        logger.info(
+            f"[SCHEMA_BUILDER] INPUT: semantic_intent={bool(intent_dict)}, "
+            f"term_resolution={len(resolution_dict)} terms, "
+            f"query_type={query_type}, time_breakdown={time_breakdown}"
+        )
+
+        # Önceki HITL turunda kullanıcı düzeltilmiş tarih verdiyse intent_dict'e yansıt
+        time_data = intent_dict.get("time") or {}
+        original_date_text = (time_data.get("raw_text") or "").strip()
+        if original_date_text:
+            cached_date = _get_cached_answer(answers, _KEY_PREFIX_DATE + original_date_text)
+            if cached_date:
+                intent_dict = dict(intent_dict)
+                intent_dict["time"] = {**time_data, "raw_text": cached_date.strip()}
+                logger.info(
+                    f"[SCHEMA_BUILDER] Cached date answer: '{original_date_text}' → '{cached_date.strip()}'"
+                )
+
+        # Reconstruct SemanticIntent from dict
+        intent = SemanticIntent.model_validate(intent_dict)
+
+        # Reconstruct TermMatch objects from dict
+        term_resolution_map: Dict[str, TermMatch] = {}
+        for raw_text, tm_data in resolution_dict.items():
+            if isinstance(tm_data, TermMatch):
+                term_resolution_map[raw_text] = tm_data
+            elif isinstance(tm_data, dict):
+                term_resolution_map[raw_text] = TermMatch(
+                    column_name=tm_data.get("column_name", raw_text),
+                    filter_structured=tm_data.get("filter_structured"),
+                    specificity=float(tm_data.get("specificity", 1.0)),
+                    similarity=float(tm_data.get("similarity", 1.0)),
+                )
+
+        try:
+            schema = build_query_schema(
+                intent=intent,
+                term_resolution=term_resolution_map,
+                query_type=query_type,
+                time_breakdown=time_breakdown,
+                today=today,
+            )
+        except SchemaBuilderError as exc:
+            if exc.error_code == "DATE_PARSE_ERROR":
+                raw_text = exc.context.get("raw_text", original_date_text)
+                source_key = _KEY_PREFIX_DATE + (original_date_text or raw_text)
+                question = (
+                    f"'{raw_text}' tarih ifadesi anlaşılamadı. "
+                    f"Lütfen ay ve yılı açık olarak belirtin (örn: Aralık 2024 veya 2024-12):"
+                )
+                logger.warning(f"[SCHEMA_BUILDER] DATE_PARSE_ERROR for '{raw_text}', asking user")
+                return {
+                    "text2sql_clarification": {
+                        "type": "input",
+                        "question": question,
+                        "source": source_key,
+                    }
+                }
+            raise
+
+        logger.info(
+            f"[SCHEMA_BUILDER] DECISION: filters={len(schema.filters)}, "
+            f"group_by={schema.group_by}, gran={schema.time_granularity}"
+        )
+        logger.info(
+            f"[SCHEMA_BUILDER] OUTPUT: query_schema ready, aggs={len(schema.aggregations)}"
+        )
+        return {"query_schema": schema.model_dump()}
+
+    return schema_builder_node
 
 
 # =============================================================================

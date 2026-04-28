@@ -23,6 +23,7 @@ from src.graphs.report_agent.subagents.visualization_v2.models import ChartSpec
 from src.graphs.report_agent.subagents.visualization_v2.prompts import VIZ_DECIDER_PROMPT
 from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
 from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+from src.graphs.report_agent.subagents.visualization_v2.turkey_geo import detect_city_column
 from src.graphs.report_agent.subagents.text2sql.nodes import AGGREGATE_PERIOD_GRANULARITIES
 
 logger = logging.getLogger(__name__)
@@ -150,13 +151,6 @@ def _rule_based_decision(
     if not metric_cols:
         return None
 
-    if query_type == "LISTING":
-        return {
-            "needs_graph": False, "chart_type": "table",
-            "x_field": None, "y_field": None, "series_field": None,
-            "reason": "LISTING -> table",
-        }
-
     if query_type == "SINGLE" and row_count == 1 and len(metric_cols) == 1:
         return {
             "needs_graph": False, "chart_type": "single_value",
@@ -212,6 +206,24 @@ def _rule_based_decision(
             "needs_graph": True, "chart_type": "line_chart",
             "x_field": None, "y_field": None, "series_field": None,
             "reason": "Time series -> line chart",
+        }
+
+    # --- TURKEY MAP: single city dimension, no time axis, no time granularity ---
+    _city_col = detect_city_column(dim_cols)
+    if (
+        _city_col
+        and not time_col
+        and not time_granularity
+        and len(dim_cols) == 1
+        and metric_cols
+    ):
+        return {
+            "needs_graph": True,
+            "chart_type": "turkey_map",
+            "x_field": _city_col,
+            "y_field": None,
+            "series_field": None,
+            "reason": f"City dimension ({_city_col}) + no time axis -> Turkey province map",
         }
 
     # --- COMPARISON / RANKING with multiple dimensions -> sunburst ---
@@ -309,15 +321,19 @@ def create_viz_decider_node(llm) -> Callable:
         # --- Chart type override from intent classification ---
         _requested_chart = state.get("requested_chart_type")
         if _requested_chart:
-            logger.info(f"[V2:VIZ_DECIDER] Intent requested chart type: {_requested_chart}")
-            return {"viz_decision": {
-                "needs_graph": True,
-                "chart_type": _requested_chart,
-                "x_field": None,
-                "y_field": None,
-                "series_field": _comp_dim,
-                "reason": f"User requested {_requested_chart}",
-            }}
+            _x_hint = state.get("chart_x_hint")
+            logger.info(
+                f"[V2:VIZ_DECIDER] Intent: chart_type={_requested_chart}, x_hint={_x_hint}"
+            )
+            return {"viz_decision": ChartSpec(
+                needs_graph=True,
+                chart_type=_requested_chart,
+                x_field=_x_hint,
+                y_field=None,
+                series_field=_comp_dim,
+                reason=f"User requested {_requested_chart}"
+                       + (f" (x={_x_hint})" if _x_hint else ""),
+            ).model_dump()}
 
         # Rule-based fast path (no user chart preference)
         rule_decision = _rule_based_decision(

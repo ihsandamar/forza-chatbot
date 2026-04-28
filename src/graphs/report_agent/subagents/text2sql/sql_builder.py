@@ -58,7 +58,14 @@ def _resolve_date_filter(col_expr: str, descriptor: Dict[str, Any], operator: st
 
     if d_type == "exact":
         val = descriptor.get("value", "")
-        # DocumentDate datetime kolonu — CAST ile gün seviyesinde karşılaştır
+        end_val = descriptor.get("end_value")
+        if end_val:
+            # Ay/yıl aralığı: >= başlangıç AND < bitiş
+            return (
+                f"CAST({col_expr} AS DATE) >= '{val}' "
+                f"AND CAST({col_expr} AS DATE) < '{end_val}'"
+            )
+        # Tekil gün — CAST ile gün seviyesinde karşılaştır
         return f"CAST({col_expr} AS DATE) {operator} '{val}'"
 
     elif d_type == "relative":
@@ -314,6 +321,18 @@ def generate_sql(
 
     if applied_rules:
         logger.info(f"[SQL_GENERATOR] Applying {len(applied_rules)} auto rules: {[r.get('id') for r in applied_rules]}")
+
+    # Guard: GROUP BY without aggregations → SELECT * + GROUP BY is invalid in SQL Server.
+    # schema_builder should prevent this, but defend here too so no caller can slip through.
+    if schema_dict.get("group_by") and not schema_dict.get("aggregations"):
+        logger.warning(
+            "[SQL_BUILDER] GROUP BY without aggregations detected — "
+            "injecting SUM(RowAmount) AS ToplamCiro as defensive fallback"
+        )
+        schema_dict = dict(schema_dict)
+        schema_dict["aggregations"] = [
+            {"function": "SUM", "column": "RowAmount", "alias": "ToplamCiro"}
+        ]
 
     # TOP N
     limit = schema_dict.get("limit")

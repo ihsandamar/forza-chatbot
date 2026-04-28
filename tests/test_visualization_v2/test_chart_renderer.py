@@ -201,3 +201,151 @@ def test_column_metadata_used_as_labels(bar_results, col_meta):
     }
     html = render_chart(spec, bar_results, col_meta)
     assert "Sube adi" in html or "Sube" in html
+
+
+_MINIMAL_GEOJSON_3 = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [[[28.0, 41.0], [29.0, 41.0], [29.0, 42.0], [28.0, 42.0], [28.0, 41.0]]]},
+            "properties": {"name": "İstanbul"},
+        },
+        {
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [[[32.0, 39.0], [33.0, 39.0], [33.0, 40.0], [32.0, 40.0], [32.0, 39.0]]]},
+            "properties": {"name": "Ankara"},
+        },
+        {
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [[[26.0, 38.0], [27.0, 38.0], [27.0, 39.0], [26.0, 39.0], [26.0, 38.0]]]},
+            "properties": {"name": "İzmir"},
+        },
+    ],
+}
+
+
+def test_turkey_map_renders_with_mock_geojson():
+    """turkey_map renders choropleth HTML with two traces (grey + colored)."""
+    from unittest.mock import patch
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart, _build_turkey_map
+    import pandas as pd
+
+    results = [
+        {"BranchCityName": "Istanbul", "TotalSales": 50000},
+        {"BranchCityName": "Ankara", "TotalSales": 35000},
+    ]
+    spec = {
+        "chart_type": "turkey_map",
+        "x_field": "BranchCityName",
+        "y_field": "TotalSales",
+        "title": "İl Bazında Satışlar",
+    }
+
+    with patch(
+        "src.graphs.report_agent.subagents.visualization_v2.turkey_geo.load_turkey_geojson",
+        return_value=_MINIMAL_GEOJSON_3,
+    ):
+        html = render_chart(spec, results, {})
+        fig = _build_turkey_map(pd.DataFrame(results), spec)
+
+    assert html is not None
+    assert "plotly" in html.lower()
+    # Two traces: grey background for all provinces, Blues for data provinces
+    assert len(fig.data) == 2
+    assert len(fig.data[0].locations) == 3  # all 3 provinces in grey trace
+    assert len(fig.data[1].locations) == 2  # only 2 provinces have data
+
+
+def test_turkey_map_shows_grey_for_province_without_data():
+    """Province without data (İzmir) appears in grey trace; Istanbul and Ankara in colored trace."""
+    from unittest.mock import patch
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import _build_turkey_map
+    import pandas as pd
+
+    results = [
+        {"BranchCityName": "Istanbul", "TotalSales": 50000},
+        # Ankara missing → should appear grey
+    ]
+    spec = {"x_field": "BranchCityName", "y_field": "TotalSales", "title": ""}
+
+    with patch(
+        "src.graphs.report_agent.subagents.visualization_v2.turkey_geo.load_turkey_geojson",
+        return_value=_MINIMAL_GEOJSON_3,
+    ):
+        fig = _build_turkey_map(pd.DataFrame(results), spec)
+
+    assert fig is not None
+    # Grey trace has all 3 provinces
+    assert len(fig.data[0].locations) == 3
+    # Colored trace has only 1 province with data
+    assert len(fig.data[1].locations) == 1
+    assert fig.data[1].locations[0] == "İstanbul"
+    # Grey trace hover template includes "Veri yok"
+    assert "Veri yok" in fig.data[0].hovertemplate
+
+
+def test_turkey_map_returns_none_when_no_geojson():
+    """turkey_map returns None gracefully when GeoJSON asset is missing."""
+    from unittest.mock import patch
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    results = [{"BranchCityName": "Istanbul", "TotalSales": 50000}]
+    spec = {
+        "chart_type": "turkey_map",
+        "x_field": "BranchCityName",
+        "y_field": "TotalSales",
+    }
+
+    with patch(
+        "src.graphs.report_agent.subagents.visualization_v2.turkey_geo.load_turkey_geojson",
+        return_value=None,
+    ):
+        html = render_chart(spec, results, {})
+
+    assert html is None
+
+
+def test_turkey_map_returns_none_when_x_field_missing():
+    """turkey_map returns None when spec has no x_field."""
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    results = [{"BranchCityName": "Istanbul", "TotalSales": 50000}]
+    spec = {"chart_type": "turkey_map", "x_field": None, "y_field": "TotalSales"}
+    html = render_chart(spec, results, {})
+    assert html is None
+
+
+def test_turkey_map_returns_none_when_no_rows_match_geojson():
+    """turkey_map returns None when data city names don't match any GeoJSON province."""
+    from unittest.mock import patch
+    from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+
+    _MINIMAL_GEOJSON = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[28.0, 41.0], [29.0, 41.0], [29.0, 42.0], [28.0, 42.0], [28.0, 41.0]]]
+                },
+                "properties": {"name": "İstanbul"},
+            },
+        ],
+    }
+
+    results = [{"BranchCityName": "XXXXUNKNOWNXXXX", "TotalSales": 100}]
+    spec = {
+        "chart_type": "turkey_map",
+        "x_field": "BranchCityName",
+        "y_field": "TotalSales",
+    }
+
+    with patch(
+        "src.graphs.report_agent.subagents.visualization_v2.turkey_geo.load_turkey_geojson",
+        return_value=_MINIMAL_GEOJSON,
+    ):
+        html = render_chart(spec, results, {})
+
+    assert html is None

@@ -16,6 +16,7 @@ class ReportState(TypedDict):
     intent_confidence: Optional[float]
     wants_visualization: Optional[bool]  # Kullanıcı açıkça grafik istedi mi?
     requested_chart_type: Optional[str]  # "heatmap", "sunburst" etc. — intent LLM'den gelir
+    chart_x_hint: Optional[str]          # x-axis kolon ipucu — kullanıcı açıkça belirtirse dolar
     use_result_type: Optional[str]     # "new_query" | "revisualize" | "compute" | "modify_context"
     compute_operation: Optional[str]   # "sum" | "avg" | "count" | "min" | "max" (compute için)
 
@@ -34,6 +35,11 @@ class ReportState(TypedDict):
     error: Optional[str]
     candidate_filter_terms: Optional[List[Dict[str, Any]]]  # term_resolver → term_validator (term_id + metadata)
     validated_term_filters: Optional[List[Dict[str, Any]]]  # term_validator → sql_generator (onaylanan filtreler)
+
+    # NLU Pipeline (semantic approach)
+    semantic_intent: Optional[Dict]      # SemanticIntent.model_dump() — semantic_extractor output
+    term_resolution: Optional[Dict]      # {raw_text → TermMatch dict} — term_resolver output
+    time_breakdown: Optional[bool]       # intent_resolver time_breakdown flag
 
     # Visualization
     viz_request: Optional[str]           # "pasta grafik" gibi görselleştirme tarzı (sadece revisualize'da)
@@ -71,6 +77,7 @@ def create_initial_state() -> ReportState:
         intent_confidence=None,
         wants_visualization=None,
         requested_chart_type=None,
+        chart_x_hint=None,
         use_result_type=None,
         compute_operation=None,
         active_sql=None,
@@ -85,6 +92,9 @@ def create_initial_state() -> ReportState:
         error=None,
         candidate_filter_terms=None,
         validated_term_filters=None,
+        semantic_intent=None,
+        term_resolution=None,
+        time_breakdown=None,
         viz_request=None,
         visualization_output=None,
         _clarification_count=0,

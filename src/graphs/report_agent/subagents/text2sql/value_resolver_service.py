@@ -33,6 +33,8 @@ class ValueResolverService:
         self.column_semantic_map: Dict[str, str] = {}
         self.column_reverse_map: Dict[str, List[str]] = {}  # DB column → semantic aliases
 
+        self._init_column_semantic_mapping()
+
     def _parse_mssql_dsn(self, dsn: str) -> str:
         """mssql+pyodbc DSN'yi pyodbc connection string'e çevir"""
         # mssql+pyodbc://user:pass@host:port/database?driver=DRIVER
@@ -157,7 +159,7 @@ class ValueResolverService:
         }
 
         # Küçük harfe çevir
-        text = text.lower()
+        text = str(text).lower()
 
         # Türkçe karakterleri değiştir
         for tr_char, en_char in turkish_map.items():
@@ -196,9 +198,6 @@ class ValueResolverService:
             if config["strategy"] == "full_cache":
                 await self._load_to_cache(column)
                 cache_count += 1
-
-        # 4. Semantik kolon mapping'ini hazırla
-        self._init_column_semantic_mapping()
 
         logger.info(f"ValueResolver hazir! ({cache_count}/{len(columns)} columns cached)")
     
@@ -577,61 +576,10 @@ class ValueResolverService:
         logger.info(f"[VALUE_RESOLVER] Semantic column mapping initialized: {len(self.column_semantic_map)} aliases")
 
     def resolve_column_name(self, semantic_name: str) -> Optional[str]:
-        """
-        Resolve semantic/natural language column name to actual DB column.
-
-        Args:
-            semantic_name: Natural language column name (e.g., "Tutar", "SatisTutari")
-
-        Returns:
-            Actual database column name (e.g., "RowAmount") or None if not found
-
-        Examples:
-            >>> resolver.resolve_column_name("Tutar")
-            "RowAmount"
-            >>> resolver.resolve_column_name("SatisTutari")
-            "RowAmount"
-            >>> resolver.resolve_column_name("RowAmount")
-            "RowAmount"  # Already a DB column
-        """
-        # Normalize input
-        normalized = self._normalize_turkish(semantic_name.replace("_", "").replace(" ", ""))
-
-        # Check semantic map
-        db_column = self.column_semantic_map.get(normalized)
-
-        if db_column:
-            logger.debug(f"[VALUE_RESOLVER] Resolved '{semantic_name}' → '{db_column}'")
-            return db_column
-
-        # Check if already a DB column (exact match)
-        if semantic_name in self.column_config:
-            logger.debug(f"[VALUE_RESOLVER] '{semantic_name}' is already a DB column")
-            return semantic_name
-
-        # Fuzzy match against actual DB columns (case-insensitive)
-        from rapidfuzz import process, fuzz
-        db_columns = list(self.column_config.keys())
-
-        if not db_columns:
-            logger.warning(f"[VALUE_RESOLVER] No columns available for fuzzy matching '{semantic_name}'")
-            return None
-
-        match = process.extractOne(
-            semantic_name,
-            db_columns,
-            scorer=fuzz.ratio,
-            score_cutoff=85  # High threshold for column names
-        )
-
-        if match:
-            matched_column = match[0]
-            score = match[1]
-            logger.info(f"[VALUE_RESOLVER] Fuzzy matched '{semantic_name}' → '{matched_column}' (score: {score})")
-            return matched_column
-
-        logger.warning(f"[VALUE_RESOLVER] Could not resolve column name: '{semantic_name}'")
-        return None
+        """Delegate to ColumnResolver — single source of truth for column normalization."""
+        from src.graphs.report_agent.subagents.text2sql.column_resolver import ColumnResolver
+        db_cols = list(self.column_config.keys()) if self.column_config else []
+        return ColumnResolver(db_columns=db_cols).resolve(semantic_name)
 
     def get_column_aliases(self, db_column: str) -> List[str]:
         """

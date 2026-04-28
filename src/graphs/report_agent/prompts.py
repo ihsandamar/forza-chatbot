@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 # =============================================================================
@@ -13,12 +13,18 @@ class IntentClassificationResult(BaseModel):
     intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT", "VAGUE_QUERY"]
     query_type: Literal["SINGLE", "LISTING", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
-    wants_visualization: bool = False           # Kullanıcı açıkça grafik/chart istedi mi?
+    wants_visualization: bool = False
+    chart_type: Optional[Literal[
+        "bar_chart", "line_chart", "pie_chart", "scatter_chart",
+        "heatmap", "sunburst", "treemap", "comparison", "turkey_map",
+    ]] = None
+    chart_x_hint: Optional[str] = None
     use_result_type: Optional[Literal["new_query", "revisualize", "compute", "modify_context"]] = None
     compute_operation: Optional[Literal["sum", "avg", "count", "min", "max"]] = None
-    modification_action: Optional[str] = None   # "add_filter" | "remove_filter" | "change_limit" | "change_order"
-    modification_target: Optional[str] = None   # "şehir", "tarih", "limit"
-    modification_value: Optional[str] = None    # "Ankara", "2024-01", "50"
+    modification_action: Optional[str] = None
+    modification_target: Optional[str] = None
+    modification_value: Optional[str] = None
+    time_breakdown: bool = False
 
     @field_validator("confidence")
     @classmethod
@@ -26,6 +32,12 @@ class IntentClassificationResult(BaseModel):
         if not 0.0 <= v <= 1.0:
             raise ValueError("confidence must be between 0.0 and 1.0")
         return v
+
+    @model_validator(mode="after")
+    def clear_chart_hints_when_no_chart_type(self) -> "IntentClassificationResult":
+        if self.chart_type is None:
+            self.chart_x_hint = None
+        return self
 
 
 class ChartTypeResult(BaseModel):
@@ -43,13 +55,25 @@ class ModificationHint(BaseModel):
     embedded_value: str  # SQL'e yazılan birebir string (örn: "dürümler")
 
 
-class SqlModificationResult(BaseModel):
-    """MODIFY_QUERY — mevcut SQL üzerine delta uygular."""
+class FilterDelta(BaseModel):
+    """Tek bir WHERE koşulu değişikliği."""
 
-    modified_sql: str
-    explanation: str
-    confidence: float       # 0.0-1.0: referans çözümleme ve değişiklik doğruluğuna güven
-    modification_hints: List[ModificationHint] = []
+    column: str
+    operator: Literal["=", "!=", "LIKE", "NOT LIKE", ">", "<", ">=", "<=", "BETWEEN"]
+    value: str  # SQL-ready: "'Ankara'", "'%latte%'", "DATEADD(month,-1,GETDATE())"
+
+
+class SqlDelta(BaseModel):
+    """MODIFY_QUERY — LLM ne değişsin söyler, Python uygular."""
+
+    add_filters:           List[FilterDelta] = []
+    remove_filter_columns: List[str] = []
+    change_limit:          Optional[int] = None
+    change_orderby:        Optional[str] = None
+    change_groupby:        Optional[str] = None
+    change_select:         Optional[str] = None
+    explanation:           str
+    confidence:            float
 
 
 class EntityExtractionResult(BaseModel):
@@ -113,6 +137,11 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 - NEW_QUERY: Kullanıcı tamamen yeni bir sorgu istiyor, önceki bağlamla ilgisi yok
 - MODIFY_QUERY: Önceki sorguyu değiştirmek istiyor (filtre ekle/çıkar, sırala, limitı değiştir)
   → Aktif SQL olmadan ASLA MODIFY_QUERY seçme
+  → MODIFY_QUERY SINIRI: Sadece filtre/sıralama/limit değişikliklerini kapsar.
+    "Boyut pivot" (GROUP BY boyutunu tamamen değiştirme) MODIFY_QUERY DEĞİLDİR → NEW_QUERY seç.
+    Boyut pivot örnekleri: "en çok sattığı gün hangisidir", "hangi ayda en fazla ciro var",
+    "en yüksek satışın olduğu hafta", "hangi saatte en çok sipariş geliyor"
+    Bu sorgularda "bu ürün/bu şube" gibi zamirler olsa bile → NEW_QUERY (bağlam K3 ile çözülür)
 - VAGUE_QUERY: Sorgu çok genel/belirsiz — SQL'e çevrilemeyecek kadar spesifik değil
   → Dönem belirtmemiş, filtre/kırılım yok, ne istediği açık değil
   → Örnekler: "satış durumu nedir", "ciro", "durum ne", "satışlar nasıl"
@@ -134,9 +163,10 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
 
 **query_type:**
 - SINGLE: Tek bir metrik veya toplam (ör: "toplam ciro nedir?", "kaç adisyon açıldı?")
-- LISTING: Belirli bir boyut filtrelenip başka bir boyutun detayı listeleniyor
-  (ör: "dürümler kategorisindeki ürünler", "Ankara şubesindeki satışlar", "paket servisteki kategoriler")
-  → Bir boyut değer filtresi, diğer boyut GROUP BY
+- LISTING: Belirli bir boyut filtrelenip başka bir boyutun **sadece isimleri/öğeleri** listeleniyor — metrik/toplam hesaplanmıyor
+  (ör: "dürümler kategorisindeki ürünler", "paket servisteki kategoriler", "Ankara'daki şubeler hangileri")
+  → Bir boyut değer filtresi, diğer boyut GROUP BY, TOPLAM YOK — sadece eleman listesi
+  ⚠️ "illere göre satış", "şubelere göre ciro" gibi metrik hesaplayan sorgular LISTING DEĞİL → RANKING
 - RANKING: Sıralama / top-N / en fazla / en az
 - COMPARISON: İki veya daha fazla grubun karşılaştırması — SADECE zaman granülaritesi (haftalık/aylık/günlük vb.) YOKSA
   ✅ "dürümler ve içecek kategorilerini karşılaştır" → COMPARISON (zaman kırılımı yok)
@@ -148,17 +178,27 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   ✅ "her ay ne kadar satıldı" → TIME_SERIES_COMPARISON (periyodik kırılım)
   ✅ "dürümler ve hammade kategorilerini haftalık karşılaştır" → TIME_SERIES_COMPARISON (entity + haftalık = dönemsel kırılım!)
   ✅ "A ve B'yi aylık/günlük/saatlik/yıllık bazda karşılaştır" → TIME_SERIES_COMPARISON (entity + zaman granülaritesi)
-  ❌ "son 1 yılda carilere göre ciro" → LISTING (tek dönem filtresi + boyut kırılımı)
-  ❌ "geçen ay şubelere göre satışlar" → LISTING (tek dönem filtresi + boyut kırılımı)
+  ❌ "son 1 yılda carilere göre ciro" → RANKING (tarih filtresi + metrik toplam + boyut GROUP BY = sıralama)
+  ❌ "geçen ay şubelere göre satışlar" → RANKING (tarih filtresi + metrik toplam + boyut GROUP BY = sıralama)
   ❌ "bu yılın en çok satan ürünleri" → RANKING
   KURAL 1: Sorgu aylık/yıllık/haftalık/günlük/saatlik KIRILIM istiyorsa → TIME_SERIES_COMPARISON
   KURAL 2: "X ve Y'yi [periyot] bazda karşılaştır" kalıbı → zaman granülaritesi + entity = TIME_SERIES_COMPARISON
-  KURAL 3: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY = LISTING
+  KURAL 3: "son X [dönem]de [boyut]a göre" kalıbı = tarih filtresi + boyut GROUP BY
+    → Ciro/satış/tutar/adet gibi metrik hesaplanıyorsa → RANKING
+    → Sadece isimleri listele ("hangi ürünler", "kimler") → LISTING
 
 TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
 - "saate göre ciro dağılımı" → TIME_SERIES_COMPARISON (aggregate: hour_of_day)
 - "haftanın günlerine göre satış" → TIME_SERIES_COMPARISON (aggregate: day_of_week)
 - "ayın günlerine göre adet" → TIME_SERIES_COMPARISON (aggregate: day_of_month)
+
+TIME_SERIES_COMPARISON ayrıca ZAMAN BOYUTU SUPERLATİF sorgularını kapsar (dimension pivot):
+✅ "bu ürünün en çok sattığı gün hangisidir" → TIME_SERIES_COMPARISON (gün = zaman boyutu, GROUP BY gün)
+✅ "hangi ayda en fazla ciro var" → TIME_SERIES_COMPARISON
+✅ "en yüksek satışın olduğu hafta" → TIME_SERIES_COMPARISON
+✅ "hangi saatte en çok sipariş geliyor" → TIME_SERIES_COMPARISON
+KURAL: "X'in/hangi [GÜN/AY/HAFTA/SAAT] en çok/en az/en yüksek/en düşük" kalıbı = TIME_SERIES_COMPARISON
+Bu sorgular MODIFY_QUERY DEĞİLDİR — GROUP BY boyutu tamamen değiştiğinden NEW_QUERY olarak işlenir.
 
 ⚠️ FARK: "günlük satışlar" = TIME_SERIES (trend), "haftanın günlerine göre" = TIME_SERIES (dağılım)
   İkisi de TIME_SERIES_COMPARISON. Ayrım text2sql katmanında time_granularity ile yapılır.
@@ -171,27 +211,52 @@ TIME_SERIES_COMPARISON ayrıca TOPLU DAĞILIM sorgularını da kapsar:
 - False: Sadece veri/tablo istiyor, grafik talep etmiyor (DEFAULT)
   → "şube satışları nedir?", "top 10 ürün" gibi salt veri sorguları → False
 
+**chart_type:** (SADECE wants_visualization=True olduğunda doldur, aksi halde null)
+- Kullanıcı belirli bir grafik tipi belirtiyorsa tespit et:
+  - "bar chart", "bar grafik", "çubuk grafik", "sütun grafik", "histogram" → "bar_chart"
+  - "line chart", "çizgi grafik", "line grafik", "trend grafik" → "line_chart"
+  - "pie chart", "pasta grafik", "pasta dilimi" → "pie_chart"
+  - "scatter", "dağılım grafik" → "scatter_chart"
+  - "heatmap", "ısı haritası" → "heatmap"
+  - "sunburst", "sunbrust" (yazım hatası toleransı) → "sunburst"
+  - "treemap", "tree map" → "treemap"
+  - "karşılaştırma grafiği", "comparison chart" → "comparison"
+- Kullanıcı grafik tipini belirtmiyorsa (sadece "grafik göster", "görselleştir") → null
+- wants_visualization=False ise HER ZAMAN null
+
+**chart_x_hint:** (SADECE chart_type dolu VE kullanıcı x-ekseninde hangi boyutu istediğini açıkça belirtiyorsa)
+- Kullanıcı "X bazında", "X'e göre", "X kırılımında" gibi ifadelerle belirli bir boyut adı veriyorsa → o ismi yaz
+- Belirtmiyorsa → null
+- Örnekler:
+  - "BranchName bazında bar chart yap" → "BranchName"
+  - "kategorilere göre pasta grafik" → "CategoryName"
+  - "ürün bazında çizgi grafik" → "ProductName"
+  - "sadece bar chart yap" → null (kolon belirtilmemiş)
+  - "satışları bar chart olarak göster" → null (boyut belirtilmemiş)
+
 **confidence:** 0.0-1.0 güven skoru.
 - 0.90+: Kesin
 - 0.70-0.90: Makul tahmin
 - 0.70 altı: Belirsiz → kullanıcıya sor
 
 ⚠️ ALAN KISITLAMASI: `use_result_type` ve `compute_operation` alanları YALNIZCA intent_type="USE_RESULT" olduğunda doldurulur. MODIFY_QUERY veya NEW_QUERY için bu alanlar boş (null) bırakılır.
+
+**time_breakdown:**
+- True: Kullanıcı dönemsel kırılım istiyor — "aylık", "haftalık", "günlük", "yıllık" ifadeleri var
+- False: Dönemsel kırılım YOK (salt zaman filtresi veya zaman yok)
 """
 
-SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre değiştir.
-
-## KONUŞMA GEÇMİŞİ
-{conversation_context}
+SQL_MODIFIER_PROMPT = """Kullanıcının isteğini anlayıp SADECE ne değişmesi gerektiğini SqlDelta formatında döndür.
+SQL yazmana gerek yok — değişiklikleri struct olarak belirt, Python uygulayacak.
 
 ## MEVCUT SQL
 {active_sql}
 
-## AKTİF FİLTRELER
-{active_filters}
+## AKTİF BAĞLAM
+{query_context}
 
-## ÖNCEKİ SORGU SONUÇLARI (ilk 5 satır)
-{active_results}
+Aktif filtreler zaten SQL'de var — bunları add_filters'a EKLEME.
+Sadece kullanıcının talep ettiği YENİ değişiklikleri yaz.
 
 ## KULLANICI İSTEĞİ
 {modification_request}
@@ -200,52 +265,30 @@ SQL_MODIFIER_PROMPT = """Mevcut SQL sorgusunu kullanıcının isteğine göre de
 {column_metadata}
 
 ## KURALLAR
-⚠️ KESİNLİKLE: Mümkün olduğunca mevcut SQL'in yapısını koru. Kullanıcı sadece filtre/tarih/limit değişikliği istiyorsa SELECT, GROUP BY, ORDER BY'a dokunma. Ancak kullanıcı farklı bir gruplama, farklı kolonlar veya farklı bir analiz perspektifi istiyorsa (ör: "haftanın gününe göre", "aylık kırılımda") yapısal değişiklik yapabilirsin — bu durumda WHERE koşullarını mümkün olduğunca koru.
 
-- Kullanıcının isteğini TAMAMEN karşıla — birden fazla değişiklik isteniyorsa HEPSİNİ uygula
-- Değişiklik gerektirmeyen kısımları koru (ör: sadece tarih değişiyorsa GROUP BY'a dokunma)
-- Yeni filtre: WHERE clause'a ekle (varsa AND ile bağla)
-- Limit değişikliği: sadece TOP N değerini güncelle
-- Sıralama değişikliği: sadece ORDER BY clause'u güncelle
-- Geçerli T-SQL (SQL Server) üret, syntax hatası olmasın
-- explanation alanında ne değiştirdiğini kısaca açıkla
+⚠️ add_filters: Kullanıcı yeni bir filtre ekliyorsa (ör: "Ankara şubesi için"):
+  column = DB kolon adı ("BranchName"), operator = "=", value = SQL-ready string ("'Ankara'")
 
-⚠️ TARİH KARŞILAŞTIRMA: DocumentDate datetime kolonudur (saat bilgisi içerir).
-Belirli bir güne filtre koyarken ASLA `[DocumentDate] = '2026-02-15'` yazma — eşleşmez!
-HER ZAMAN `CAST([DocumentDate] AS DATE) = '2026-02-15'` kullan.
-Tarih aralığı için: `CAST([DocumentDate] AS DATE) BETWEEN '...' AND '...'` kullan.
+⚠️ remove_filter_columns: Kullanıcı mevcut filtreyi kaldırıyorsa sadece kolon adını listele.
+  AKTİF BAĞLAM'da gösterilmeyen filtreleri kaldırma — onlar SQL'de zaten yok.
 
-⚠️ LIKE KULLANIMI: "İçeren", "geçen", "başlayan", "biten" gibi kısmi arama ifadelerinde LIKE operatörü kullanırken HER ZAMAN wildcard (%) kullan:
-- "isminde X geçen" / "X içeren" → [ProductName] LIKE '%X%'
-- ASLA [ProductName] LIKE 'X' yazma — bu sadece TAM EŞLEŞMEyi bulur, kısmi eşleşme YAPMAZ!
-- Doğru: AND [ProductName] LIKE '%LATTE%'   (LATTE içeren tüm ürünler)
-- Yanlış: AND [ProductName] LIKE 'LATTE'     (sadece tam olarak "LATTE" olanlar)
+⚠️ change_select: SADECE yapısal değişiklikler için (farklı GROUP BY, zaman kırılımı).
+  Örnek — "aylık kır": change_select="DATEPART(month, [DocumentDate]) AS Month, SUM([RowAmount]) AS Total"
 
-⚠️ SONUÇ REFERANSI: Kullanıcı "bu ürün", "o şube", "bu gün" gibi önceki sonuca veya konuşmaya referans veriyorsa:
-1. KONUŞMA GEÇMİŞİ bölümündeki mesajlardan referansın ne olduğunu belirle (ör: "bu ürün" → AI yanıtında bahsedilen ürün adı)
-2. ÖNCEKİ SORGU SONUÇLARI bölümündeki gerçek değerleri kullanarak SQL'e doğru filtre ekle
-3. Sonuçlarda bir tarih değeri varsa ve kullanıcı "bu gün" diyorsa → o tarihi yaz, bugünün tarihini DEĞİL
+⚠️ TARİH DEĞERİ: add_filters ile tarih eklerken SQL-ready date string kullan.
+  CAST EKLEMENİ GEREKMEZ — Python otomatik ekler.
+  Örnek: value="'2024-01-01'" veya value="DATEADD(month,-1,GETDATE())"
 
-⚠️ YAPISAL DEĞİŞİKLİK: Kullanıcı sorgunun yapısını değiştirmek istiyorsa (farklı GROUP BY, farklı SELECT kolonları, farklı aggregation),
-SELECT/GROUP BY/ORDER BY'ı kullanıcının isteğine göre yeniden yaz. WHERE koşullarını mümkün olduğunca koru.
+⚠️ LIKE: Kısmi arama için her zaman % wildcard kullan. Örnek: value="'%LATTE%'"
+
+⚠️ SONUÇ REFERANSI: "bu ürün", "bu şube" → AKTİF BAĞLAM'daki gerçek değeri kullan.
+  Bağlamda ProductName: ["Latte", "Espresso"] varsa "bu ürün" → value="'Latte'"
 
 ## CONFIDENCE
-confidence alanına 0.0–1.0 arası bir değer ver:
-- 1.0: İstek açık, referanslar net, değişiklik kesin doğru
-- 0.7-0.9: İstek anlaşılıyor ama küçük belirsizlikler var (ör: "bu" neyi kastettiği %90 belli)
-- 0.5-0.7: Referans belirsiz — "bu ürün" deniyor ama konuşmada birden fazla entity geçiyor
-- <0.5: Ne istendiği veya referans çözülemedi
-
-## MODIFICATION_HINTS
-Kullanıcının yazdığı ve SQL'e literal olarak gömdüğün her STRING FİLTRE DEĞERİ için bir hint ver:
-- column: hangi DB kolonunu kullandığın (örn: "CategoryName")
-- embedded_value: SQL'e yazdığın BİREBİR string — büyük/küçük harf dahil (örn: "dürümler")
-
-ÖNEMLİ KURALLAR:
-- Sadece kullanıcı inputundan gelen STRING değerleri için hint ver
-- Tarih ifadeleri (DATEADD, BETWEEN, '2024-01-01'), sayısal değerler (TOP 10) için hint VERME
-- Kolon adları için hint VERME — sadece WHERE koşulundaki değerler
-- Zaten çözülmüş değerler (active_filters içindeki resolved değerler) için hint VERME
+- 1.0: İstek açık, referanslar net
+- 0.7-0.9: Küçük belirsizlikler var
+- 0.5-0.7: Referans belirsiz
+- <0.5: Ne istendiği çözülemedi — interrupt tetiklenecek
 """
 
 ENTITY_EXTRACTOR_PROMPT = """Kullanıcı önceki sorgu sonuçlarından bir entity seçmek istiyor.
