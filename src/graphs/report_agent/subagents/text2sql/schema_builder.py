@@ -229,6 +229,18 @@ def build_query_schema(
     if aggregations and query_type in ("RANKING",):
         order_by_column = aggregations[0].alias
 
+    # Guard: GROUP BY without aggregations → SELECT * + GROUP BY is invalid SQL.
+    # When the user requests a hierarchical/dimensional view without naming a metric
+    # (e.g. "treemap görselleştir"), inject the primary business metric as default.
+    if group_by and not aggregations:
+        logger.warning(
+            "[SCHEMA_BUILDER] GROUP BY without aggregations "
+            "(user likely omitted metric) — injecting default SUM(RowAmount)"
+        )
+        aggregations.append(
+            SchemaAggregation(function="SUM", column="RowAmount", alias="ToplamCiro")
+        )
+
     return QuerySchema(
         description=description,
         select_columns=select_columns,

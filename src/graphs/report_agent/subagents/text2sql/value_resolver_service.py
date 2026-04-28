@@ -159,7 +159,7 @@ class ValueResolverService:
         }
 
         # Küçük harfe çevir
-        text = text.lower()
+        text = str(text).lower()
 
         # Türkçe karakterleri değiştir
         for tr_char, en_char in turkish_map.items():

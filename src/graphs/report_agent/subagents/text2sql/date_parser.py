@@ -67,6 +67,15 @@ def _next_month_start(year: int, month: int) -> str:
     return f"{year}-{month + 1:02d}-01"
 
 
+def _quarter_range(year: int, quarter: int) -> tuple[str, str]:
+    """Returns (start_date, exclusive_end_date) for a given quarter."""
+    start_month = (quarter - 1) * 3 + 1
+    end_month = start_month + 3
+    start = f"{year}-{start_month:02d}-01"
+    end = f"{year + 1}-01-01" if quarter == 4 else f"{year}-{end_month:02d}-01"
+    return start, end
+
+
 def detect_granularity_from_query(raw_query: str) -> Optional[str]:
     """Scan raw_query for explicit granularity keywords. Returns first match or None."""
     q = raw_query.lower()
@@ -173,6 +182,19 @@ def parse_semantic_time(
             gran = (st.granularity or "monthly") if st.breakdown else None
             return dd, gran
 
+    # "YYYY [ay adı]" — yıl önce ay sonra (ör. "2025 aralık")
+    for month_name, month_num in _TR_MONTH_MAP.items():
+        m = re.match(rf"(\d{{4}})\s+{re.escape(month_name)}", text)
+        if m:
+            year_int = int(m.group(1))
+            dd = DateDescriptor(
+                type="exact",
+                value=f"{year_int}-{month_num:02d}-01",
+                end_value=_next_month_start(year_int, month_num),
+            )
+            gran = (st.granularity or "monthly") if st.breakdown else None
+            return dd, gran
+
     # "DD [ay adı]"
     for month_name, month_num in _TR_MONTH_MAP.items():
         m = re.match(rf"(\d{{1,2}})\s+{re.escape(month_name)}", text)
@@ -183,6 +205,52 @@ def parse_semantic_time(
                 value=f"{today.year}-{month_num:02d}-{day:02d}",
             )
             return dd, None
+
+    # --- Çeyrek (quarter) ifadeleri ---
+
+    # "YYYY son çeyrek[...]" — o yılın Q4'ü
+    m = re.match(r"(\d{4})\s+son\s+çeyrek", text)
+    if m:
+        year_int = int(m.group(1))
+        start, end = _quarter_range(year_int, 4)
+        return DateDescriptor(type="exact", value=start, end_value=end), None
+
+    # "son çeyrek YYYY" — tersine sıra
+    m = re.match(r"son\s+çeyrek\s+(\d{4})", text)
+    if m:
+        year_int = int(m.group(1))
+        start, end = _quarter_range(year_int, 4)
+        return DateDescriptor(type="exact", value=start, end_value=end), None
+
+    # "YYYY ilk çeyrek[...]" — o yılın Q1'i
+    m = re.match(r"(\d{4})\s+ilk\s+çeyrek", text)
+    if m:
+        year_int = int(m.group(1))
+        start, end = _quarter_range(year_int, 1)
+        return DateDescriptor(type="exact", value=start, end_value=end), None
+
+    # "YYYY N. çeyrek[...]" — belirli çeyrek (ör. "2025 4. çeyreği")
+    m = re.match(r"(\d{4})\s+([1-4])\.?\s*çeyrek", text)
+    if m:
+        year_int, quarter = int(m.group(1)), int(m.group(2))
+        start, end = _quarter_range(year_int, quarter)
+        return DateDescriptor(type="exact", value=start, end_value=end), None
+
+    # "N. çeyrek YYYY" — tersine sıra (ör. "4. çeyrek 2025")
+    m = re.match(r"([1-4])\.?\s*çeyrek\s+(\d{4})", text)
+    if m:
+        quarter, year_int = int(m.group(1)), int(m.group(2))
+        start, end = _quarter_range(year_int, quarter)
+        return DateDescriptor(type="exact", value=start, end_value=end), None
+
+    # "son çeyrek" yıl belirtilmemiş — en son tamamlanan çeyrek
+    m = re.match(r"son\s+çeyrek", text)
+    if m:
+        current_q = (today.month - 1) // 3 + 1
+        prev_q = current_q - 1 if current_q > 1 else 4
+        prev_year = today.year if current_q > 1 else today.year - 1
+        start, end = _quarter_range(prev_year, prev_q)
+        return DateDescriptor(type="exact", value=start, end_value=end), None
 
     raise SemanticExtractionError(
         f"Tanımlanamayan tarih formatı: {st.raw_text!r}",

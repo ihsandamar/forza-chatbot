@@ -322,6 +322,18 @@ def generate_sql(
     if applied_rules:
         logger.info(f"[SQL_GENERATOR] Applying {len(applied_rules)} auto rules: {[r.get('id') for r in applied_rules]}")
 
+    # Guard: GROUP BY without aggregations → SELECT * + GROUP BY is invalid in SQL Server.
+    # schema_builder should prevent this, but defend here too so no caller can slip through.
+    if schema_dict.get("group_by") and not schema_dict.get("aggregations"):
+        logger.warning(
+            "[SQL_BUILDER] GROUP BY without aggregations detected — "
+            "injecting SUM(RowAmount) AS ToplamCiro as defensive fallback"
+        )
+        schema_dict = dict(schema_dict)
+        schema_dict["aggregations"] = [
+            {"function": "SUM", "column": "RowAmount", "alias": "ToplamCiro"}
+        ]
+
     # TOP N
     limit = schema_dict.get("limit")
     top_clause = f"TOP {limit} " if limit else ""
