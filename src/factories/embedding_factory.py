@@ -27,6 +27,23 @@ def preload_embedding_model(model: str = _DEFAULT_ST_MODEL) -> bool:
         return False
 
 
+def _make_st_embedding_fn(model: str):
+    """
+    Create a ChromaDB-compatible embedding function by wrapping SentenceTransformer directly.
+    Used as fallback when SentenceTransformerEmbeddingFunction fails (e.g. meta tensor errors).
+    """
+    from sentence_transformers import SentenceTransformer
+
+    os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"
+    st_model = SentenceTransformer(model)
+
+    class _WrappedEmbeddingFn:
+        def __call__(self, input):  # noqa: A002  (ChromaDB passes 'input' kwarg)
+            return st_model.encode(list(input), convert_to_numpy=True).tolist()
+
+    return _WrappedEmbeddingFn()
+
+
 class EmbeddingFactory:
     @staticmethod
     def create_sentence_transformer(
@@ -35,6 +52,8 @@ class EmbeddingFactory:
         """
         Return a ChromaDB-compatible SentenceTransformer embedding function.
         Tries offline cache first; falls back to online download with 5-min timeout.
+        If SentenceTransformerEmbeddingFunction fails (e.g. PyTorch meta tensor error),
+        wraps the raw SentenceTransformer model which handles the same edge cases correctly.
         """
         from chromadb.utils import embedding_functions
 
@@ -47,8 +66,13 @@ class EmbeddingFactory:
             return fn
         except Exception as e:
             logger.warning(f"[EMBEDDING] Offline load failed: {e} — trying online...")
+
+        try:
             os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"
             return embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model)
+        except Exception as e:
+            logger.warning(f"[EMBEDDING] SentenceTransformerEmbeddingFunction failed: {e} — using raw SentenceTransformer wrapper")
+            return _make_st_embedding_fn(model)
 
     @staticmethod
     def create_openai(

@@ -164,58 +164,53 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
             if name != "supervisor"
         }
 
-        # Generate handoff/forward tools dynamically
-        handoff_tools = []
+        # Build all subgraphs first so destinations/tools reflect only successful ones.
+        built_agents: dict[str, tuple] = {}
         for name, desc in agents.items():
+            try:
+                agent_llm = self._resolve_agent_llm(name)
+                subgraph = desc.cls.create(llm=agent_llm, app_config=self.app_config).build_graph()
+                built_agents[name] = (desc, subgraph)
+                logger.info(f"[SUPERVISOR] ✓ {name} subgraph eklendi")
+            except Exception as e:
+                logger.error(f"[SUPERVISOR] {name} subgraph inşa hatası: {e}")
+
+        # Rebuild tools/prompt/destinations using only successful subgraphs.
+        handoff_tools = []
+        for name, (desc, _) in built_agents.items():
             tool_description = desc.description
             if desc.examples:
                 tool_description += "\n\nÖrnekler:\n" + "\n".join(f"- {ex}" for ex in desc.examples)
-
             if desc.returns_to_supervisor:
-                tool_fn = create_handoff_tool(
-                    agent_name=name,
-                    description=tool_description,
-                )
+                tool_fn = create_handoff_tool(agent_name=name, description=tool_description)
             else:
-                tool_fn = create_forward_tool(
-                    agent_name=name,
-                    description=tool_description,
-                )
+                tool_fn = create_forward_tool(agent_name=name, description=tool_description)
             handoff_tools.append(tool_fn)
 
         all_tools = [get_current_time, get_supervisor_status] + handoff_tools
 
-        # Build dynamic system prompt
         agent_descriptions = "\n".join(
-            f"- {name}: {desc.description}" for name, desc in agents.items()
+            f"- {name}: {desc.description}" for name, (desc, _) in built_agents.items()
         )
-        system_prompt = SUPERVISOR_PROMPT_TEMPLATE.format(
-            agent_descriptions=agent_descriptions
-        )
+        system_prompt = SUPERVISOR_PROMPT_TEMPLATE.format(agent_descriptions=agent_descriptions)
 
         supervisor_agent = create_agent(
             model=self.llm.get_chat(),
             tools=all_tools,
             system_prompt=system_prompt,
-            name="supervisor"
+            name="supervisor",
         )
 
         builder = self.get_graph_builder()
-        destinations = list(agents.keys())
+        destinations = list(built_agents.keys())
         builder.add_node("supervisor", supervisor_agent, destinations=destinations)
 
-        for name, desc in agents.items():
-            try:
-                agent_llm = self._resolve_agent_llm(name)
-                subgraph = desc.cls.create(llm=agent_llm, app_config=self.app_config).build_graph()
-                builder.add_node(name, subgraph)
-                if desc.returns_to_supervisor:
-                    builder.add_edge(name, "supervisor")
-                else:
-                    builder.add_edge(name, END)
-                logger.info(f"[SUPERVISOR] ✓ {name} subgraph eklendi")
-            except Exception as e:
-                logger.error(f"[SUPERVISOR] {name} subgraph inşa hatası: {e}")
+        for name, (desc, subgraph) in built_agents.items():
+            builder.add_node(name, subgraph)
+            if desc.returns_to_supervisor:
+                builder.add_edge(name, "supervisor")
+            else:
+                builder.add_edge(name, END)
 
         builder.add_edge(START, "supervisor")
         builder.add_edge("supervisor", END)
