@@ -16,16 +16,15 @@ def _make_chart_state(chart_type: str = "bar_chart", snippet: str = '<div id="x"
 
 @pytest.mark.asyncio
 async def test_build_response_uses_srcdoc():
-    """iframe must use srcdoc, not base64 data URI."""
+    """iframe uses srcdoc (embedding) + src data URI (new tab support)."""
     from src.graphs.report_agent.nodes import build_response_node
 
     result = await build_response_node(_make_chart_state())
 
     chart_html = result["messages"][0].additional_kwargs["chart_html"]
-    assert 'srcdoc=' in chart_html
-    assert 'data:text/html' not in chart_html
-    assert 'base64' not in chart_html
     assert '<iframe ' in chart_html
+    assert 'srcdoc=' in chart_html
+    assert 'src="data:text/html' in chart_html
 
 
 @pytest.mark.asyncio

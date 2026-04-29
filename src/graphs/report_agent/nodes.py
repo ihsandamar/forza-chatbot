@@ -559,10 +559,13 @@ async def build_response_node(state: dict) -> dict:
             f'{html_snippet}'
             '</body></html>'
         )
+        import base64
         srcdoc = inner_html.replace('&', '&amp;').replace('"', '&quot;')
+        src_b64 = base64.b64encode(inner_html.encode("utf-8")).decode("utf-8")
         height = '600px' if chart_type == 'turkey_map' else '480px'
         iframe = (
             f'<iframe srcdoc="{srcdoc}" '
+            f'src="data:text/html;charset=utf-8;base64,{src_b64}" '
             f'style="width:100%;height:{height};border:none;display:block;"></iframe>'
         )
 
