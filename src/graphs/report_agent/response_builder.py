@@ -15,7 +15,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 

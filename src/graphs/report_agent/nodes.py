@@ -595,6 +595,7 @@ def create_build_response_node(llm=None):
         }
     return build_response_node
 
+
 async def hitl_check_node(state: dict) -> dict:
     """
     text2sql subgraph'tan gelen clarification sinyalini yakalar.
