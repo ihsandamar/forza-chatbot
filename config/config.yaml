@@ -18,6 +18,8 @@ agents:
     model: gpt-4.1-mini   # Lighter model for chat
   report_agent:
     model: gpt-4.1        # Full model for SQL generation
+  supervisor:
+    model: gpt-4.1-mini   # Routing kararı için full model gerekmez
 
 database:
   uri: "${DATABASE_URL}"
