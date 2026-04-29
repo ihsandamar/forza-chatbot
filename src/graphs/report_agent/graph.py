@@ -19,7 +19,7 @@ from langgraph.graph import END, START, StateGraph
 from src.graphs.registry import register_graph
 from src.graphs.report_agent.configuration import ReportAgentConfiguration
 from src.graphs.report_agent.nodes import (
-    build_response_node,
+    create_build_response_node,
     create_classify_intent_node,
     create_compute_results_node,
     create_extract_entity_node,
@@ -99,7 +99,7 @@ def build_report_agent_graph(
     graph.add_node("report_chat", create_report_chat_node(llm, column_metadata))
     graph.add_node("text2sql", text2sql)
     graph.add_node("visualization", visualization)
-    graph.add_node("build_response", build_response_node)
+    graph.add_node("build_response", create_build_response_node(llm))
     graph.add_node("hitl_check", hitl_check_node)
 
     graph.add_edge(START, "classify_intent")

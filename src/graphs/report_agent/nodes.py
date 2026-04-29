@@ -17,6 +17,8 @@ from src.graphs.report_agent.prompts import (
     SQL_MODIFIER_PROMPT,
 )
 
+from src.graphs.report_agent.response_builder import build_chart_response, DEFAULT_CONFIG
+
 logger = logging.getLogger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.70
@@ -527,78 +529,71 @@ def _results_to_markdown_table(results: list, max_rows: int = 50) -> str:
     return table
 
 
-async def build_response_node(state: dict) -> dict:
-    """Final Response Builder: pure Python, LLM yok."""
-    error = state.get("error")
-    results = state.get("results") or []
-    viz = state.get("visualization_output") or {}
-
-    # compute_results_node kendi final_response'unu zaten ürettiyse kullan.
-    # results önceki turdan dolu olsa bile overwrite etme.
-    if state.get("use_result_type") == "compute" and state.get("final_response"):
-        response = state["final_response"]
-    elif error:
-        response = f"Sorgu hatası: {error}"
-    elif not results:
-        response = "Bu sorgu için sonuç bulunamadı."
-    elif viz.get("needs_graph") and viz.get("plotly_html_snippet"):
-        html_snippet = viz["plotly_html_snippet"]
-        summary = viz.get("summary", "Grafiğiniz oluşturuldu.")
-        chart_type = viz.get("chart_type", "chart")
-        row_count = len(results)
-
-        inner_html = (
-            '<!DOCTYPE html><html><head>'
-            '<meta charset="UTF-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
-            '<style>'
-            'html,body{margin:0;padding:0;height:100%;overflow:hidden;}'
-            '.plotly-graph-div{width:100%!important;height:100%!important;}'
-            '</style>'
-            '</head><body>'
-            f'{html_snippet}'
-            '</body></html>'
-        )
+def create_build_response_node(llm=None):
+    """Factory: returns build_response_node with optional LLM for insight generation."""
+    async def build_response_node(state: dict) -> dict:
         import base64
-        srcdoc = inner_html.replace('&', '&amp;').replace('"', '&quot;')
-        src_b64 = base64.b64encode(inner_html.encode("utf-8")).decode("utf-8")
-        height = '600px' if chart_type == 'turkey_map' else '480px'
-        iframe = (
-            f'<iframe srcdoc="{srcdoc}" '
-            f'src="data:text/html;charset=utf-8;base64,{src_b64}" '
-            f'style="width:100%;height:{height};border:none;display:block;"></iframe>'
-        )
+        error = state.get("error")
+        results = state.get("results") or []
+        viz = state.get("visualization_output") or {}
 
-        # SHORT summary for LLM context (no base64 bloat)
-        summary_text = (
-            f"\U0001f4ca Rapor Sonucu:\n"
-            f"\u2022 Görselleştirme Tipi: {chart_type}\n"
-            f"\u2022 Grafik Gerekli: \u2713 Evet\n"
-            f"\u2022 Veri Noktası: {row_count}\n"
-            f"\u2022 {row_count} kayıt\n"
-            f"### \U0001f4c8 Grafik oluşturuldu."
-        )
+        # compute_results_node kendi final_response'unu zaten ürettiyse kullan.
+        # results önceki turdan dolu olsa bile overwrite etme.
+        if state.get("use_result_type") == "compute" and state.get("final_response"):
+            response = state["final_response"]
+        elif error:
+            response = f"Sorgu hatası: {error}"
+        elif not results:
+            response = "Bu sorgu için sonuç bulunamadı."
+        elif viz.get("needs_graph") and viz.get("plotly_html_snippet"):
+            html_snippet = viz["plotly_html_snippet"]
+            chart_type = viz.get("chart_type", "chart")
 
-        # Full response with iframe for user display
-        full_response = f"{summary_text}\n\n{iframe}"
+            inner_html = (
+                '<!DOCTYPE html><html><head>'
+                '<meta charset="UTF-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+                '<style>'
+                'html,body{margin:0;padding:0;height:100%;overflow:hidden;}'
+                '.plotly-graph-div{width:100%!important;height:100%!important;}'
+                '</style>'
+                '</head><body>'
+                f'{html_snippet}'
+                '</body></html>'
+            )
+            srcdoc = inner_html.replace('&', '&amp;').replace('"', '&quot;')
+            src_b64 = base64.b64encode(inner_html.encode("utf-8")).decode("utf-8")
+            height = '600px' if chart_type == 'turkey_map' else '480px'
+            iframe = (
+                f'<iframe srcdoc="{srcdoc}" '
+                f'src="data:text/html;charset=utf-8;base64,{src_b64}" '
+                f'style="width:100%;height:{height};border:none;display:block;"></iframe>'
+            )
 
-        # Messages: short summary in content (LLM sees this)
-        # chart_html in additional_kwargs (LLM does NOT see this, chat_service extracts it)
+            summary_text = await build_chart_response(
+                results, viz, state.get("user_query", ""), DEFAULT_CONFIG, llm
+            )
+
+            # Full response with iframe for user display
+            full_response = summary_text + "\n\n" + iframe
+
+            # Messages: short summary in content (LLM sees this)
+            # chart_html in additional_kwargs (LLM does NOT see this, chat_service extracts it)
+            return {
+                "final_response": full_response,
+                "messages": [AIMessage(
+                    content=summary_text,
+                    additional_kwargs={"chart_html": iframe},
+                )],
+            }
+        else:
+            response = _results_to_markdown_table(results)
+
         return {
-            "final_response": full_response,
-            "messages": [AIMessage(
-                content=summary_text,
-                additional_kwargs={"chart_html": iframe},
-            )],
+            "final_response": response,
+            "messages": [AIMessage(content=response)],
         }
-    else:
-        response = _results_to_markdown_table(results)
-
-    return {
-        "final_response": response,
-        "messages": [AIMessage(content=response)],
-    }
-
+    return build_response_node
 
 async def hitl_check_node(state: dict) -> dict:
     """
