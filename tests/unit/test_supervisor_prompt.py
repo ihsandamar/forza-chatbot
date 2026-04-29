@@ -48,3 +48,23 @@ def test_supervisor_prompt_no_clarification_instruction():
     text = SUPERVISOR_PROMPT_TEMPLATE.lower()
     assert "netlik iste" not in text, "Clarification instruction kaldirilmadi"
     assert "belirsiz" not in text, "Clarification instruction kaldirilmadi"
+
+
+def test_supervisor_graph_no_tools_import():
+    """graph.py, tools modülünü import etmemeli."""
+    from pathlib import Path
+    src = Path("src/graphs/supervisor/graph.py").read_text(encoding="utf-8")
+    assert "from src.graphs.supervisor.tools" not in src, (
+        "graph.py hala tools modulunu import ediyor"
+    )
+    assert "SUPERVISOR_SYSTEM_PROMPT" not in src, (
+        "SUPERVISOR_SYSTEM_PROMPT hala graph.py'de mevcut"
+    )
+
+
+def test_supervisor_all_tools_no_utility_tools():
+    """build_graph() icinde get_current_time / get_supervisor_status olmamali."""
+    from pathlib import Path
+    src = Path("src/graphs/supervisor/graph.py").read_text(encoding="utf-8")
+    assert "get_current_time" not in src, "get_current_time hala all_tools'da"
+    assert "get_supervisor_status" not in src, "get_supervisor_status hala all_tools'da"

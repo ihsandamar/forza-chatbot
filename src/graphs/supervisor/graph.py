@@ -19,8 +19,7 @@ from src.graphs.base.graph_metadata import (
 )
 from src.graphs.registry import register_graph, GRAPH_REGISTRY
 from src.graphs.supervisor.assistant_configuration import SupervisorAssistantConfiguration
-from src.graphs.supervisor.prompts import SUPERVISOR_SYSTEM_PROMPT, SUPERVISOR_PROMPT_TEMPLATE
-from src.graphs.supervisor.tools import get_current_time, get_supervisor_status
+from src.graphs.supervisor.prompts import SUPERVISOR_PROMPT_TEMPLATE
 from src.graphs.supervisor.utilities import create_handoff_tool, create_forward_tool
 
 logger = logging.getLogger(__name__)
@@ -63,11 +62,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
         self.app_config = app_config
 
     def _get_default_config(self) -> SupervisorAssistantConfiguration:
-        """Get default configuration for supervisor graph."""
-        return SupervisorAssistantConfiguration(
-            system_prompt=SUPERVISOR_SYSTEM_PROMPT,
-            assistant_name="SupervisorAssistant",
-        )
+        return SupervisorAssistantConfiguration(assistant_name="SupervisorAssistant")
 
     def _get_default_metadata(self) -> GraphMetadata:
         """Return default metadata for supervisor graph."""
@@ -187,7 +182,7 @@ class SupervisorGraph(BaseGraph[SupervisorAssistantConfiguration]):
                 tool_fn = create_forward_tool(agent_name=name, description=tool_description)
             handoff_tools.append(tool_fn)
 
-        all_tools = [get_current_time, get_supervisor_status] + handoff_tools
+        all_tools = handoff_tools
 
         agent_descriptions = "\n".join(
             f"- {name}: {desc.description}" for name, (desc, _) in built_agents.items()
