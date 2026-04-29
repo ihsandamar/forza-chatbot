@@ -542,26 +542,28 @@ async def build_response_node(state: dict) -> dict:
     elif not results:
         response = "Bu sorgu için sonuç bulunamadı."
     elif viz.get("needs_graph") and viz.get("plotly_html_snippet"):
-        import base64
-
         html_snippet = viz["plotly_html_snippet"]
         summary = viz.get("summary", "Grafiğiniz oluşturuldu.")
         chart_type = viz.get("chart_type", "chart")
         row_count = len(results)
 
-        # Wrap div snippet in full HTML document
-        full_html = (
-            '<!DOCTYPE html>\n<html>\n<head>\n'
-            '    <meta charset="UTF-8">\n'
-            '    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-            '</head>\n<body style="margin:0;padding:0;">\n'
-            f'{html_snippet}\n'
-            '</body>\n</html>'
+        inner_html = (
+            '<!DOCTYPE html><html><head>'
+            '<meta charset="UTF-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+            '<style>'
+            'html,body{margin:0;padding:0;height:100%;overflow:hidden;}'
+            '.plotly-graph-div{width:100%!important;height:100%!important;}'
+            '</style>'
+            '</head><body>'
+            f'{html_snippet}'
+            '</body></html>'
         )
-        b64 = base64.b64encode(full_html.encode("utf-8")).decode("utf-8")
+        srcdoc = inner_html.replace('&', '&amp;').replace('"', '&quot;')
+        height = '600px' if chart_type == 'turkey_map' else '480px'
         iframe = (
-            f'<iframe src="data:text/html;charset=utf-8;base64,{b64}" '
-            f'style="width:100%;height:100vh;border:none;"></iframe>'
+            f'<iframe srcdoc="{srcdoc}" '
+            f'style="width:100%;height:{height};border:none;display:block;"></iframe>'
         )
 
         # SHORT summary for LLM context (no base64 bloat)
