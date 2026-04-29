@@ -58,7 +58,7 @@ def test_metadata_section_known_chart_type():
 def test_metadata_section_bar_chart_label():
     from src.graphs.report_agent.response_builder import _metadata_section
     result = _metadata_section({"chart_type": "bar_chart"}, 10)
-    assert "Cubuk Grafik" in result or "ubuk" in result
+    assert "Çubuk Grafik" in result
 
 
 def test_metadata_section_unknown_type_uses_fallback():

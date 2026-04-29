@@ -102,6 +102,9 @@ async def build_chart_response(
 
     if config.insight_mode == "llm" and llm is not None:
         insight = await _insight_llm(results, viz, user_query, llm)
+    elif config.insight_mode == "llm" and llm is None:
+        logger.warning("[RESPONSE_BUILDER] insight_mode='llm' but no llm provided, falling back to python")
+        insight = _insight_python(results, viz)
     elif config.insight_mode == "python":
         insight = _insight_python(results, viz)
     else:
