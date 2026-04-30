@@ -773,8 +773,17 @@ SQL veya veritabanı bilgisi GEREKMİYOR. Sadece "kullanıcı ne istedi?" sorusu
 Kullanıcı "bu ürün", "bu şube", "bunu", "şunu" gibi referans kullanıyorsa →
 yukarıdaki değerlerden en uygununu seç, direkt isme çevir.
 
-Örnek: "bu ürün için detay" + bağlamda ProductName: ["Latte", "Espresso"]
+Çoğul referanslarda ("bu 3 ürün", "bu şubeler", "bunların hepsi", "bu ikisi") →
+bağlamdaki TÜM ilgili değerleri AYRI filter_value entity olarak üret. Kaç entity isteniyorsa o kadar üret.
+
+Örnekler:
+"bu ürün için detay" + bağlamda ProductName: ["Latte", "Espresso"]
 → entity: {{raw_text: "Latte", entity_type: "filter_value", column_hint: "ProductName"}}
+
+"bu 3 ürünün satışları" + bağlamda ProductName: ["LAS VEGAS UC PEYNIRLI BAGEL", "LATTE", "FINCAN CAY"]
+→ entity: {{raw_text: "LAS VEGAS UC PEYNIRLI BAGEL", entity_type: "filter_value", column_hint: "ProductName"}}
+→ entity: {{raw_text: "LATTE", entity_type: "filter_value", column_hint: "ProductName"}}
+→ entity: {{raw_text: "FINCAN CAY", entity_type: "filter_value", column_hint: "ProductName"}}
 
 ## ÖNCEKİ SQL HATASI (varsa — farklı çıkarım dene)
 {sql_error}
