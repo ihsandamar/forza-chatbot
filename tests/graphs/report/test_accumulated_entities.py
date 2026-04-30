@@ -84,3 +84,63 @@ def test_context_builder_no_duplicate_in_accumulated():
     )
     # LATTE sadece bir kez görünmeli
     assert result.count("LATTE") == 1
+
+
+import asyncio
+from unittest.mock import AsyncMock, patch
+from src.graphs.report_agent.subagents.text2sql.nodes import (
+    create_sql_executor_node,
+    _merge_accumulated_entities,
+)
+
+
+def test_merge_accumulated_entities_adds_new_string_values():
+    existing = [{"column": "ProductName", "value": "LATTE"}]
+    results = [
+        {"ProductName": "FINCAN CAY", "ToplamCiro": 1000.0},
+        {"ProductName": "LATTE", "ToplamCiro": 500.0},
+    ]
+    merged = _merge_accumulated_entities(existing, results)
+    values = [e["value"] for e in merged if e["column"] == "ProductName"]
+    assert "LATTE" in values
+    assert "FINCAN CAY" in values
+    assert values.count("LATTE") == 1
+
+
+def test_merge_accumulated_entities_caps_at_max():
+    existing = [{"column": "ProductName", "value": f"P{i}"} for i in range(95)]
+    results = [{"ProductName": f"Q{i}", "ToplamCiro": float(i)} for i in range(20)]
+    merged = _merge_accumulated_entities(existing, results)
+    assert len(merged) <= 100
+
+
+def test_merge_accumulated_entities_skips_non_string():
+    results = [{"ProductName": "LATTE", "ToplamCiro": 45000.0, "Quantity": 100}]
+    merged = _merge_accumulated_entities(None, results)
+    cols = [e["column"] for e in merged]
+    assert "ToplamCiro" not in cols
+    assert "Quantity" not in cols
+    assert "ProductName" in cols
+
+
+def test_sql_executor_node_updates_accumulated_entities():
+    existing = [{"column": "ProductName", "value": "LAS VEGAS UC PEYNIRLI BAGEL"}]
+    results = [{"ProductName": "LATTE", "ToplamCiro": 45000.0}]
+    state = {
+        "sql_queries": ["SELECT * FROM T"],
+        "retry_count": 0,
+        "query_schema": {},
+        "accumulated_entities": existing,
+    }
+
+    with patch(
+        "src.graphs.report_agent.subagents.text2sql.nodes._execute_sql_async",
+        new=AsyncMock(return_value=results),
+    ):
+        node = create_sql_executor_node("mssql+pyodbc://dummy")
+        output = asyncio.run(node(state))
+
+    acc = output["accumulated_entities"]
+    values = [e["value"] for e in acc]
+    assert "LAS VEGAS UC PEYNIRLI BAGEL" in values
+    assert "LATTE" in values

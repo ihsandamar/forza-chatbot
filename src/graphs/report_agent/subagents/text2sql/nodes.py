@@ -371,6 +371,26 @@ def _parse_connection_string(connection_string: str) -> str:
     )
 
 
+def _merge_accumulated_entities(
+    existing: list[dict] | None,
+    results: list[dict],
+    max_total: int = 100,
+) -> list[dict]:
+    """Sonuçlardaki string değerleri cross-turn entity listesine birleştir."""
+    current = list(existing or [])
+    existing_set = {(e["column"], e["value"]) for e in current}
+
+    for row in results[:20]:
+        for col, val in row.items():
+            if isinstance(val, str) and val.strip() and len(val) < 200:
+                key = (col, val)
+                if key not in existing_set:
+                    current.append({"column": col, "value": val})
+                    existing_set.add(key)
+
+    return current[-max_total:]
+
+
 async def _execute_sql_async(connection_string: str, sql: str) -> List[Dict[str, Any]]:
     """SQL'i thread pool'da async çalıştır."""
     pyodbc_conn_str = _parse_connection_string(connection_string)
@@ -1318,6 +1338,10 @@ def create_sql_executor_node(connection_string: str) -> Callable:
                 "active_sql": sql,
                 "active_results": results[:10],
                 "active_filters": active_filters,
+                "accumulated_entities": _merge_accumulated_entities(
+                    state.get("accumulated_entities"),
+                    results,
+                ),
             }
 
         except Exception as e:
