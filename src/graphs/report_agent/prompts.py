@@ -79,9 +79,9 @@ class SqlDelta(BaseModel):
 class EntityExtractionResult(BaseModel):
     """USE_RESULT(A) — önceki result'tan entity çekip yeni sorgu seed'i oluşturur."""
 
-    entity_name: str
-    entity_type: str        # product | branch | customer | category | period
-    new_query_seed: str     # Text2SQL subagent'a gönderilecek doğal dil sorgu
+    entity_names: List[str]   # Seçilen değerlerin tam adları — tekil için [tek_isim]
+    entity_type: str           # product | branch | customer | category | period
+    new_query_seed: str        # Text2SQL'e gönderilecek doğal dil sorgu cümlesi
 
 
 class QueryClarificationResult(BaseModel):
@@ -291,7 +291,7 @@ Sadece kullanıcının talep ettiği YENİ değişiklikleri yaz.
 - <0.5: Ne istendiği çözülemedi — interrupt tetiklenecek
 """
 
-ENTITY_EXTRACTOR_PROMPT = """Kullanıcı önceki sorgu sonuçlarından bir entity seçmek istiyor.
+ENTITY_EXTRACTOR_PROMPT = """Kullanıcı önceki sorgu sonuçlarından bir veya daha fazla entity seçmek istiyor.
 
 ## ÖNCEKİ SONUÇLAR (ilk 5 satır)
 {active_results}
@@ -300,12 +300,14 @@ ENTITY_EXTRACTOR_PROMPT = """Kullanıcı önceki sorgu sonuçlarından bir entit
 {user_query}
 
 ## GÖREV
-Kullanıcının hangi entity'yi seçtiğini belirle ve yeni bir sorgu için seed oluştur.
+Kullanıcının hangi entity'leri seçtiğini belirle ve yeni bir sorgu için seed oluştur.
 
-- entity_name: Seçilen değerin tam adı (ör: "iPhone 15 Pro", "Ankara Şubesi", "2024-Q1")
+- entity_names: Seçilen değerlerin tam adları listesi
+  Tekil referans için tek elemanlı liste: ["Ankara Şubesi"]
+  Çoğul referans için tüm seçilenleri listele: ["LATTE", "FINCAN CAY", "LAS VEGAS UC PEYNIRLI BAGEL"]
 - entity_type: product | branch | customer | category | period
-- new_query_seed: Bu entity için doğal dil sorgu cümlesi (Text2SQL'e gönderilecek)
-  Örnek: "iPhone 15 Pro'nun aylık satış detayları nedir?"
+- new_query_seed: Bu entity'ler için doğal dil sorgu cümlesi (Text2SQL'e gönderilecek)
+  Örnek: "LATTE, FINCAN CAY ve LAS VEGAS UC PEYNIRLI BAGEL ürünlerinin son 1 yıldaki satış detayları"
 """
 
 
