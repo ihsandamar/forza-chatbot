@@ -87,11 +87,106 @@ def test_context_builder_no_duplicate_in_accumulated():
 
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
+from langchain_core.messages import HumanMessage
+from src.graphs.report_agent.nodes import create_classify_intent_node
+from src.graphs.report_agent.prompts import IntentClassificationResult
 from src.graphs.report_agent.subagents.text2sql.nodes import (
     create_sql_executor_node,
     _merge_accumulated_entities,
 )
+
+
+def _make_classify_node(intent_type: str, query_type: str = "RANKING"):
+    """Test helper: intent_type ve query_type ile classify node oluştur."""
+    mock_llm = MagicMock()
+    result = IntentClassificationResult(
+        intent_type=intent_type,
+        query_type=query_type,
+        confidence=0.95,
+        wants_visualization=False,
+        time_breakdown=False,
+    )
+    mock_structured = MagicMock()
+    mock_structured.ainvoke = AsyncMock(return_value=result)
+    mock_llm.with_structured_output = MagicMock(return_value=mock_structured)
+    return create_classify_intent_node(mock_llm)
+
+
+def test_classify_intent_resets_accumulated_entities_on_new_query():
+    """NEW_QUERY'de accumulated_entities sıfırlanmalı."""
+    node = _make_classify_node("NEW_QUERY")
+    state = {
+        "messages": [HumanMessage(content="farklı bir soru")],
+        "active_sql": None,
+        "active_results": [],
+        "accumulated_entities": [{"column": "ProductName", "value": "LATTE"}],
+        "_clarification_count": 0,
+        "_skip_vague_check": False,
+    }
+    result = asyncio.run(node(state))
+    assert result["accumulated_entities"] is None
+
+
+def test_classify_intent_preserves_accumulated_entities_on_modify_query():
+    """MODIFY_QUERY'de accumulated_entities korunmalı."""
+    node = _make_classify_node("MODIFY_QUERY")
+    accumulated = [{"column": "ProductName", "value": "LATTE"}]
+    state = {
+        "messages": [HumanMessage(content="filtrele")],
+        "active_sql": "SELECT * FROM T",
+        "active_results": [],
+        "accumulated_entities": accumulated,
+        "_clarification_count": 0,
+        "_skip_vague_check": False,
+    }
+    result = asyncio.run(node(state))
+    assert result["accumulated_entities"] == accumulated
+
+
+def test_classify_intent_preserves_accumulated_entities_on_use_result():
+    """USE_RESULT'da accumulated_entities korunmalı."""
+    mock_llm = MagicMock()
+    llm_result = IntentClassificationResult(
+        intent_type="USE_RESULT",
+        query_type="SINGLE",
+        confidence=0.95,
+        wants_visualization=False,
+        use_result_type="compute",
+        time_breakdown=False,
+    )
+    mock_structured = MagicMock()
+    mock_structured.ainvoke = AsyncMock(return_value=llm_result)
+    mock_llm.with_structured_output = MagicMock(return_value=mock_structured)
+    node = create_classify_intent_node(mock_llm)
+
+    accumulated = [{"column": "BranchName", "value": "Ankara"}]
+    state = {
+        "messages": [HumanMessage(content="toplamı nedir")],
+        "active_sql": "SELECT * FROM T",
+        "active_results": [{"ToplamCiro": 1000.0}],
+        "accumulated_entities": accumulated,
+        "_clarification_count": 0,
+        "_skip_vague_check": False,
+    }
+    result = asyncio.run(node(state))
+    assert result["accumulated_entities"] == accumulated
+
+
+def test_classify_intent_preserves_accumulated_entities_on_vague_query():
+    """VAGUE_QUERY'de accumulated_entities korunmalı."""
+    node = _make_classify_node("VAGUE_QUERY")
+    accumulated = [{"column": "CategoryName", "value": "KAHVELER"}]
+    state = {
+        "messages": [HumanMessage(content="detaylar")],
+        "active_sql": None,
+        "active_results": [],
+        "accumulated_entities": accumulated,
+        "_clarification_count": 0,
+        "_skip_vague_check": False,
+    }
+    result = asyncio.run(node(state))
+    assert result["accumulated_entities"] == accumulated
 
 
 def test_merge_accumulated_entities_adds_new_string_values():
