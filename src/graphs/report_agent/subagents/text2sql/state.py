@@ -28,6 +28,7 @@ class Text2SQLState(TypedDict, total=False):
     results: Optional[List[Dict[str, Any]]]
     error: Optional[str]
     active_results: Optional[List[Dict[str, Any]]]
+    accumulated_entities: Optional[List[Dict[str, Any]]]  # cross-turn entity accumulator
     text2sql_clarification: Optional[dict]   # node → parent (sinyal)
     text2sql_answers: Optional[list]         # parent → node (cevaplar)
 
