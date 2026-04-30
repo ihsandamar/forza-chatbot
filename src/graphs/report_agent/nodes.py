@@ -184,6 +184,7 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
         query_context = build_query_context_summary(
             state.get("active_results"),
             state.get("active_filters"),
+            state.get("accumulated_entities"),
         )
 
         prompt = SQL_MODIFIER_PROMPT.format(
