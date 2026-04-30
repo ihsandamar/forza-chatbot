@@ -1298,11 +1298,16 @@ def create_sql_executor_node(connection_string: str) -> Callable:
             results = await _execute_sql_async(connection_string, sql)
             logger.info(f"[SQL_EXECUTOR] Success: {len(results)} rows")
 
-            # Aktif filtreleri query_plan'dan çıkar (conversation context için)
-            query_plan = state.get("query_plan") or {}
+            # Aktif filtreleri query_schema'dan çıkar (conversation context için)
+            # date_descriptor'lı filtreler hariç — bunlar LLM bağlamı için gereksiz
+            query_schema = state.get("query_schema") or {}
             active_filters = [
-                {"field": f.get("field_hint"), "value": f.get("resolved_value") or f.get("value_hint")}
-                for f in query_plan.get("filters", [])
+                {
+                    "field": f.get("column"),
+                    "value": f.get("resolved_value") or f.get("value_hint") or f.get("value"),
+                }
+                for f in query_schema.get("filters", [])
+                if not f.get("date_descriptor") and f.get("column")
             ]
 
             return {
