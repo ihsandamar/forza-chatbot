@@ -53,11 +53,11 @@ def create_classify_intent_node(llm) -> Callable:
             extracted_from_messages = False
 
         history_parts = []
-        for msg in messages[-4:]:
+        for msg in messages[-6:]:
             if isinstance(msg, HumanMessage):
-                history_parts.append(f"Kullanıcı: {msg.content[:100]}")
+                history_parts.append(f"Kullanıcı: {msg.content[:400]}")
             elif isinstance(msg, AIMessage):
-                history_parts.append(f"Asistan: {msg.content[:100]}")
+                history_parts.append(f"Asistan: {msg.content[:400]}")
 
         prompt = INTENT_CLASSIFIER_PROMPT.format(
             user_query=user_query,
