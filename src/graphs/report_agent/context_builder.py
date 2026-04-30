@@ -20,6 +20,7 @@ def build_query_context_summary(
         if filter_strs:
             parts.append(f"Aktif filtreler: {', '.join(filter_strs)}")
 
+    shown: dict[str, set] = {}
     if active_results:
         col_values: dict[str, list] = {}
         for row in active_results[:max_rows]:
@@ -28,6 +29,7 @@ def build_query_context_summary(
                     col_values.setdefault(col, [])
                     if val not in col_values[col]:
                         col_values[col].append(val)
+                        shown.setdefault(col, set()).add(val)
 
         entity_lines = [
             f"  - {col}: {vals[:max_values_per_col]}"
@@ -41,7 +43,7 @@ def build_query_context_summary(
         for e in accumulated_entities:
             col = e.get("column", "")
             val = e.get("value", "")
-            if col and val:
+            if col and val and val not in shown.get(col, set()):
                 col_acc.setdefault(col, [])
                 if val not in col_acc[col]:
                     col_acc[col].append(val)

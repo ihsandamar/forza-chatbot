@@ -375,18 +375,23 @@ def _merge_accumulated_entities(
     existing: list[dict] | None,
     results: list[dict],
     max_total: int = 100,
+    max_per_column: int = 10,
 ) -> list[dict]:
     """Sonuçlardaki string değerleri cross-turn entity listesine birleştir."""
     current = list(existing or [])
     existing_set = {(e["column"], e["value"]) for e in current}
+    col_counts: dict[str, int] = {}
+    for e in current:
+        col_counts[e["column"]] = col_counts.get(e["column"], 0) + 1
 
     for row in results[:20]:
         for col, val in row.items():
             if isinstance(val, str) and val.strip() and len(val) < 200:
                 key = (col, val)
-                if key not in existing_set:
+                if key not in existing_set and col_counts.get(col, 0) < max_per_column:
                     current.append({"column": col, "value": val})
                     existing_set.add(key)
+                    col_counts[col] = col_counts.get(col, 0) + 1
 
     return current[-max_total:]
 
