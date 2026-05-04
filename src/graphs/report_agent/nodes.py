@@ -144,7 +144,7 @@ def create_classify_intent_node(llm) -> Callable:
             "text2sql_clarification": None,
             "text2sql_answers": None,
             "_hitl_answered": False,
-            "accumulated_entities": None if result.intent_type == "NEW_QUERY" else state.get("accumulated_entities"),
+            "accumulated_entities": state.get("accumulated_entities"),
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:

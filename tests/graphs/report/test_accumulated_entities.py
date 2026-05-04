@@ -113,19 +113,21 @@ def _make_classify_node(intent_type: str, query_type: str = "RANKING"):
     return create_classify_intent_node(mock_llm)
 
 
-def test_classify_intent_resets_accumulated_entities_on_new_query():
-    """NEW_QUERY'de accumulated_entities sıfırlanmalı."""
+def test_classify_intent_preserves_accumulated_entities_on_new_query():
+    """RC-1: NEW_QUERY artık accumulated_entities'i silmemeli — cross-turn entities korunur."""
     node = _make_classify_node("NEW_QUERY")
+    accumulated = [{"column": "ProductName", "value": "LAS VEGAS UC PEYNIRLI BAGEL"}]
     state = {
         "messages": [HumanMessage(content="farklı bir soru")],
         "active_sql": None,
         "active_results": [],
-        "accumulated_entities": [{"column": "ProductName", "value": "LATTE"}],
+        "accumulated_entities": accumulated,
         "_clarification_count": 0,
         "_skip_vague_check": False,
     }
     result = asyncio.run(node(state))
-    assert result["accumulated_entities"] is None
+    # RC-1 fix: must NOT be None — entities survive NEW_QUERY classification
+    assert result["accumulated_entities"] == accumulated
 
 
 def test_classify_intent_preserves_accumulated_entities_on_modify_query():
