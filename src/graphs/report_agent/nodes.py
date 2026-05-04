@@ -310,7 +310,7 @@ def create_extract_entity_node(llm) -> Callable:
                 if val not in acc_col_map[col]:
                     acc_col_map[col].append(val)
         if acc_col_map:
-            acc_lines = [f"  - {col}: {vals[:10]}" for col, vals in acc_col_map.items()]
+            acc_lines = [f"  - {col}: {', '.join(vals[:10])}" for col, vals in acc_col_map.items()]
             accumulated_context = "Konuşmada geçen değerler (önceki turlar):\n" + "\n".join(acc_lines)
         else:
             accumulated_context = "Önceki konuşma bağlamı yok."
