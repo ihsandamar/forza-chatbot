@@ -788,15 +788,21 @@ bağlamdaki TÜM ilgili değerleri AYRI filter_value entity olarak üret. Kaç e
 ## TIME_SERIES_COMPARISON + ZAMIR REFERANS (KRİTİK)
 Sorgu tipi TIME_SERIES_COMPARISON ise VE kullanıcı zamir kullanıyorsa ("bu ürünler", "bu 3 ürün", "bunlar"):
 → Bağlamdaki HER spesifik değer için AYRI "filter_value" entity üret
-→ "dimension" entity ÜRETME — sistem GROUP BY'ı otomatik ekler, sen sadece WHERE filtresini üretirsin
+→ Bu ÖZEL DURUMDA "dimension" entity ÜRETME — sistem GROUP BY'ı otomatik ekler, sen sadece WHERE filtresini üretirsin
+
+SENARYO: query_type=TIME_SERIES_COMPARISON + "bu 3 ürün" zamiri:
 → YANLIŞ (dimension seçersen filtre OLMAZ, tüm ürünler gelir):
    entity: {{raw_text: "ürün", entity_type: "dimension", column_hint: "ProductName"}}
-→ DOĞRU (3 ürün için 3 ayrı filter_value):
+→ DOĞRU (her ürün için ayrı filter_value):
    "bu 3 ürünün günlük satış trendi" + bağlamda ProductName: ["LAS VEGAS UC PEYNIRLI BAGEL", "LATTE", "FINCAN CAY"]
    → entity: {{raw_text: "LAS VEGAS UC PEYNIRLI BAGEL", entity_type: "filter_value", column_hint: "ProductName"}}
    → entity: {{raw_text: "LATTE", entity_type: "filter_value", column_hint: "ProductName"}}
    → entity: {{raw_text: "FINCAN CAY", entity_type: "filter_value", column_hint: "ProductName"}}
    # Sistem TIME_SERIES_COMPARISON için ProductName'i GROUP BY'a otomatik ekler
+
+⚠️ Bu kural SADECE TIME_SERIES_COMPARISON + ZAMIR kombinasyonuna özgüdür.
+RANKING/TOP_N'de "en çok ciro yapan ürün hangisidir" → dimension ZORUNLUDUR (group_by için):
+   entity: {{raw_text: "ürün", entity_type: "dimension", column_hint: "ProductName"}}   ← RANKING'de DOĞRU
 
 ## ÖNCEKİ SQL HATASI (varsa — farklı çıkarım dene)
 {sql_error}
@@ -827,7 +833,7 @@ Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
     "dürümler kategorisi" → entity("dürümler",  filter_value, column_hint="CategoryName")
     "son 1 yılda"         → entity DEĞİL, time alanına yaz
 
-**"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir. Zamir referanslarında TIME_SERIES_COMPARISON ile birlikte kullanılamaz — bkz. TIME_SERIES_COMPARISON + ZAMIR kuralı.
+**"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir. AYRICA RANKING sorgularda ("en çok ciro yapan ürün", "en az satan kategori") group_by için zorunludur. Bkz. TIME_SERIES_COMPARISON + ZAMIR kuralı — o özel durumda kullanma.
   column_hint = dimension için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
   - "ürünlere göre"       → entity("ürün",      dimension, column_hint="ProductName")
   - "kategoriler bazında" → entity("kategori",  dimension, column_hint="CategoryName")

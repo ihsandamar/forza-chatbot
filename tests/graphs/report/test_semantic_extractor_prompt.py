@@ -18,3 +18,13 @@ def test_prompt_has_anti_dimension_example():
 def test_prompt_has_group_by_auto_note():
     """Prompt must tell LLM that system auto-adds GROUP BY so LLM only needs filter_value."""
     assert "GROUP BY'ı otomatik ekler" in SEMANTIC_EXTRACTOR_PROMPT
+
+
+def test_prompt_ranking_requires_dimension_entity():
+    """Regression guard: 'en çok ciro yapan ürün hangisidir' (RANKING) must still generate
+    a dimension entity for ProductName. The YANLIŞ example in the TIME_SERIES+ZAMIR section
+    must not be a global ban on dimension entities — RANKING queries need them for group_by."""
+    assert (
+        "RANKING'de DOĞRU" in SEMANTIC_EXTRACTOR_PROMPT
+        or "RANKING'de ZORUNLU" in SEMANTIC_EXTRACTOR_PROMPT
+    ), "Prompt must have a RANKING counterexample showing dimension entity is correct for ranking"
