@@ -110,9 +110,9 @@ async def test_extract_entity_prompt_contains_accumulated_entities():
     async def capturing_invoke(prompt):
         captured_prompts.append(prompt)
         return EntityExtractionResult(
-            entity_names=["LAS VEGAS UC PEYNIRLI BAGEL", "LATTE", "FINCAN CAY"],
+            entity_names=["UNIQUE_BILINMEYEN_URUN_TEST_9999", "LATTE", "FINCAN CAY"],
             entity_type="product",
-            new_query_seed="LAS VEGAS UC PEYNIRLI BAGEL, LATTE ve FINCAN CAY urunlerinin gunluk satisi",
+            new_query_seed="UNIQUE_BILINMEYEN_URUN_TEST_9999, LATTE ve FINCAN CAY urunlerinin gunluk satisi",
         )
 
     mock_llm = MagicMock()
@@ -127,7 +127,7 @@ async def test_extract_entity_prompt_contains_accumulated_entities():
             {"ProductName": "FINCAN CAY", "ToplamCiro": 30000.0},
         ],
         "accumulated_entities": [
-            {"column": "ProductName", "value": "LAS VEGAS UC PEYNIRLI BAGEL"},
+            {"column": "ProductName", "value": "UNIQUE_BILINMEYEN_URUN_TEST_9999"},
         ],
         "user_query": "bu 3 urunun gunluk satisini goster",
         "use_result_type": "new_query",
@@ -137,7 +137,7 @@ async def test_extract_entity_prompt_contains_accumulated_entities():
     assert len(captured_prompts) == 1
     prompt_text = captured_prompts[0]
     # The cross-turn entity from accumulated_entities must appear in the prompt
-    assert "LAS VEGAS UC PEYNIRLI BAGEL" in prompt_text
+    assert "UNIQUE_BILINMEYEN_URUN_TEST_9999" in prompt_text
 
 
 @pytest.mark.asyncio
