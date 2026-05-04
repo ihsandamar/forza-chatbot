@@ -790,12 +790,12 @@ Sorgu tipi TIME_SERIES_COMPARISON ise VE kullanıcı zamir kullanıyorsa ("bu ü
 → Bağlamdaki HER spesifik değer için AYRI "filter_value" entity üret
 → "dimension" entity ÜRETME — sistem GROUP BY'ı otomatik ekler, sen sadece WHERE filtresini üretirsin
 → YANLIŞ (dimension seçersen filtre OLMAZ, tüm ürünler gelir):
-   entity("ürün", entity_type="dimension", column_hint="ProductName")
+   entity: {{raw_text: "ürün", entity_type: "dimension", column_hint: "ProductName"}}
 → DOĞRU (3 ürün için 3 ayrı filter_value):
    "bu 3 ürünün günlük satış trendi" + bağlamda ProductName: ["LAS VEGAS UC PEYNIRLI BAGEL", "LATTE", "FINCAN CAY"]
-   → entity("LAS VEGAS UC PEYNIRLI BAGEL", entity_type="filter_value", column_hint="ProductName")
-   → entity("LATTE", entity_type="filter_value", column_hint="ProductName")
-   → entity("FINCAN CAY", entity_type="filter_value", column_hint="ProductName")
+   → entity: {{raw_text: "LAS VEGAS UC PEYNIRLI BAGEL", entity_type: "filter_value", column_hint: "ProductName"}}
+   → entity: {{raw_text: "LATTE", entity_type: "filter_value", column_hint: "ProductName"}}
+   → entity: {{raw_text: "FINCAN CAY", entity_type: "filter_value", column_hint: "ProductName"}}
    # Sistem TIME_SERIES_COMPARISON için ProductName'i GROUP BY'a otomatik ekler
 
 ## ÖNCEKİ SQL HATASI (varsa — farklı çıkarım dene)
@@ -827,7 +827,7 @@ Python suffix soyma YAPMAZ — kanonik form buradan gelmek zorunda.
     "dürümler kategorisi" → entity("dürümler",  filter_value, column_hint="CategoryName")
     "son 1 yılda"         → entity DEĞİL, time alanına yaz
 
-**"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir.
+**"dimension"**: Gruplama boyutu. "...e göre", "...lere göre", "bazında", "kırılımı" ile gelir. Zamir referanslarında TIME_SERIES_COMPARISON ile birlikte kullanılamaz — bkz. TIME_SERIES_COMPARISON + ZAMIR kuralı.
   column_hint = dimension için ZORUNLU, MEVCUT KOLON ADLARI listesinden seç:
   - "ürünlere göre"       → entity("ürün",      dimension, column_hint="ProductName")
   - "kategoriler bazında" → entity("kategori",  dimension, column_hint="CategoryName")

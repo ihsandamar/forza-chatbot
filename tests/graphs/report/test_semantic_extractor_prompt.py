@@ -12,9 +12,9 @@ def test_prompt_has_time_series_filter_value_rule():
 
 def test_prompt_has_anti_dimension_example():
     """Prompt must have an explicit WRONG example showing dimension leads to no filter."""
-    assert "YANLIŞ" in SEMANTIC_EXTRACTOR_PROMPT
+    assert "YANLIŞ (dimension seçersen filtre OLMAZ" in SEMANTIC_EXTRACTOR_PROMPT
 
 
 def test_prompt_has_group_by_auto_note():
     """Prompt must tell LLM that system auto-adds GROUP BY so LLM only needs filter_value."""
-    assert "otomatik" in SEMANTIC_EXTRACTOR_PROMPT
+    assert "GROUP BY'ı otomatik ekler" in SEMANTIC_EXTRACTOR_PROMPT
