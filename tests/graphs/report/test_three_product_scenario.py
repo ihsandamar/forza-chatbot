@@ -1,12 +1,9 @@
 """
-Integration test for the 'bu 3 ürün' multi-turn context propagation scenario.
+Data-structure integration tests for 'bu 3 ürün' multi-turn context propagation.
 
-Scenario:
-  Turn 1: "kahvaltı en çok satan ürün" → LAS VEGAS result → accumulated_entities has LAS VEGAS
-  Turn 2: intent classified as NEW_QUERY (RC-1 must keep LAS VEGAS!) → LATTE + FINCAN CAY added
-  Turn 3: "bu 3 ürün" → context must show all 3 products
-
-Tests data structures only — no LLM, no DB.
+Scope: _merge_accumulated_entities (merge logic) and build_query_context_summary
+(context output). Classifier routing (RC-1) is covered in test_accumulated_entities.py.
+Tests use only data structures — no LLM, no DB.
 """
 from src.graphs.report_agent.context_builder import build_query_context_summary
 from src.graphs.report_agent.subagents.text2sql.nodes import _merge_accumulated_entities
@@ -105,4 +102,5 @@ def test_per_column_cap_prevents_budget_starvation():
     branch_values = [e["value"] for e in merged if e["column"] == "BranchName"]
 
     assert len(product_values) <= 10
-    assert "ANKARA" in branch_values or "ISTANBUL" in branch_values
+    assert "ANKARA" in branch_values
+    assert "ISTANBUL" in branch_values
