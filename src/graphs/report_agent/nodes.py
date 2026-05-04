@@ -299,16 +299,32 @@ def create_extract_entity_node(llm) -> Callable:
             logger.warning("[EXTRACT_ENTITY] No results, fallback to NEW_QUERY")
             return {"intent_type": "NEW_QUERY"}
 
+        # Build accumulated entity context for cross-turn pronoun resolution
+        accumulated_entities = state.get("accumulated_entities") or []
+        acc_col_map: dict = {}
+        for e in accumulated_entities:
+            col, val = e.get("column", ""), e.get("value", "")
+            if col and val:
+                if col not in acc_col_map:
+                    acc_col_map[col] = []
+                if val not in acc_col_map[col]:
+                    acc_col_map[col].append(val)
+        if acc_col_map:
+            acc_lines = [f"  - {col}: {vals[:10]}" for col, vals in acc_col_map.items()]
+            accumulated_context = "Konuşmada geçen değerler (önceki turlar):\n" + "\n".join(acc_lines)
+        else:
+            accumulated_context = "Önceki konuşma bağlamı yok."
+
         prompt = ENTITY_EXTRACTOR_PROMPT.format(
             active_results=json.dumps(active_results[:5], ensure_ascii=False, indent=2),
             user_query=state.get("user_query", ""),
+            accumulated_context=accumulated_context,
         )
 
         result: EntityExtractionResult = await structured_llm.ainvoke(prompt)
         logger.info(f"[EXTRACT_ENTITY] {result.entity_names} ({result.entity_type})")
 
         if state.get("use_result_type") == "modify_context":
-            # modify_sql_node'a gidecek: entity adlarini orijinal sorguya inject et
             names_str = ", ".join(result.entity_names)
             original_query = state.get("user_query", "")
             enriched = f"{names_str} icin: {original_query}"

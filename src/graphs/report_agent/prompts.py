@@ -296,18 +296,25 @@ ENTITY_EXTRACTOR_PROMPT = """Kullanıcı önceki sorgu sonuçlarından bir veya 
 ## ÖNCEKİ SONUÇLAR (ilk 5 satır)
 {active_results}
 
+## KONUŞMA BAĞLAMI (önceki turlardaki değerler dahil)
+{accumulated_context}
+
 ## KULLANICI İSTEĞİ
 {user_query}
 
 ## GÖREV
 Kullanıcının hangi entity'leri seçtiğini belirle ve yeni bir sorgu için seed oluştur.
 
+Kullanıcı "bu 3 ürün", "bu şubeler", "bunların hepsi" gibi çoğul referans kullanıyorsa →
+ÖNCEKİ SONUÇLAR ve KONUŞMA BAĞLAMI'ndaki TÜM ilgili değerleri entity_names listesine ekle.
+
 - entity_names: Seçilen değerlerin tam adları listesi
   Tekil referans için tek elemanlı liste: ["Ankara Şubesi"]
   Çoğul referans için tüm seçilenleri listele: ["LATTE", "FINCAN CAY", "LAS VEGAS UC PEYNIRLI BAGEL"]
 - entity_type: product | branch | customer | category | period
 - new_query_seed: Bu entity'ler için doğal dil sorgu cümlesi (Text2SQL'e gönderilecek)
-  Örnek: "LATTE, FINCAN CAY ve LAS VEGAS UC PEYNIRLI BAGEL ürünlerinin son 1 yıldaki satış detayları"
+  Örnek: "LATTE, FINCAN CAY ve LAS VEGAS UC PEYNIRLI BAGEL ürünlerinin son 1 yıldaki günlük satış trendi çizgi grafik"
+  ÖNEMLİ: Kullanıcının orijinal isteğindeki TÜM detayları (dönem, grafik tipi, kırılım) new_query_seed'e koru!
 """
 
 

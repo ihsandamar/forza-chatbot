@@ -97,3 +97,73 @@ def test_extract_entity_plural_new_query_uses_seed(make_node_with_result):
     }
     output = asyncio.run(node(state))
     assert output["user_query"] == "LATTE, FINCAN CAY ve LAS VEGAS UC PEYNIRLI BAGEL urunlerinin gunluk satisi"
+
+
+@pytest.mark.asyncio
+async def test_extract_entity_prompt_contains_accumulated_entities():
+    """RC-2: ENTITY_EXTRACTOR_PROMPT must include accumulated_entities context so LLM can see cross-turn entities."""
+    from src.graphs.report_agent.nodes import create_extract_entity_node
+    from src.graphs.report_agent.prompts import EntityExtractionResult
+
+    captured_prompts: list = []
+
+    async def capturing_invoke(prompt):
+        captured_prompts.append(prompt)
+        return EntityExtractionResult(
+            entity_names=["LAS VEGAS UC PEYNIRLI BAGEL", "LATTE", "FINCAN CAY"],
+            entity_type="product",
+            new_query_seed="LAS VEGAS UC PEYNIRLI BAGEL, LATTE ve FINCAN CAY urunlerinin gunluk satisi",
+        )
+
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = capturing_invoke
+    mock_llm.with_structured_output = MagicMock(return_value=structured)
+
+    node = create_extract_entity_node(mock_llm)
+    state = {
+        "active_results": [
+            {"ProductName": "LATTE", "ToplamCiro": 45000.0},
+            {"ProductName": "FINCAN CAY", "ToplamCiro": 30000.0},
+        ],
+        "accumulated_entities": [
+            {"column": "ProductName", "value": "LAS VEGAS UC PEYNIRLI BAGEL"},
+        ],
+        "user_query": "bu 3 urunun gunluk satisini goster",
+        "use_result_type": "new_query",
+    }
+    await node(state)
+
+    assert len(captured_prompts) == 1
+    prompt_text = captured_prompts[0]
+    # The cross-turn entity from accumulated_entities must appear in the prompt
+    assert "LAS VEGAS UC PEYNIRLI BAGEL" in prompt_text
+
+
+@pytest.mark.asyncio
+async def test_extract_entity_no_accumulated_entities_still_works():
+    """RC-2: When accumulated_entities is None/empty, node still works normally."""
+    from src.graphs.report_agent.nodes import create_extract_entity_node
+    from src.graphs.report_agent.prompts import EntityExtractionResult
+
+    async def mock_invoke(prompt):
+        return EntityExtractionResult(
+            entity_names=["LATTE"],
+            entity_type="product",
+            new_query_seed="LATTE icin detaylar",
+        )
+
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = mock_invoke
+    mock_llm.with_structured_output = MagicMock(return_value=structured)
+
+    node = create_extract_entity_node(mock_llm)
+    state = {
+        "active_results": [{"ProductName": "LATTE", "ToplamCiro": 45000.0}],
+        "accumulated_entities": None,
+        "user_query": "bu urunu goster",
+        "use_result_type": "new_query",
+    }
+    result = await node(state)
+    assert result["user_query"] == "LATTE icin detaylar"
