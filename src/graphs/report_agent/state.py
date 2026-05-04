@@ -24,7 +24,7 @@ class ReportState(TypedDict):
     active_sql: Optional[str]
     active_results: Optional[List[Dict[str, Any]]]
     active_filters: Optional[List[Dict[str, Any]]]
-    accumulated_entities: Optional[List[Dict[str, Any]]]  # cross-turn {column, value} listesi; NEW_QUERY'de sıfırlanır
+    accumulated_entities: Optional[List[Dict[str, Any]]]  # cross-turn {column, value} listesi; intent'ten bağımsız korunur (max 100, sütun başına max 10)
 
     # Text2SQL I/O (subgraph shared fields)
     sql_queries: Optional[List[str]]
