@@ -785,6 +785,19 @@ bağlamdaki TÜM ilgili değerleri AYRI filter_value entity olarak üret. Kaç e
 → entity: {{raw_text: "LATTE", entity_type: "filter_value", column_hint: "ProductName"}}
 → entity: {{raw_text: "FINCAN CAY", entity_type: "filter_value", column_hint: "ProductName"}}
 
+## TIME_SERIES_COMPARISON + ZAMIR REFERANS (KRİTİK)
+Sorgu tipi TIME_SERIES_COMPARISON ise VE kullanıcı zamir kullanıyorsa ("bu ürünler", "bu 3 ürün", "bunlar"):
+→ Bağlamdaki HER spesifik değer için AYRI "filter_value" entity üret
+→ "dimension" entity ÜRETME — sistem GROUP BY'ı otomatik ekler, sen sadece WHERE filtresini üretirsin
+→ YANLIŞ (dimension seçersen filtre OLMAZ, tüm ürünler gelir):
+   entity("ürün", entity_type="dimension", column_hint="ProductName")
+→ DOĞRU (3 ürün için 3 ayrı filter_value):
+   "bu 3 ürünün günlük satış trendi" + bağlamda ProductName: ["LAS VEGAS UC PEYNIRLI BAGEL", "LATTE", "FINCAN CAY"]
+   → entity("LAS VEGAS UC PEYNIRLI BAGEL", entity_type="filter_value", column_hint="ProductName")
+   → entity("LATTE", entity_type="filter_value", column_hint="ProductName")
+   → entity("FINCAN CAY", entity_type="filter_value", column_hint="ProductName")
+   # Sistem TIME_SERIES_COMPARISON için ProductName'i GROUP BY'a otomatik ekler
+
 ## ÖNCEKİ SQL HATASI (varsa — farklı çıkarım dene)
 {sql_error}
 
