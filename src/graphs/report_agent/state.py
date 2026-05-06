@@ -14,7 +14,7 @@ class ReportState(TypedDict):
     intent_type: Optional[str]         # NEW_QUERY | MODIFY_QUERY | USE_RESULT | VAGUE_QUERY
     query_type: Optional[str]          # SINGLE | RANKING | COMPARISON | TIME_SERIES_COMPARISON
     intent_confidence: Optional[float]
-    wants_visualization: Optional[bool]  # Kullanıcı açıkça grafik istedi mi?
+    wants_visualization: Optional[bool]  # Kullanıcı açıkça grafik istedi mi? MODIFY_QUERY'de visualization_explicitly_set=False ise önceki turdan inherit edilir
     requested_chart_type: Optional[str]  # "heatmap", "sunburst" etc. — intent LLM'den gelir
     chart_x_hint: Optional[str]          # x-axis kolon ipucu — kullanıcı açıkça belirtirse dolar
     use_result_type: Optional[str]     # "new_query" | "revisualize" | "compute" | "modify_context"
@@ -23,7 +23,7 @@ class ReportState(TypedDict):
     # Conversation Context (MODIFY ve USE_RESULT için)
     active_sql: Optional[str]
     active_results: Optional[List[Dict[str, Any]]]
-    active_filters: Optional[List[Dict[str, Any]]]
+    active_filters: Optional[List[Dict[str, Any]]]  # Son SQL'in WHERE filtreleri [{field, value}]; classify_intent: NEW_QUERY'de None, diğerlerinde korunur; modify_sql günceller; sql_executor query_schema boşsa preserve eder
     accumulated_entities: Optional[List[Dict[str, Any]]]  # cross-turn {column, value} listesi; intent'ten bağımsız korunur (max 100, sütun başına max 10)
 
     # Text2SQL I/O (subgraph shared fields)
