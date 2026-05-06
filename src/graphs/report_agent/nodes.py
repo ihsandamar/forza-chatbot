@@ -18,6 +18,7 @@ from src.graphs.report_agent.prompts import (
 )
 
 from src.graphs.report_agent.response_builder import build_chart_response, DEFAULT_CONFIG
+from src.services.debug_tracer import debug_node
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ def create_classify_intent_node(llm) -> Callable:
     """
     structured_llm = llm.with_structured_output(IntentClassificationResult)
 
+    @debug_node("classify_intent")
     async def classify_intent_node(state: dict) -> dict:
         logger.info(f"[REPORT_AGENT] ===== classify_intent_node ENTERED ===== query: {state.get('messages', [{}])[-1].content[:80] if state.get('messages') else 'NO_MESSAGES'}")
         active_sql = state.get("active_sql")
@@ -201,6 +203,7 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
 
     structured_llm = llm.with_structured_output(SqlDelta)
 
+    @debug_node("modify_sql")
     async def modify_sql_node(state: dict) -> dict:
         active_sql = state.get("active_sql", "")
         if not active_sql:
@@ -271,6 +274,7 @@ def create_report_chat_node(llm, column_metadata: dict) -> Callable:
     """Report Chat: VAGUE_QUERY → kullanıcıya öneriler sun, cevabı user_query olarak set et."""
     structured_llm = llm.with_structured_output(QueryClarificationResult)
 
+    @debug_node("report_chat")
     async def report_chat_node(state: dict) -> dict:
         count = (state.get("_clarification_count") or 0) + 1
 
@@ -320,6 +324,7 @@ def create_extract_entity_node(llm) -> Callable:
     """Entity Extractor: USE_RESULT(new_query/modify_context) → yeni user_query seed'i veya enriched query."""
     structured_llm = llm.with_structured_output(EntityExtractionResult)
 
+    @debug_node("extract_entity")
     async def extract_entity_node(state: dict) -> dict:
         active_results = state.get("active_results") or []
         if not active_results:
@@ -503,6 +508,7 @@ def create_compute_results_node(llm) -> Callable:
     from src.graphs.report_agent.prompts import ComputeToolSelection, COMPUTE_TOOL_PROMPT
     structured_llm = llm.with_structured_output(ComputeToolSelection)
 
+    @debug_node("compute_results")
     async def compute_results_node(state: dict) -> dict:
         results = state.get("active_results") or []
 
@@ -583,6 +589,7 @@ def _results_to_markdown_table(results: list, max_rows: int = 50) -> str:
 
 def create_build_response_node(llm=None):
     """Factory: returns build_response_node with optional LLM for insight generation."""
+    @debug_node("build_response")
     async def build_response_node(state: dict) -> dict:
         import base64
         error = state.get("error")
@@ -648,6 +655,7 @@ def create_build_response_node(llm=None):
     return build_response_node
 
 
+@debug_node("hitl_check")
 async def hitl_check_node(state: dict) -> dict:
     """
     text2sql subgraph'tan gelen clarification sinyalini yakalar.
