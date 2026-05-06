@@ -147,3 +147,28 @@ async def test_debug_node_passes_kwargs_through(tmp_path):
         assert received_kwargs == {"config": {"key": "val"}}
     finally:
         dt._ENABLED = original
+
+
+def test_safe_default_date():
+    from datetime import date
+    from src.services.debug_tracer import _safe_default
+    d = date(2026, 5, 6)
+    assert _safe_default(d) == "2026-05-06"
+
+
+def test_debug_node_sync_writes_enter_and_exit_when_enabled():
+    import src.services.debug_tracer as dt
+    original = dt._ENABLED
+    dt._ENABLED = True
+    try:
+        written = []
+        with patch("src.services.debug_tracer._write_event", side_effect=lambda *a: written.append(a)):
+            from src.services.debug_tracer import debug_node
+            @debug_node("sync_node")
+            def my_sync_node(state): return {"out": 1}
+            my_sync_node({"session_id": "sess_sync"})
+        assert len(written) == 2
+        assert written[0][2] == "enter"
+        assert written[1][2] == "exit"
+    finally:
+        dt._ENABLED = original
