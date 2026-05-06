@@ -45,6 +45,7 @@ from src.graphs.report_agent.subagents.text2sql.sql_builder import generate_sql,
 from src.graphs.report_agent.subagents.text2sql.column_resolver import ColumnResolver
 from src.graphs.report_agent.subagents.text2sql.value_resolver_service import ValueResolverService
 from src.graphs.report_agent.subagents.text2sql.stores import BusinessRulesStore, TermStore
+from src.services.debug_tracer import debug_node
 
 logger = logging.getLogger(__name__)
 
@@ -472,6 +473,7 @@ def create_term_resolver_node(
             }
         return None
 
+    @debug_node("term_resolver")
     async def term_resolver_node(state: dict) -> dict:
         # ── NEW PATH: SemanticIntent-based resolution ─────────────────────
         intent_dict = state.get("semantic_intent")
@@ -645,6 +647,7 @@ def create_term_validator_node(llm) -> Callable:
             )
         return "\n".join(lines)
 
+    @debug_node("term_validator")
     async def term_validator_node(state: dict) -> dict:
         user_query = state.get("user_query", "")
         candidate_filter_terms = state.get("candidate_filter_terms") or []
@@ -698,6 +701,7 @@ def create_value_resolver_node(value_resolver: ValueResolverService) -> Callable
     Düşük confidence (< 75) → interrupt() ile kullanıcıya sor.
     """
 
+    @debug_node("value_resolver")
     async def value_resolver_node(state: dict) -> dict:
         pre_built_sql      = state.get("pre_built_sql")
         modification_hints = state.get("modification_hints") or []
@@ -883,6 +887,7 @@ def create_business_rules_node(vector_store: BusinessRulesStore, llm=None) -> Ca
     """
     structured_llm = llm.with_structured_output(BusinessRulesValidationResult) if llm else None
 
+    @debug_node("business_rules")
     async def business_rules_node(state: dict) -> dict:
         user_query = state.get("user_query", "")
 
@@ -1055,6 +1060,7 @@ def create_sql_generator_node(
     Eğer term_filters ile LLM'in ürettiği QuerySchema'da aynı kolon varsa → term_filter WINS.
     """
 
+    @debug_node("sql_generator")
     async def sql_generator_node(state: dict, *, config: RunnableConfig = None) -> dict:
         # MODIFY_QUERY bypass: modify_sql node zaten doğru SQL ürettiyse yeniden üretme.
         # pre_built_sql, sql_executor'dan sonra None'a resetlenir (her turda classify_intent temizler).
@@ -1311,6 +1317,7 @@ def create_sql_executor_node(connection_string: str) -> Callable:
     Retry kararı graph routing'de verilir (conditional edge).
     """
 
+    @debug_node("sql_executor")
     async def sql_executor_node(state: dict) -> dict:
         sql_queries = state.get("sql_queries") or []
         if not sql_queries:
@@ -1393,6 +1400,7 @@ def create_semantic_extractor_node(llm, column_metadata: dict) -> Callable:
     structured_llm = llm.with_structured_output(SemanticIntent)
     col_meta = column_metadata or {}
 
+    @debug_node("semantic_extractor")
     async def semantic_extractor_node(state: dict) -> dict:
         user_query   = state.get("user_query", "")
         query_type   = state.get("query_type", "SINGLE")
@@ -1457,6 +1465,7 @@ def create_schema_builder_node() -> Callable:
     No LLM involved. Deterministic conversion via build_query_schema().
     """
 
+    @debug_node("schema_builder")
     async def schema_builder_node(state: dict) -> dict:
         intent_dict     = state.get("semantic_intent") or {}
         resolution_dict = state.get("term_resolution") or {}
@@ -1582,6 +1591,7 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
        - Yok → SQL script çalıştır, _table_verified = True
     """
 
+    @debug_node("create_table")
     async def create_table_node(state: dict, *, config: RunnableConfig = None) -> dict:
         global _table_verified, _verified_table_name
         table_name = _get_configurable(config, "table_name", default_table_name)
@@ -1651,6 +1661,7 @@ def create_create_table_node(connection_string: str, default_table_name: str) ->
 def create_cleanup_table_node(connection_string: str, default_table_name: str) -> Callable:
     """No-op: table is permanent, no cleanup performed."""
 
+    @debug_node("cleanup_table")
     async def cleanup_table_node(state: dict, *, config: RunnableConfig = None) -> dict:
         return {}
 
