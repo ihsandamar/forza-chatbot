@@ -11,6 +11,7 @@ def _make_llm_mock(intent_type: str, query_type: str = "RANKING", wants_viz: boo
         query_type=query_type,
         confidence=0.95,
         wants_visualization=wants_viz,
+        visualization_explicitly_set=False,
     )
     llm = MagicMock()
     structured = MagicMock()
@@ -75,3 +76,118 @@ async def test_active_filters_none_when_state_empty():
 
     result = await node(state)
     assert result["active_filters"] is None
+
+
+# ---------------------------------------------------------------------------
+# Task 2 — visualization inheritance tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_wants_visualization_inherited_on_modify_when_not_addressed():
+    """MODIFY_QUERY'de kullanıcı grafikten bahsetmemişse önceki wants_visualization korunmalı."""
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    # LLM: kullanıcı grafikten bahsetmedi → False (default), chart_type=None
+    llm = _make_llm_mock("MODIFY_QUERY", wants_viz=False)
+    node = create_classify_intent_node(llm)
+
+    state = {
+        "messages": [HumanMessage(content="Ankara'yı ekle")],
+        "active_sql": "SELECT * FROM T",
+        "active_filters": [{"field": "CategoryName", "value": "Dürüm"}],
+        "wants_visualization": True,
+        "requested_chart_type": "bar_chart",
+        "chart_x_hint": "BranchName",
+        "accumulated_entities": None,
+    }
+
+    result = await node(state)
+    assert result["wants_visualization"] is True
+    assert result["requested_chart_type"] == "bar_chart"
+    assert result["chart_x_hint"] == "BranchName"
+
+
+@pytest.mark.asyncio
+async def test_wants_visualization_updated_when_explicitly_set():
+    """MODIFY_QUERY'de kullanıcı açıkça grafik istedi → güncellenmeli."""
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    result_obj = IntentClassificationResult(
+        intent_type="MODIFY_QUERY",
+        query_type="RANKING",
+        confidence=0.95,
+        wants_visualization=True,
+        chart_type="pie_chart",
+        visualization_explicitly_set=True,
+    )
+    llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=result_obj)
+    llm.with_structured_output = MagicMock(return_value=structured)
+    node = create_classify_intent_node(llm)
+
+    state = {
+        "messages": [HumanMessage(content="Pasta grafik olarak göster")],
+        "active_sql": "SELECT * FROM T",
+        "active_filters": [],
+        "wants_visualization": True,
+        "requested_chart_type": "bar_chart",
+        "chart_x_hint": None,
+        "accumulated_entities": None,
+    }
+
+    result = await node(state)
+    assert result["wants_visualization"] is True
+    assert result["requested_chart_type"] == "pie_chart"
+
+
+@pytest.mark.asyncio
+async def test_wants_visualization_explicitly_removed():
+    """MODIFY_QUERY'de kullanıcı açıkça grafiği kaldırdı → False olmalı."""
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    result_obj = IntentClassificationResult(
+        intent_type="MODIFY_QUERY",
+        query_type="RANKING",
+        confidence=0.95,
+        wants_visualization=False,
+        visualization_explicitly_set=True,
+    )
+    llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=result_obj)
+    llm.with_structured_output = MagicMock(return_value=structured)
+    node = create_classify_intent_node(llm)
+
+    state = {
+        "messages": [HumanMessage(content="Grafiği kaldır")],
+        "active_sql": "SELECT * FROM T",
+        "active_filters": [],
+        "wants_visualization": True,
+        "requested_chart_type": "bar_chart",
+        "accumulated_entities": None,
+    }
+
+    result = await node(state)
+    assert result["wants_visualization"] is False
+
+
+@pytest.mark.asyncio
+async def test_wants_visualization_not_inherited_on_new_query():
+    """NEW_QUERY'de visualization state inherit edilmemeli — LLM kararı geçerli."""
+    from src.graphs.report_agent.nodes import create_classify_intent_node
+
+    llm = _make_llm_mock("NEW_QUERY", wants_viz=False)
+    node = create_classify_intent_node(llm)
+
+    state = {
+        "messages": [HumanMessage(content="Tüm şubeleri listele")],
+        "active_sql": None,
+        "active_filters": None,
+        "wants_visualization": True,
+        "requested_chart_type": "bar_chart",
+        "accumulated_entities": None,
+    }
+
+    result = await node(state)
+    assert result["wants_visualization"] is False

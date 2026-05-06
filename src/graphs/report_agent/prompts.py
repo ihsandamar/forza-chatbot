@@ -25,6 +25,7 @@ class IntentClassificationResult(BaseModel):
     modification_target: Optional[str] = None
     modification_value: Optional[str] = None
     time_breakdown: bool = False
+    visualization_explicitly_set: bool = False  # kullanıcı grafik hakkında açıkça bir şey söyledi
 
     @field_validator("confidence")
     @classmethod
@@ -233,6 +234,14 @@ Bu sorgular MODIFY_QUERY DEĞİLDİR — GROUP BY boyutu tamamen değiştiğinde
   - "ürün bazında çizgi grafik" → "ProductName"
   - "sadece bar chart yap" → null (kolon belirtilmemiş)
   - "satışları bar chart olarak göster" → null (boyut belirtilmemiş)
+
+**visualization_explicitly_set:** (True/False)
+- True: Kullanıcı bu mesajda grafik/görsel hakkında açıkça bir şey söyledi
+  → "bar chart yap", "pasta grafik istiyorum", "grafiği kaldır", "tablo olarak göster",
+     "görsel olarak göster", "grafik istemiyorum", "sadece sayıları göster"
+- False (DEFAULT): Kullanıcı grafik/görsel hakkında hiçbir şey söylemedi
+  → "Ankara'yı ekle", "limit'i 20 yap", "en çok satanları getir", "filtre ekle"
+  → MODIFY_QUERY'nin büyük çoğunluğunda False olur — kullanıcı sadece veriyi değiştiriyor
 
 **confidence:** 0.0-1.0 güven skoru.
 - 0.90+: Kesin

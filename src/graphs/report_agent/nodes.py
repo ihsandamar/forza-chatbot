@@ -120,6 +120,19 @@ def create_classify_intent_node(llm) -> Callable:
         if chart_type:
             logger.info(f"[CLASSIFY] chart_type={chart_type}, chart_x_hint={chart_x_hint}")
 
+        # MODIFY_QUERY: kullanıcı grafikten bahsetmediyse önceki turdaki görselleştirme tercihini koru.
+        if (
+            result.intent_type == "MODIFY_QUERY"
+            and not result.visualization_explicitly_set
+        ):
+            wants_viz = state.get("wants_visualization", False)
+            chart_type = chart_type or state.get("requested_chart_type")
+            chart_x_hint = chart_x_hint or state.get("chart_x_hint")
+            logger.info(
+                f"[CLASSIFY] MODIFY_QUERY: visualization inherited from state "
+                f"(wants_viz={wants_viz}, chart_type={chart_type})"
+            )
+
         is_revisualize = result.use_result_type == "revisualize"
         return_dict = {
             "user_query": user_query,
