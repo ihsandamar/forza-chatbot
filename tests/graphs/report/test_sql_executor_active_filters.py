@@ -92,3 +92,33 @@ def test_active_filters_empty_when_no_query_schema(mock_results):
         result = asyncio.run(node(state))
 
     assert result["active_filters"] == []
+
+
+def test_sql_executor_preserves_active_filters_when_query_schema_empty(mock_results):
+    """
+    pre_built_sql yolu: query_schema boş olduğunda sql_executor,
+    state'deki mevcut active_filters'ı korumalı (üzerine [] yazmamalı).
+    """
+    state = {
+        "sql_queries": ["SELECT [BranchName], SUM([RowAmount]) FROM T WHERE [CategoryName]='Dürüm' AND [BranchName]='Ankara' GROUP BY [BranchName]"],
+        "query_schema": None,  # pre_built_sql bypass: query_schema YOK
+        "active_filters": [   # modify_sql_node tarafından güncellenmiş
+            {"field": "CategoryName", "value": "Dürüm"},
+            {"field": "BranchName", "value": "Ankara"},
+        ],
+        "accumulated_entities": None,
+        "retry_count": 0,
+    }
+
+    with patch(
+        "src.graphs.report_agent.subagents.text2sql.nodes._execute_sql_async",
+        new=AsyncMock(return_value=mock_results),
+    ):
+        node = create_sql_executor_node("mssql+pyodbc://dummy")
+        result = asyncio.run(node(state))
+
+    assert result.get("error") is None
+    filters = result.get("active_filters", [])
+    fields = {f["field"] for f in filters}
+    assert "CategoryName" in fields, "CategoryName filtresi korunmalıydı"
+    assert "BranchName" in fields, "BranchName filtresi korunmalıydı"

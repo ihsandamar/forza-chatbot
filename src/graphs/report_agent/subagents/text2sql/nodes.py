@@ -1326,7 +1326,7 @@ def create_sql_executor_node(connection_string: str) -> Callable:
             # Aktif filtreleri query_schema'dan çıkar (conversation context için)
             # date_descriptor'lı filtreler hariç — bunlar LLM bağlamı için gereksiz
             query_schema = state.get("query_schema") or {}
-            active_filters = [
+            schema_filters = [
                 {
                     "field": f.get("column"),
                     "value": f.get("resolved_value") or f.get("value_hint") or f.get("value"),
@@ -1334,6 +1334,9 @@ def create_sql_executor_node(connection_string: str) -> Callable:
                 for f in query_schema.get("filters", [])
                 if not f.get("date_descriptor") and f.get("column")
             ]
+            # pre_built_sql bypass yolunda query_schema boştur; modify_sql_node'un
+            # güncelleyip yazdığı active_filters'ı koru.
+            active_filters = schema_filters if schema_filters else (state.get("active_filters") or [])
 
             return {
                 "results": results,
