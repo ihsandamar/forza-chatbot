@@ -126,6 +126,7 @@ async def test_debug_node_writes_enter_and_exit_when_enabled(tmp_path):
         assert written[0][1] == "test_node"
         assert written[0][2] == "enter"
         assert written[1][2] == "exit"
+        assert written[0][0] == "sess_abc"  # session_id propagated correctly
     finally:
         dt._ENABLED = original
 

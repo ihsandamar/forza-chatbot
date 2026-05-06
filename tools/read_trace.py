@@ -45,7 +45,10 @@ def main():
         print(f"Available sessions in {log_dir}:")
         for f in files:
             size_kb = f.stat().st_size // 1024
-            lines = sum(1 for _ in f.open(encoding="utf-8"))
+            try:
+                lines = sum(1 for _ in f.open(encoding="utf-8"))
+            except OSError:
+                lines = -1
             print(f"  {f.stem}  ({lines} events, {size_kb}KB)")
         return
 
