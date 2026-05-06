@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.runnables import RunnableConfig
 
+from src.services.debug_tracer import debug_node
 from src.graphs.report_agent.subagents.visualization_v2.data_analyzer import DataAnalyzer
 from src.graphs.report_agent.subagents.visualization_v2.models import ChartSpec
 from src.graphs.report_agent.subagents.visualization_v2.prompts import VIZ_DECIDER_PROMPT
@@ -101,6 +102,7 @@ def _normalize_results(
 # NODE 1: DATA ANALYZER (Karar Katmani)
 # =========================================================================
 
+@debug_node("data_analyzer")
 async def data_analyzer_node(state: dict, config: Optional[RunnableConfig] = None) -> dict:
     results = state.get("results") or []
     if not results:
@@ -293,6 +295,7 @@ def _build_column_info(profile: dict, column_metadata: dict) -> str:
 def create_viz_decider_node(llm) -> Callable:
     structured_llm = llm.with_structured_output(ChartSpec)
 
+    @debug_node("viz_decider")
     async def viz_decider_node(state: dict, config: Optional[RunnableConfig] = None) -> dict:
         results = state.get("results") or []
         data_profile = state.get("data_profile")
@@ -398,6 +401,7 @@ def create_viz_decider_node(llm) -> Callable:
 # NODE 3: SPEC VALIDATOR (Karar Katmani)
 # =========================================================================
 
+@debug_node("spec_validator")
 async def spec_validator_node(state: dict, config: Optional[RunnableConfig] = None) -> dict:
     viz_decision = state.get("viz_decision") or {}
     results = state.get("results") or []
@@ -418,6 +422,7 @@ async def spec_validator_node(state: dict, config: Optional[RunnableConfig] = No
 # NODE 4: TEMPLATE RENDERER (Cizim Katmani)
 # =========================================================================
 
+@debug_node("template_renderer")
 async def template_renderer_node(state: dict, config: Optional[RunnableConfig] = None) -> dict:
     viz_decision = state.get("viz_decision") or {}
     results = state.get("results") or []
@@ -449,6 +454,7 @@ async def template_renderer_node(state: dict, config: Optional[RunnableConfig] =
 # NODE 5: RESPONSE BUILDER (Cizim Katmani)
 # =========================================================================
 
+@debug_node("response_builder")
 async def response_builder_node(state: dict) -> dict:
     results = state.get("results") or []
     viz_decision = state.get("viz_decision") or {}
