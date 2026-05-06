@@ -6,7 +6,7 @@ import contextvars
 import functools
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -56,22 +56,25 @@ def _enforce_retention(log_dir: Path, max_sessions: int = _MAX_SESSIONS) -> None
 
 
 def _write_event(session_id: str, node_name: str, event: str, state: Any) -> None:
-    _LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = _LOG_DIR / f"{session_id}.jsonl"
+    try:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_file = _LOG_DIR / f"{session_id}.jsonl"
 
-    if not log_file.exists():
-        _enforce_retention(_LOG_DIR)
+        if not log_file.exists():
+            _enforce_retention(_LOG_DIR)
 
-    turn = _get_turn(state) if isinstance(state, dict) else 0
-    record = {
-        "ts": datetime.utcnow().isoformat(timespec="microseconds"),
-        "node": node_name,
-        "event": event,
-        "turn": turn,
-        "state": _serialize_state(state),
-    }
-    with log_file.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False, default=_safe_default) + "\n")
+        turn = _get_turn(state) if isinstance(state, dict) else 0
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+            "node": node_name,
+            "event": event,
+            "turn": turn,
+            "state": _serialize_state(state),
+        }
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=_safe_default) + "\n")
+    except Exception:
+        pass  # Tracer must never crash graph execution
 
 
 def debug_node(node_name: str):

@@ -172,3 +172,15 @@ def test_debug_node_sync_writes_enter_and_exit_when_enabled():
         assert written[1][2] == "exit"
     finally:
         dt._ENABLED = original
+
+
+def test_write_event_does_not_raise_on_bad_dir():
+    from src.services.debug_tracer import _write_event
+    from pathlib import Path
+    # A path that cannot be created/written to
+    with patch("src.services.debug_tracer._LOG_DIR", Path("/this/path/cannot/exist/on/any/os/xyz123")):
+        # Should not raise, even with invalid directory
+        try:
+            _write_event("sess", "node", "enter", {})
+        except Exception as e:
+            pytest.fail(f"_write_event raised unexpectedly: {e}")
