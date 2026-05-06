@@ -270,3 +270,102 @@ async def test_modify_sql_removes_filters_from_active():
     fields = [f["field"] for f in result["active_filters"]]
     assert "CategoryName" not in fields
     assert "BranchName" in fields
+
+
+# ---------------------------------------------------------------------------
+# Fix A — extract_entity_node active_filters → prompt context
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_extract_entity_includes_active_filters_in_prompt():
+    """extract_entity_node, active_filters içeriğini LLM prompt'una dahil etmeli."""
+    from src.graphs.report_agent.nodes import create_extract_entity_node
+    from src.graphs.report_agent.prompts import EntityExtractionResult
+
+    captured = {}
+
+    seed_result = EntityExtractionResult(
+        entity_names=["FINCAN CAY"],
+        entity_type="product",
+        new_query_seed="FINCAN CAY aylık ciro çizgi grafik",
+    )
+
+    async def fake_ainvoke(prompt: str):
+        captured["prompt"] = prompt
+        return seed_result
+
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(side_effect=fake_ainvoke)
+    llm = MagicMock()
+    llm.with_structured_output = MagicMock(return_value=structured)
+
+    node = create_extract_entity_node(llm)
+
+    state = {
+        "active_results": [{"ProductName": "FINCAN CAY", "ToplamAdet": 500}],
+        "user_query": "Peki bu ürünün aylık cirosunu çizgi grafik ver",
+        "active_filters": [{"field": "BranchCityName", "value": "Kocaeli"}],
+        "accumulated_entities": None,
+        "use_result_type": "new_query",
+    }
+
+    await node(state)
+
+    assert "Kocaeli" in captured["prompt"], (
+        "active_filters içindeki 'Kocaeli' değeri LLM prompt'unda görünmeli"
+    )
+
+
+@pytest.mark.asyncio
+async def test_extract_entity_includes_multiple_active_filters_in_prompt():
+    """Birden fazla active_filter varsa hepsi prompt'a yazılmalı."""
+    from src.graphs.report_agent.nodes import create_extract_entity_node
+    from src.graphs.report_agent.prompts import EntityExtractionResult
+
+    captured = {}
+
+    async def fake_ainvoke(prompt: str):
+        captured["prompt"] = prompt
+        return EntityExtractionResult(
+            entity_names=["LATTE"],
+            entity_type="product",
+            new_query_seed="LATTE aylık ciro",
+        )
+
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(side_effect=fake_ainvoke)
+    llm = MagicMock()
+    llm.with_structured_output = MagicMock(return_value=structured)
+
+    node = create_extract_entity_node(llm)
+
+    state = {
+        "active_results": [{"ProductName": "LATTE", "ToplamAdet": 300}],
+        "user_query": "Bu ürünün cirosunu ver",
+        "active_filters": [
+            {"field": "BranchCityName", "value": "Istanbul"},
+            {"field": "CategoryName", "value": "Kahve"},
+        ],
+        "accumulated_entities": None,
+        "use_result_type": "new_query",
+    }
+
+    await node(state)
+
+    assert "Istanbul" in captured["prompt"]
+    assert "Kahve" in captured["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# Fix B — SQL_MODIFIER_PROMPT zaman boyutu koruma kuralı
+# ---------------------------------------------------------------------------
+
+def test_sql_modifier_prompt_contains_time_preservation_rule():
+    """SQL_MODIFIER_PROMPT, change_groupby'de zaman ifadesini koruma kuralını içermeli."""
+    from src.graphs.report_agent.prompts import SQL_MODIFIER_PROMPT
+
+    assert "change_groupby" in SQL_MODIFIER_PROMPT
+    # Prompt'ta zaman ifadesi koruma kuralı olmalı
+    assert any(keyword in SQL_MODIFIER_PROMPT for keyword in [
+        "zaman ifadesi", "YEAR", "MONTH", "time", "koru"
+    ]), "SQL_MODIFIER_PROMPT change_groupby için zaman ifadesi koruma kuralı içermeli"

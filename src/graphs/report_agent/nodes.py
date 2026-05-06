@@ -342,6 +342,12 @@ def create_extract_entity_node(llm) -> Callable:
         else:
             accumulated_context = "Önceki konuşma bağlamı yok."
 
+        # Coğrafi/kategorik active_filters → seed LLM'in bunları new_query_seed'e dahil etmesi için
+        active_filters = state.get("active_filters") or []
+        if active_filters:
+            filter_parts = [f"{f['field']}='{f['value']}'" for f in active_filters]
+            accumulated_context += f"\nAktif filtreler (önceki sorgudan): {', '.join(filter_parts)}"
+
         prompt = ENTITY_EXTRACTOR_PROMPT.format(
             active_results=json.dumps(active_results[:5], ensure_ascii=False, indent=2),
             user_query=state.get("user_query", ""),

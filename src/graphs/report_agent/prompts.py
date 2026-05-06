@@ -293,6 +293,13 @@ Sadece kullanıcının talep ettiği YENİ değişiklikleri yaz.
 ⚠️ SONUÇ REFERANSI: "bu ürün", "bu şube" → AKTİF BAĞLAM'daki gerçek değeri kullan.
   Bağlamda ProductName: ["Latte", "Espresso"] varsa "bu ürün" → value="'Latte'"
 
+⚠️ change_groupby ile boyut değişikliği: Orijinal SQL'de YEAR/MONTH gibi zaman ifadeleri varsa
+  BUNLARI KORU, sadece entity boyutunu değiştir. Çizgi grafik + orijinal SQL'de aylık GROUP BY varsa
+  change_groupby ve change_select'e hem yeni boyutu hem zaman ifadesini yaz.
+  Örnek: "şubelere göre kır" + GROUP BY'da ay ifadesi var →
+    change_groupby="[BranchName], CONCAT(YEAR([DocumentDate]), '-', RIGHT('0' + CAST(MONTH([DocumentDate]) AS VARCHAR), 2))"
+    change_select="[BranchName], CONCAT(YEAR([DocumentDate]), '-', RIGHT('0' + CAST(MONTH([DocumentDate]) AS VARCHAR), 2)) AS [Ay], SUM([RowAmount]) AS [ToplamCiro]"
+
 ## CONFIDENCE
 - 1.0: İstek açık, referanslar net
 - 0.7-0.9: Küçük belirsizlikler var
@@ -324,6 +331,10 @@ Kullanıcı "bu 3 ürün", "bu şubeler", "bunların hepsi" gibi çoğul referan
 - new_query_seed: Bu entity'ler için doğal dil sorgu cümlesi (Text2SQL'e gönderilecek)
   Örnek: "LATTE, FINCAN CAY ve LAS VEGAS UC PEYNIRLI BAGEL ürünlerinin son 1 yıldaki günlük satış trendi çizgi grafik"
   ÖNEMLİ: Kullanıcının orijinal isteğindeki TÜM detayları (dönem, grafik tipi, kırılım) new_query_seed'e koru!
+
+ÖNEMLİ: KONUŞMA BAĞLAMI'nda "Aktif filtreler" satırı varsa, coğrafi/kategorik filtreleri new_query_seed'e yansıt.
+  BranchCityName='Kocaeli' → seed'e "Kocaeli'deki" ekle.
+  CategoryName='Kahve' → seed'e "Kahve kategorisindeki" ekle.
 """
 
 
