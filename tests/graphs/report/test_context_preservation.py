@@ -191,3 +191,82 @@ async def test_wants_visualization_not_inherited_on_new_query():
 
     result = await node(state)
     assert result["wants_visualization"] is False
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — modify_sql_node filter delta propagation tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_modify_sql_propagates_updated_filters():
+    """modify_sql_node SqlDelta'yı uygularken active_filters güncellenmeli."""
+    from src.graphs.report_agent.nodes import create_modify_sql_node
+    from src.graphs.report_agent.prompts import SqlDelta, FilterDelta
+
+    delta = SqlDelta(
+        add_filters=[FilterDelta(column="BranchName", operator="=", value="'Ankara'")],
+        remove_filter_columns=[],
+        explanation="Ankara filtresi eklendi",
+        confidence=0.95,
+    )
+
+    llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=delta)
+    llm.with_structured_output = MagicMock(return_value=structured)
+
+    node = create_modify_sql_node(llm, {})
+
+    state = {
+        "active_sql": "SELECT TOP 10 [BranchName], SUM([RowAmount]) FROM T GROUP BY [BranchName]",
+        "active_filters": [{"field": "CategoryName", "value": "Dürüm"}],
+        "active_results": [],
+        "accumulated_entities": None,
+        "user_query": "Ankara şubesini ekle",
+    }
+
+    result = await node(state)
+
+    assert "active_filters" in result
+    fields = {f["field"] for f in result["active_filters"]}
+    assert "CategoryName" in fields
+    assert "BranchName" in fields
+
+
+@pytest.mark.asyncio
+async def test_modify_sql_removes_filters_from_active():
+    """modify_sql_node remove_filter_columns'daki filtreleri active_filters'dan çıkarmalı."""
+    from src.graphs.report_agent.nodes import create_modify_sql_node
+    from src.graphs.report_agent.prompts import SqlDelta, FilterDelta
+
+    delta = SqlDelta(
+        add_filters=[],
+        remove_filter_columns=["CategoryName"],
+        explanation="Kategori filtresi kaldırıldı",
+        confidence=0.95,
+    )
+
+    llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=delta)
+    llm.with_structured_output = MagicMock(return_value=structured)
+
+    node = create_modify_sql_node(llm, {})
+
+    state = {
+        "active_sql": "SELECT * FROM T WHERE CategoryName='Dürüm'",
+        "active_filters": [
+            {"field": "CategoryName", "value": "Dürüm"},
+            {"field": "BranchName", "value": "Ankara"},
+        ],
+        "active_results": [],
+        "accumulated_entities": None,
+        "user_query": "Kategori filtresini kaldır",
+    }
+
+    result = await node(state)
+
+    assert "active_filters" in result
+    fields = [f["field"] for f in result["active_filters"]]
+    assert "CategoryName" not in fields
+    assert "BranchName" in fields

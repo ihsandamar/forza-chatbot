@@ -182,6 +182,18 @@ def _resolve_intent_from_answer(
     return result
 
 
+def _merge_filter_delta(
+    existing: list[dict] | None,
+    delta: "SqlDelta",
+) -> list[dict]:
+    """Mevcut active_filters listesine SqlDelta add/remove uygula."""
+    base = [f for f in (existing or []) if f.get("field") not in delta.remove_filter_columns]
+    for f in delta.add_filters:
+        if f.operator == "=":
+            base.append({"field": f.column, "value": f.value.strip("'")})
+    return base
+
+
 def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
     """SQL Modifier: active_sql + SqlDelta → modified_sql via SqlDeltaApplicator."""
     from src.graphs.report_agent.context_builder import build_query_context_summary
@@ -246,6 +258,7 @@ def create_modify_sql_node(llm, column_metadata: dict) -> Callable:
         return {
             "pre_built_sql": modified_sql,
             "modification_hints": modification_hints,
+            "active_filters": _merge_filter_delta(state.get("active_filters"), delta),
         }
 
     return modify_sql_node
