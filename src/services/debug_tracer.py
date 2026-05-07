@@ -88,11 +88,22 @@ def debug_node(node_name: str):
         if not _ENABLED:
             return fn
 
+        def _resolve_sid(state: dict, kwargs: dict) -> str:
+            # 1. state field (report_agent nodes)
+            if state.get("session_id"):
+                return state["session_id"]
+            # 2. LangGraph config.configurable.thread_id (subgraph nodes — state is MessagesState only)
+            cfg = kwargs.get("config") or {}
+            thread_id = cfg.get("configurable", {}).get("thread_id")
+            if thread_id:
+                return thread_id
+            # 3. ContextVar propagated from an earlier node in the same async context
+            return _current_session.get()
+
         @functools.wraps(fn)
         async def async_wrapper(state: dict, **kwargs) -> dict:
-            sid = state.get("session_id") or _current_session.get()
-            if state.get("session_id"):
-                _current_session.set(state["session_id"])
+            sid = _resolve_sid(state, kwargs)
+            _current_session.set(sid)
             _write_event(sid, node_name, "enter", state)
             result = await fn(state, **kwargs)
             _write_event(sid, node_name, "exit", result or {})
@@ -100,9 +111,8 @@ def debug_node(node_name: str):
 
         @functools.wraps(fn)
         def sync_wrapper(state: dict, **kwargs) -> dict:
-            sid = state.get("session_id") or _current_session.get()
-            if state.get("session_id"):
-                _current_session.set(state["session_id"])
+            sid = _resolve_sid(state, kwargs)
+            _current_session.set(sid)
             _write_event(sid, node_name, "enter", state)
             result = fn(state, **kwargs)
             _write_event(sid, node_name, "exit", result or {})
