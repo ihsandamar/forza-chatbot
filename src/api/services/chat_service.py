@@ -307,7 +307,7 @@ class ChatService:
             # retains full conversation history. Sending all messages causes
             # the add_messages reducer to re-process N messages instead of 1.
             new_message = HumanMessage(content=request.message)
-            state = {"messages": [new_message]}
+            state = {"messages": [new_message], "session_id": request.session_id}
 
             logger.info(f"[CHAT] Normal message received: {request.message[:50]}...")
 
