@@ -21,6 +21,78 @@ def _summary_line(v) -> str:
     return s[:120].replace("\n", " ")
 
 
+def _read_trace_data(
+    session_id: str,
+    node: str | None = None,
+    turn: int | None = None,
+    full: bool = False,
+    log_dir: str | None = None,
+) -> dict:
+    """Read trace events for a session. Returns structured data + summary text."""
+    dir_path = Path(log_dir or os.getenv("DEBUG_TRACE_DIR", "logs/debug"))
+
+    if not dir_path.exists():
+        return {
+            "session_id": session_id,
+            "event_count": 0,
+            "summary": f"No trace directory: {dir_path}",
+            "events": [],
+        }
+
+    log_file = dir_path / f"{session_id}.jsonl"
+    if not log_file.exists():
+        return {
+            "session_id": session_id,
+            "event_count": 0,
+            "summary": f"Session not found: {session_id}",
+            "events": [],
+        }
+
+    events = []
+    for line in log_file.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+
+    if turn is not None:
+        events = [e for e in events if e.get("turn") == turn]
+    if node is not None:
+        events = [e for e in events if e.get("node") == node]
+
+    summary_lines = [f"[SESSION] {session_id}  ({len(events)} events)", "=" * 72]
+    for evt in events:
+        ts = evt.get("ts", "")
+        ts_short = ts[11:26] if len(ts) > 19 else ts
+        node_name = evt.get("node", "?")
+        event = evt.get("event", "?")
+        turn_num = evt.get("turn", 0)
+        state = evt.get("state", {})
+
+        arrow = "→" if event == "enter" else "←"
+        summary_lines.append(f"\n[T{turn_num}] {ts_short}  {arrow} {node_name}")
+
+        if full:
+            summary_lines.append(json.dumps(state, ensure_ascii=False, indent=2))
+        elif isinstance(state, dict):
+            for k, v in state.items():
+                if v is None or v == [] or v == {} or v == "":
+                    continue
+                summary_lines.append(f"  {k}: {_summary_line(v)}")
+        else:
+            summary_lines.append(f"  {_summary_line(state)}")
+
+    summary_lines.append("\n" + "=" * 72)
+
+    return {
+        "session_id": session_id,
+        "event_count": len(events),
+        "summary": "\n".join(summary_lines),
+        "events": events,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Read local debug trace JSONL")
     parser.add_argument("session_id", nargs="?", help="Session ID (filename without .jsonl)")
@@ -52,54 +124,14 @@ def main():
             print(f"  {f.stem}  ({lines} events, {size_kb}KB)")
         return
 
-    log_file = log_dir / f"{args.session_id}.jsonl"
-    if not log_file.exists():
-        print(f"[ERROR] No trace file: {log_file}")
-        files = sorted(log_dir.glob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
-        if files:
-            print("Available sessions:")
-            for f in files:
-                print(f"  {f.stem}")
-        return
-
-    events = []
-    for line in log_file.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-
-    if args.turn is not None:
-        events = [e for e in events if e.get("turn") == args.turn]
-    if args.node:
-        events = [e for e in events if e.get("node") == args.node]
-
-    print(f"[SESSION] {args.session_id}  ({len(events)} events)")
-    print("=" * 72)
-
-    for evt in events:
-        ts = evt.get("ts", "")
-        ts_short = ts[11:26] if len(ts) > 19 else ts  # HH:MM:SS.ffffff
-        node = evt.get("node", "?")
-        event = evt.get("event", "?")
-        turn = evt.get("turn", 0)
-        state = evt.get("state", {})
-
-        arrow = "→" if event == "enter" else "←"
-        print(f"\n[T{turn}] {ts_short}  {arrow} {node}")
-
-        if args.full:
-            print(json.dumps(state, ensure_ascii=False, indent=2))
-        elif isinstance(state, dict):
-            for k, v in state.items():
-                if v is None or v == [] or v == {} or v == "":
-                    continue
-                print(f"  {k}: {_summary_line(v)}")
-        else:
-            print(f"  {_summary_line(state)}")
-
-    print("\n" + "=" * 72)
+    result = _read_trace_data(
+        args.session_id,
+        node=args.node,
+        turn=args.turn,
+        full=args.full,
+        log_dir=args.dir,
+    )
+    print(result["summary"])
 
 
 if __name__ == "__main__":
