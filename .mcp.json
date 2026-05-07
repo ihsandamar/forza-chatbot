@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "forza-debug-tracer": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["tools/mcp_debug_tracer.py"],
+      "env": {
+        "DEBUG_TRACE_DIR": "logs/debug"
+      }
+    }
+  }
+}
