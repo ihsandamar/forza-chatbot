@@ -11,7 +11,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage
+
+# Load .env before reading env vars — debug_tracer is imported before ConfigLoader runs load_dotenv
+load_dotenv(Path(__file__).parent.parent.parent / ".env", override=False)
 
 _ENABLED: bool = os.getenv("DEBUG_TRACE", "0") == "1"
 _LOG_DIR: Path = Path(os.getenv("DEBUG_TRACE_DIR", "logs/debug"))
