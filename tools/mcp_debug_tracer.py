@@ -23,6 +23,7 @@ def read_trace(
     Returns events list and human-readable summary.
     Use node/turn to filter. Set full=True for complete state JSON.
     """
+    # log_dir not exposed — MCP callers use the DEBUG_TRACE_DIR env var (default: logs/debug)
     return _read_trace_data(session_id, node=node, turn=turn, full=full)
 
 
