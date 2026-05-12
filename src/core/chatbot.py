@@ -483,6 +483,138 @@ class Chatbot:
                 context={"original_error": str(e)}
             ) from e
 
+    async def astream_events_async(
+        self,
+        state,
+        config: dict,
+    ):
+        """
+        Yields raw dicts for SSE streaming:
+          {"event_type": "progress", "step": ..., "message": ..., "index": ..., "total": ...}
+          {"event_type": "_result_raw", "_graph_output": {...}}
+          {"event_type": "result", "text": ..., "type": "question", ..., "_hitl_info": {...}}
+          {"event_type": "error", "message": ...}
+
+        Caller (chat_service) converts raw dicts to StreamEvent objects.
+        """
+        from src.graphs.report_agent.progress_mapper import get_progress_info, TOTAL_STEPS
+        from langgraph.errors import GraphInterrupt
+
+        root_run_id = None
+        step_counts: dict[str, int] = {}
+
+        try:
+            async for event in self.graph.astream_events(state, config=config, version="v2"):
+                event_type = event.get("event", "")
+                event_name = event.get("name", "")
+                run_id = event.get("run_id", "")
+                parent_ids = event.get("parent_ids", [])
+
+                if root_run_id is None and event_type == "on_chain_start":
+                    root_run_id = run_id
+                    continue
+
+                if event_type == "on_chain_start" and parent_ids:
+                    count = step_counts.get(event_name, 0) + 1
+                    step_counts[event_name] = count
+
+                    info = get_progress_info(event_name, count)
+                    if info:
+                        node_name, message, index = info
+                        yield {
+                            "event_type": "progress",
+                            "step": node_name,
+                            "message": message,
+                            "index": index,
+                            "total": TOTAL_STEPS,
+                        }
+
+                elif event_type == "on_chain_end" and not parent_ids:
+                    final_output = event.get("data", {}).get("output", {}) or {}
+
+                    pending_interrupts = final_output.get("__interrupt__") if isinstance(final_output, dict) else None
+                    if pending_interrupts:
+                        interrupt_data = pending_interrupts[0].value if pending_interrupts else {}
+                        question_text = interrupt_data.get("question", "Açıklama gerekiyor")
+                        options = interrupt_data.get("options", [])
+                        context = interrupt_data.get("context", "")
+                        interrupt_type = interrupt_data.get("type", "choice")
+
+                        if options:
+                            options_text = "\n".join([f"  {i+1}. {opt}" for i, opt in enumerate(options)])
+                            full_text = f"❓ {question_text}\n\nSeçenekler:\n{options_text}"
+                        else:
+                            full_text = f"❓ {question_text}"
+                        if context:
+                            full_text += f"\n\nℹ️ {context}"
+
+                        yield {
+                            "event_type": "result",
+                            "text": full_text,
+                            "type": "question",
+                            "confidence": 0.9,
+                            "action": {
+                                "type": "hitl",
+                                "target": "",
+                                "params": {
+                                    "type": interrupt_type,
+                                    "question": question_text,
+                                    "options": options,
+                                    "context": context,
+                                },
+                            },
+                            "_hitl_info": {
+                                "type": interrupt_type,
+                                "question": question_text,
+                                "options": options,
+                                "context": context,
+                            },
+                        }
+                    else:
+                        yield {"event_type": "_result_raw", "_graph_output": final_output}
+
+        except GraphInterrupt as e:
+            interrupts = e.args[0] if e.args else []
+            interrupt_data = interrupts[0].value if interrupts else {}
+            question_text = interrupt_data.get("question", "Açıklama gerekiyor")
+            options = interrupt_data.get("options", [])
+            context = interrupt_data.get("context", "")
+            interrupt_type = interrupt_data.get("type", "choice")
+
+            if options:
+                options_text = "\n".join([f"  {i+1}. {opt}" for i, opt in enumerate(options)])
+                full_text = f"❓ {question_text}\n\nSeçenekler:\n{options_text}"
+            else:
+                full_text = f"❓ {question_text}"
+            if context:
+                full_text += f"\n\nℹ️ {context}"
+
+            yield {
+                "event_type": "result",
+                "text": full_text,
+                "type": "question",
+                "confidence": 0.9,
+                "action": {
+                    "type": "hitl",
+                    "target": "",
+                    "params": {
+                        "type": interrupt_type,
+                        "question": question_text,
+                        "options": options,
+                        "context": context,
+                    },
+                },
+                "_hitl_info": {
+                    "type": interrupt_type,
+                    "question": question_text,
+                    "options": options,
+                    "context": context,
+                },
+            }
+
+        except Exception as e:
+            yield {"event_type": "error", "message": str(e)}
+
     # ========================================
     # Runtime Settings Management
     # ========================================
