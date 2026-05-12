@@ -568,6 +568,133 @@ class ChatService:
                 return messages[i:]
         return messages
 
+    async def _prepare_graph_state(self, request: "ChatMessageRequest") -> tuple:
+        """
+        Build (graph_state, full_config) from the incoming request.
+        Handles HITL-resume (Command) and normal new-message paths.
+        Shared by stream_message().
+        """
+        session = self.get_session(request.session_id)
+        hitl_pending = self._get_hitl_state(request.session_id)
+
+        if hitl_pending:
+            from langgraph.types import Command
+            state = Command(resume=request.message)
+            self._clear_hitl_state(request.session_id)
+        else:
+            new_message = HumanMessage(content=request.message)
+            state = {"messages": [new_message], "session_id": request.session_id}
+            if session.get("token"):
+                state["token"] = session["token"]
+
+        full_config = self.chatbot._prepare_config(thread_id=request.session_id)
+        return state, full_config
+
+    async def stream_message(self, request: "ChatMessageRequest"):
+        """
+        Stream progress events and the final result for a chat message.
+        Yields StreamEvent objects.
+        Raises ValueError if session not found.
+        """
+        from src.api.models.responses.chat import StreamEvent
+
+        if not self.session_exists(request.session_id):
+            raise ValueError(f"Session not found: {request.session_id}")
+
+        session = self.get_session(request.session_id)
+        state, config = await self._prepare_graph_state(request)
+
+        async for raw in self.chatbot.astream_events_async(state, config):
+            event_type = raw["event_type"]
+
+            if event_type == "progress":
+                yield StreamEvent(
+                    event_type="progress",
+                    step=raw["step"],
+                    message=raw["message"],
+                    index=raw["index"],
+                    total=raw["total"],
+                )
+
+            elif event_type == "_result_raw":
+                graph_output = raw["_graph_output"]
+
+                graph_messages = graph_output.get("messages", []) if isinstance(graph_output, dict) else []
+                if graph_messages:
+                    session["messages"] = graph_messages
+
+                hitl_info = self._detect_hitl_question(graph_output)
+                if hitl_info:
+                    self._store_hitl_state(request.session_id, hitl_info)
+                    question_text = hitl_info["question"]
+                    options = hitl_info["options"]
+                    context = hitl_info.get("context", "")
+                    if options:
+                        options_text = "\n".join([f"  {i+1}. {opt}" for i, opt in enumerate(options)])
+                        full_text = f"❓ {question_text}\n\nSeçenekler:\n{options_text}"
+                    else:
+                        full_text = f"❓ {question_text}"
+                    if context:
+                        full_text += f"\n\nℹ️ {context}"
+                    yield StreamEvent(
+                        event_type="result",
+                        text=full_text,
+                        type="question",
+                        confidence=0.9,
+                        action={"type": "hitl", "target": "", "params": {
+                            "question": question_text, "options": options, "context": context,
+                        }},
+                    )
+                    return
+
+                bot_text = self.chatbot.extract_response(graph_output)
+                current_msgs = self._get_current_turn_messages(graph_messages)
+                routing_info = self._detect_routing_response(current_msgs)
+                report_info = self._detect_report_response(current_msgs)
+
+                if routing_info:
+                    yield StreamEvent(
+                        event_type="result",
+                        text=bot_text,
+                        type="navigation",
+                        confidence=0.85,
+                        action={"type": "routing", "target": routing_info["url"], "params": {}},
+                    )
+                elif report_info:
+                    yield StreamEvent(
+                        event_type="result",
+                        text=report_info["text"] or "Grafik oluşturuldu",
+                        type="report",
+                        confidence=0.85,
+                        action={"type": "chart", "target": report_info["html"], "params": {}},
+                    )
+                else:
+                    yield StreamEvent(
+                        event_type="result",
+                        text=bot_text,
+                        type="text",
+                        confidence=0.95,
+                        action={"type": "none", "target": "", "params": {}},
+                    )
+
+            elif event_type == "result":
+                hitl_info = raw.get("_hitl_info")
+                if hitl_info:
+                    self._store_hitl_state(request.session_id, hitl_info)
+                yield StreamEvent(
+                    event_type="result",
+                    text=raw.get("text", ""),
+                    type=raw.get("type", "text"),
+                    confidence=raw.get("confidence", 0.9),
+                    action=raw.get("action", {"type": "none", "target": "", "params": {}}),
+                )
+
+            elif event_type == "error":
+                yield StreamEvent(
+                    event_type="error",
+                    message=raw.get("message", "Bir hata oluştu"),
+                )
+
     async def get_session_history(self, session_id: str) -> SessionHistoryResponse:
         """
         Get chat history for a session
