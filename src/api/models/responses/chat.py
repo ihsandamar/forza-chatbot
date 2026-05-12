@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 
 
 class SessionStartResponse(BaseModel):
@@ -53,3 +53,18 @@ class SessionHistoryResponse(BaseModel):
     created_at: datetime = Field(..., description="Session creation timestamp")
     message_count: int = Field(..., description="Total number of messages")
     messages: List[MessageHistoryItem] = Field(..., description="List of messages in the session")
+
+
+class StreamEvent(BaseModel):
+    """SSE event payload for POST /api/chat/stream."""
+    event_type: Literal["progress", "result", "error"]
+    # progress event fields
+    step: Optional[str] = None
+    message: Optional[str] = None
+    index: Optional[int] = None
+    total: Optional[int] = None
+    # result event fields — same shape as ResponseData
+    text: Optional[str] = None
+    type: Optional[str] = None
+    confidence: Optional[float] = None
+    action: Optional[dict] = None
