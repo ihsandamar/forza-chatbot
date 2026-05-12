@@ -529,7 +529,7 @@ class Chatbot:
                             "total": TOTAL_STEPS,
                         }
 
-                elif event_type == "on_chain_end" and not parent_ids:
+                elif event_type == "on_chain_end" and run_id == root_run_id:
                     final_output = event.get("data", {}).get("output", {}) or {}
 
                     pending_interrupts = final_output.get("__interrupt__") if isinstance(final_output, dict) else None

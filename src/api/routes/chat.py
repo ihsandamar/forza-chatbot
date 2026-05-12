@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 from src.api.models.requests.chat import SessionStartRequest, ChatMessageRequest
@@ -85,7 +86,7 @@ async def stream_message(
         except ValueError as e:
             yield {
                 "event": "error",
-                "data": f'{{"message": "{str(e)}"}}',
+                "data": json.dumps({"message": str(e)}),
             }
         except Exception as e:
             err = str(e)
@@ -97,7 +98,7 @@ async def stream_message(
             else:
                 yield {
                     "event": "error",
-                    "data": f'{{"message": "Bir hata oluştu: {err[:100]}"}}',
+                    "data": json.dumps({"message": f"Bir hata oluştu: {err[:100]}"}),
                 }
 
     return EventSourceResponse(event_generator())
