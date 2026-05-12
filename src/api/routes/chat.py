@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sse_starlette.sse import EventSourceResponse
 from src.api.models.requests.chat import SessionStartRequest, ChatMessageRequest
 from src.api.models.responses.chat import SessionStartResponse, ChatMessageResponse, SessionHistoryResponse
 from src.api.services.chat_service import ChatService
@@ -56,6 +57,50 @@ async def send_message(
         if "429" in err or "quota" in err.lower() or "RateLimitError" in type(e).__name__:
             raise HTTPException(status_code=429, detail="LLM API kotası aşıldı. Lütfen API anahtarınızı veya planınızı kontrol edin.")
         raise HTTPException(status_code=500, detail=f"Failed to send message: {err}")
+
+
+@router.post("/stream")
+async def stream_message(
+    request: ChatMessageRequest,
+    chat_service: ChatService = Depends(get_chat_service)
+) -> EventSourceResponse:
+    """
+    Stream progress events and final result for a chat message via SSE.
+
+    Returns text/event-stream with events:
+    - event: progress  data: {"step", "message", "index", "total"}
+    - event: result    data: {"text", "type", "confidence", "action"}
+    - event: error     data: {"message"}
+    """
+    async def event_generator():
+        try:
+            async for stream_event in chat_service.stream_message(request):
+                yield {
+                    "event": stream_event.event_type,
+                    "data": stream_event.model_dump_json(
+                        exclude={"event_type"},
+                        exclude_none=True,
+                    ),
+                }
+        except ValueError as e:
+            yield {
+                "event": "error",
+                "data": f'{{"message": "{str(e)}"}}',
+            }
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "quota" in err.lower():
+                yield {
+                    "event": "error",
+                    "data": '{"message": "LLM API kotası aşıldı."}',
+                }
+            else:
+                yield {
+                    "event": "error",
+                    "data": f'{{"message": "Bir hata oluştu: {err[:100]}"}}',
+                }
+
+    return EventSourceResponse(event_generator())
 
 
 @router.get("/session/{session_id}/history", response_model=SessionHistoryResponse)
