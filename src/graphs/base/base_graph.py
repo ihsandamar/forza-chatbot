@@ -450,6 +450,35 @@ class BaseGraph(ABC, Generic[ConfigT]):
         ):
             yield result
 
+    async def astream_events(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None, **kwargs):
+        """
+        Async stream events method for the graph.
+
+        Streams all events (on_chain_start, on_chain_end, etc.) from graph execution.
+        Useful for real-time progress tracking and SSE (Server-Sent Events) streaming.
+
+        Configuration is passed via LangGraph's native config system.
+        Additionally, config fields are injected into state for backward compatibility.
+
+        Args:
+            input: Input state dictionary
+            config: Configuration for graph execution (optional)
+            **kwargs: Additional keyword arguments to pass to compiled graph's astream_events
+
+        Yields:
+            Event dictionaries from the graph execution
+        """
+        # Prepare configuration for LangGraph (adds 'configurable' key)
+        config = self._prepare_config_for_langgraph(config)
+
+        # Inject config into state for backward compatibility
+        if isinstance(input, dict):
+            input = self._inject_config_to_state(input, config)
+
+        compiled_graph = self._get_compiled_graph()
+        async for event in compiled_graph.astream_events(input, config=config, **kwargs):
+            yield event
+
     def invoke(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Synchronous invoke method for the graph.
