@@ -8,7 +8,7 @@ Before building: ensure tiktoken==0.7.0 is installed in the environment.
 
 import os
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files, copy_metadata
 
 # Project root (when running pyinstaller from project root this is fine)
 spec_root = Path(os.getcwd())
@@ -63,6 +63,49 @@ uvicorn_submodules = collect_submodules("uvicorn")
 pydantic_datas = collect_data_files("pydantic") if os.path.isdir(spec_root / "venv") or True else []
 openai_datas = collect_data_files("openai") if True else []
 
+# gradio_client data files (types.json, etc.)
+try:
+    gradio_client_datas = collect_data_files("gradio_client")
+except Exception:
+    gradio_client_datas = []
+
+# gradio data files
+try:
+    gradio_datas = collect_data_files("gradio")
+except Exception:
+    gradio_datas = []
+
+# safehttpx — version.txt is read at import time via __init__.py
+try:
+    safehttpx_datas = collect_data_files("safehttpx")
+except Exception:
+    import safehttpx as _shx
+    _shx_dir = Path(_shx.__file__).parent
+    safehttpx_datas = [(str(p), "safehttpx") for p in _shx_dir.glob("*.txt")]
+
+# Package metadata — required by pydantic EmailStr, importlib.metadata.version() calls
+metadata_packages = [
+    "email-validator",
+    "email_validator",
+    "pydantic",
+    "fastapi",
+    "uvicorn",
+    "starlette",
+    "langchain",
+    "langgraph",
+    "openai",
+    "gradio",
+    "gradio_client",
+    "numpy",
+    "tiktoken",
+]
+package_metadata = []
+for pkg in metadata_packages:
+    try:
+        package_metadata += copy_metadata(pkg)
+    except Exception:
+        pass
+
 # -------------------------
 # Build datas & binaries lists
 # -------------------------
@@ -73,6 +116,10 @@ datas += tiktokenext_datas or []
 datas += chromadb_datas or []
 datas += pydantic_datas or []
 datas += openai_datas or []
+datas += gradio_client_datas or []
+datas += gradio_datas or []
+datas += safehttpx_datas or []
+datas += package_metadata or []
 
 # Ensure your 'src' directory is included so src.* imports work in exe
 if (spec_root / "src").exists():

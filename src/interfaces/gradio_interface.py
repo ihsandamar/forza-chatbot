@@ -85,6 +85,47 @@ class GradioInterface:
             print(f"[FAIL] Failed to start session: {str(e)}")
             raise
 
+    async def _handle_message_streaming(
+        self,
+        message: str,
+        history: List[dict]
+    ):
+        """Streaming variant: yields chatbot history after each SSE event."""
+        await self._initialize_session()
+
+        if not message or not message.strip():
+            yield history, ""
+            return
+
+        history = list(history) + [{"role": "user", "content": message.strip()}]
+        history.append({"role": "assistant", "content": "⏳ İşleniyor..."})
+        yield history, ""
+
+        try:
+            progress_lines: List[str] = []
+            async for event in self.chat_service.stream_message(
+                ChatMessageRequest(session_id=self.session_id, message=message.strip())
+            ):
+                if event.event_type == "progress":
+                    progress_lines.append(f"✓ {event.message}")
+                    progress_text = "\n".join(progress_lines)
+                    history[-1] = {"role": "assistant", "content": f"⏳ İşleniyor...\n\n{progress_text}"}
+                    yield history, ""
+
+                elif event.event_type == "result":
+                    history[-1] = {"role": "assistant", "content": event.text or ""}
+                    yield history, ""
+                    return
+
+                elif event.event_type == "error":
+                    history[-1] = {"role": "assistant", "content": f"❌ Hata: {event.message}"}
+                    yield history, ""
+                    return
+
+        except Exception as e:
+            history[-1] = {"role": "assistant", "content": f"❌ {str(e)}"}
+            yield history, ""
+
     async def _handle_message(
         self,
         message: str,
@@ -680,6 +721,7 @@ class GradioInterface:
                             scale=5
                         )
                         send_btn = gr.Button("Gönder", variant="primary", scale=1)
+                        stream_btn = gr.Button("🚀 Stream", variant="secondary", scale=1)
 
                 # Right Sidebar
                 with gr.Column(scale=1, min_width=250):
@@ -845,6 +887,12 @@ class GradioInterface:
             ).then(
                 lambda: "",
                 outputs=[message_input]
+            )
+
+            stream_btn.click(
+                fn=self._handle_message_streaming,
+                inputs=[message_input, self.chatbot_component],
+                outputs=[self.chatbot_component, message_input],
             )
 
             history_btn.click(
