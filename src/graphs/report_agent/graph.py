@@ -28,6 +28,7 @@ from src.graphs.report_agent.nodes import (
     hitl_check_node,
 )
 from src.graphs.report_agent.state import ReportState
+from src.graphs.report_agent.subagents.query_clarifier.graph import build_query_clarifier_graph
 from src.graphs.report_agent.subagents.text2sql.graph import build_text2sql_graph
 from src.graphs.report_agent.subagents.visualization_v2.graph import build_visualization_graph
 
@@ -37,10 +38,8 @@ logger = logging.getLogger(__name__)
 def _intent_router(state: dict) -> str:
     """Pure function — test edilebilir routing."""
     intent = state.get("intent_type", "NEW_QUERY")
-    if intent == "MODIFY_QUERY":
-        return "modify_sql"
-    if intent == "VAGUE_QUERY":
-        return "report_chat"
+    if intent in ("NEW_QUERY", "MODIFY_QUERY", "VAGUE_QUERY"):
+        return "query_clarifier"
     if intent == "USE_RESULT":
         use_result = state.get("use_result_type")
         if use_result == "revisualize":
@@ -48,7 +47,19 @@ def _intent_router(state: dict) -> str:
         if use_result == "compute":
             return "compute_results"
         return "extract_entity"  # new_query + modify_context
-    return "text2sql"  # NEW_QUERY + fallback
+    return "query_clarifier"  # fallback
+
+
+def _clarifier_router(state: dict) -> str:
+    """query_clarifier çıktısına göre text2sql / modify_sql / report_chat seçer."""
+    intent = state.get("intent_type", "NEW_QUERY")
+    decision = state.get("clarifier_decision", "PASS")
+
+    if intent == "MODIFY_QUERY":
+        return "modify_sql"
+    if intent == "VAGUE_QUERY" and decision == "PASS":
+        return "report_chat"
+    return "text2sql"  # NEW_QUERY her iki durumda da | VAGUE + CLARIFIED
 
 
 def _after_extract_entity_router(state: dict) -> str:
@@ -88,11 +99,17 @@ def build_report_agent_graph(
         connection_string,
         effective_business_rules_path,
     )
+    query_clarifier = build_query_clarifier_graph(
+        llm=llm,
+        clarity_threshold=0.65,
+        enable_clarifier=True,
+    )
     visualization = build_visualization_graph(llm)
 
     graph = StateGraph(ReportState, config_schema=ReportAgentConfiguration)
 
     graph.add_node("classify_intent", create_classify_intent_node(llm))
+    graph.add_node("query_clarifier", query_clarifier)
     graph.add_node("modify_sql", create_modify_sql_node(llm, column_metadata))
     graph.add_node("extract_entity", create_extract_entity_node(llm))
     graph.add_node("compute_results", create_compute_results_node(llm))
@@ -107,12 +124,19 @@ def build_report_agent_graph(
         "classify_intent",
         _intent_router,
         {
-            "text2sql":        "text2sql",
-            "modify_sql":      "modify_sql",
+            "query_clarifier": "query_clarifier",
             "extract_entity":  "extract_entity",
             "visualization":   "visualization",
             "compute_results": "compute_results",
-            "report_chat":     "report_chat",
+        },
+    )
+    graph.add_conditional_edges(
+        "query_clarifier",
+        _clarifier_router,
+        {
+            "text2sql":    "text2sql",
+            "modify_sql":  "modify_sql",
+            "report_chat": "report_chat",
         },
     )
     graph.add_edge("modify_sql", "text2sql")
