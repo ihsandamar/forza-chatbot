@@ -1,4 +1,4 @@
-from typing import List, Optional, TypedDict
+from typing import Optional, TypedDict
 
 
 class QueryClarifierState(TypedDict, total=False):

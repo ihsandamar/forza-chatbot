@@ -25,7 +25,7 @@ class ClarityAnalysisResult(BaseModel):
     @field_validator("clarity_score")
     @classmethod
     def clamp_score(cls, v: float) -> float:
-        return max(0.0, min(1.0, float(v)))
+        return max(0.0, min(1.0, v))
 
 
 CLARITY_ANALYZER_PROMPT = """Sen bir Türkçe ERP rapor sorgu analizcisisin.
@@ -59,7 +59,7 @@ KULLANICI SORGUSU: {user_query}
 
 Eğer öneri üretebiliyorsan (can_suggest=true):
 - suggested_query: Türkçe, doğal dilde optimize edilmiş sorgu metni
-- suggestion_message: "Şunu mu sormak istediniz?\\n\\n📊 <suggested_query>\\n\\nEvet ise onaylayın, değilse 'hayır' yazın."
+- suggestion_message: Tam olarak şu formatta yaz (suggested_query içeriğini yerine koy): "Şunu mu sormak istediniz?\\n\\n📊 [suggested_query metni]\\n\\nEvet ise onaylayın, değilse 'hayır' yazın."
 
 Eğer sorgu netsek veya öneri üretemiyorsan:
 - can_suggest: false
@@ -89,4 +89,4 @@ Her zaman döndür:
 - can_suggest: true
 - issues: en az bir ClarityIssue (genellikle missing_date_filter + missing_grouping)
 - suggested_query: spesifik, doğal Türkçe
-- suggestion_message: "Şunu mu sormak istediniz?\\n\\n📊 <suggested_query>\\n\\nEvet ise onaylayın, değilse 'hayır' yazın." """
+- suggestion_message: Tam olarak şu formatta yaz (suggested_query içeriğini yerine koy): "Şunu mu sormak istediniz?\\n\\n📊 [suggested_query metni]\\n\\nEvet ise onaylayın, değilse 'hayır' yazın." """
