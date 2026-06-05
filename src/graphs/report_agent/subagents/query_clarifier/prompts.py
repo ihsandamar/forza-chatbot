@@ -61,6 +61,11 @@ Eğer öneri üretebiliyorsan (can_suggest=true):
 - suggested_query: Türkçe, doğal dilde optimize edilmiş sorgu metni
 - suggestion_message: Tam olarak şu formatta yaz (suggested_query içeriğini yerine koy): "Şunu mu sormak istediniz?\\n\\n📊 [suggested_query metni]\\n\\nEvet ise onaylayın, değilse 'hayır' yazın."
 
+ÖNEMLİ — TARIH FİLTRESİ KURALI:
+Tarih önermek gerekiyorsa "bu ay", "bu yıl" gibi MUTLAK dönemler yerine "son 30 gün",
+"son 3 ay", "son 6 ay" gibi GÖRELİ dönemler öner. Mutlak dönemler veritabanında
+henüz verisi bulunmayan mevcut aya/yıla denk gelebilir ve boş sonuç döndürür.
+
 Eğer sorgu netsek veya öneri üretemiyorsan:
 - can_suggest: false
 - suggested_query: null
@@ -73,10 +78,15 @@ Kullanıcının sorgusu çok genel — spesifik bir SQL sorgusuna doğrudan dön
 Bu sorguyu en makul ERP raporu yorumuyla somutlaştır.
 
 ÖRNEKLER:
-- "satışları göster" → "Bu ayki toplam RowAmount, CategoryName bazında gruplandırılmış, büyükten küçüğe"
+- "satışları göster" → "Son 3 aydaki toplam RowAmount, CategoryName bazında gruplandırılmış, büyükten küçüğe"
 - "ne sattık" → "Son 30 günde en çok satan ilk 10 ProductName (Quantity bazında)"
-- "şubelerin durumu" → "Bu ay her BranchName için toplam RowAmount"
-- "kategorilere bak" → "Bu ay CategoryName bazında toplam RowAmount, büyükten küçüğe"
+- "şubelerin durumu" → "Son 30 günde her BranchName için toplam RowAmount"
+- "kategorilere bak" → "Son 3 aydaki CategoryName bazında toplam RowAmount, büyükten küçüğe"
+
+ÖNEMLİ — TARIH FİLTRESİ KURALI:
+"bu ay", "bu yıl" gibi MUTLAK dönemler yerine "son 30 gün", "son 3 ay", "son 6 ay"
+gibi GÖRELİ dönemler kullan. Mutlak dönemler veritabanında henüz verisi bulunmayan
+mevcut aya/yıla denk gelebilir ve boş sonuç döndürür.
 
 MEVCUT VERİTABANI KOLONLARI:
 RowAmount, Quantity, DocumentDate, BranchName, ProductName,
