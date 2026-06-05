@@ -18,6 +18,7 @@ from langgraph.graph import END, START, StateGraph
 
 from src.graphs.registry import register_graph
 from src.graphs.report_agent.configuration import ReportAgentConfiguration
+from src.graphs.report_agent.configuration import ReportAgentConfiguration as _DefaultReportConfig
 from src.graphs.report_agent.nodes import (
     create_build_response_node,
     create_classify_intent_node,
@@ -38,7 +39,12 @@ logger = logging.getLogger(__name__)
 def _intent_router(state: dict) -> str:
     """Pure function — test edilebilir routing."""
     intent = state.get("intent_type", "NEW_QUERY")
-    if intent in ("NEW_QUERY", "MODIFY_QUERY", "VAGUE_QUERY"):
+    if intent == "VAGUE_QUERY":
+        # report_chat loop re-entry: skip clarifier to avoid double interrupt
+        if state.get("_clarification_count", 0) > 0:
+            return "report_chat"
+        return "query_clarifier"
+    if intent in ("NEW_QUERY", "MODIFY_QUERY"):
         return "query_clarifier"
     if intent == "USE_RESULT":
         use_result = state.get("use_result_type")
@@ -99,10 +105,11 @@ def build_report_agent_graph(
         connection_string,
         effective_business_rules_path,
     )
+    _cfg_defaults = _DefaultReportConfig()
     query_clarifier = build_query_clarifier_graph(
         llm=llm,
-        clarity_threshold=0.65,
-        enable_clarifier=True,
+        clarity_threshold=_cfg_defaults.query_clarity_threshold,
+        enable_clarifier=_cfg_defaults.enable_query_clarifier,
     )
     visualization = build_visualization_graph(llm)
 
@@ -128,6 +135,7 @@ def build_report_agent_graph(
             "extract_entity":  "extract_entity",
             "visualization":   "visualization",
             "compute_results": "compute_results",
+            "report_chat":     "report_chat",
         },
     )
     graph.add_conditional_edges(

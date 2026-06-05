@@ -45,7 +45,9 @@ def create_clarity_analyzer_node(
 ):
     """Factory: returns async clarity_analyzer_node with dependencies baked in."""
 
-    structured_llm = llm.with_structured_output(ClarityAnalysisResult)
+    structured_llm = (
+        llm.with_structured_output(ClarityAnalysisResult) if enable_clarifier else None
+    )
 
     async def clarity_analyzer_node(state: dict) -> dict:
         if not enable_clarifier:
@@ -82,8 +84,11 @@ def create_clarity_analyzer_node(
             f"[CLARITY_ANALYZER] score={result.clarity_score:.2f} can_suggest={result.can_suggest}"
         )
 
-        needs_clarification = result.can_suggest and result.suggested_query is not None and (
-            intent_type == "VAGUE_QUERY" or result.clarity_score < clarity_threshold
+        needs_clarification = (
+            result.can_suggest
+            and result.suggested_query is not None
+            and result.suggestion_message is not None
+            and (intent_type == "VAGUE_QUERY" or result.clarity_score < clarity_threshold)
         )
 
         if not needs_clarification:

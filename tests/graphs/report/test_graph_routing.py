@@ -11,9 +11,23 @@ def test_intent_router_modify_query():
     assert _intent_router({"intent_type": "MODIFY_QUERY"}) == "query_clarifier"
 
 
-def test_intent_router_vague_query():
+def test_intent_router_vague_query_first_entry():
+    from src.graphs.report_agent.graph import _intent_router
+    state = {"intent_type": "VAGUE_QUERY", "_clarification_count": 0}
+    assert _intent_router(state) == "query_clarifier"
+
+
+def test_intent_router_vague_query_no_count_key():
+    """_clarification_count absent defaults to 0 — still goes to clarifier."""
     from src.graphs.report_agent.graph import _intent_router
     assert _intent_router({"intent_type": "VAGUE_QUERY"}) == "query_clarifier"
+
+
+def test_intent_router_vague_query_reentry_skips_clarifier():
+    """VAGUE_QUERY re-entry from report_chat loop should skip clarifier."""
+    from src.graphs.report_agent.graph import _intent_router
+    state = {"intent_type": "VAGUE_QUERY", "_clarification_count": 1}
+    assert _intent_router(state) == "report_chat"
 
 
 def test_intent_router_use_result_revisualize():
