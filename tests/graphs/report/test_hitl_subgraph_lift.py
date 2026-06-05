@@ -179,7 +179,7 @@ class TestTermResolverSignalPattern:
         result = await node(state)
 
         assert result.get("text2sql_clarification") is None
-        assert "term_hints" in result  # normal dönüş
+        assert "term_filters" in result  # normal dönüş (term_hints → term_filters after NLU refactor)
 
     @pytest.mark.asyncio
     async def test_processes_first_term_signals_second(self):

@@ -3,12 +3,17 @@
 
 def test_intent_router_new_query():
     from src.graphs.report_agent.graph import _intent_router
-    assert _intent_router({"intent_type": "NEW_QUERY"}) == "text2sql"
+    assert _intent_router({"intent_type": "NEW_QUERY"}) == "query_clarifier"
 
 
 def test_intent_router_modify_query():
     from src.graphs.report_agent.graph import _intent_router
-    assert _intent_router({"intent_type": "MODIFY_QUERY"}) == "modify_sql"
+    assert _intent_router({"intent_type": "MODIFY_QUERY"}) == "query_clarifier"
+
+
+def test_intent_router_vague_query():
+    from src.graphs.report_agent.graph import _intent_router
+    assert _intent_router({"intent_type": "VAGUE_QUERY"}) == "query_clarifier"
 
 
 def test_intent_router_use_result_revisualize():
@@ -34,9 +39,9 @@ def test_intent_router_use_result_modify_context():
 
 
 def test_intent_router_fallback():
-    """Bilinmeyen intent → text2sql."""
+    """Bilinmeyen intent → query_clarifier."""
     from src.graphs.report_agent.graph import _intent_router
-    assert _intent_router({}) == "text2sql"
+    assert _intent_router({}) == "query_clarifier"
 
 
 def test_after_extract_entity_router_new_query():

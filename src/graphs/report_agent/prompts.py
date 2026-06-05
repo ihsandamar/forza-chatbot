@@ -148,7 +148,8 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   → Örnekler: "satış durumu nedir", "ciro", "durum ne", "satışlar nasıl"
   → DİKKAT: "toplam ciro nedir" VAGUE_QUERY DEĞİLDİR — net bir metrik istiyor (SINGLE)
   → DİKKAT: "son 1 aydaki satışlar" VAGUE_QUERY DEĞİLDİR — dönem + metrik belirli (NEW_QUERY)
-  → SADECE gerçekten belirsiz, spesifik olmayan sorgularda VAGUE_QUERY seç
+  → NOT: VAGUE_QUERY seçersen sorgu clarifier tarafından daha net hale getirilecek.
+    Emin değilsen VAGUE_QUERY seç — NEW_QUERY'ye zorlamaya çalışma.
 - USE_RESULT: Önceki SONUÇLARI kullanmak istiyor
   → use_result_type="new_query": Sonuçtaki bir entity için tamamen yeni sorgu oluştur
   → use_result_type="revisualize": Aynı veriyi farklı chart/format ile göster
