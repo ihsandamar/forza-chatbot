@@ -353,3 +353,13 @@ DROP TABLE #TempProductChoices
         default="./src/graphs/report_agent/data/vector/business_rules.json",
         description="Business rules JSON dosya yolu. LangGraph Studio'dan runtime'da override edilebilir.",
     )
+
+    enable_query_clarifier: bool = Field(
+        default=True,
+        description="True ise query_clarifier subgraph devreye girer",
+    )
+
+    query_clarity_threshold: float = Field(
+        default=0.65,
+        description="Bu eşiğin altında LLM öneri üretirse kullanıcıya sunulur (0.0–1.0)",
+    )

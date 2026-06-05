@@ -67,6 +67,10 @@ class ReportState(TypedDict):
     # True → hitl_check'ten sonra text2sql tekrar çalıştır
     # False → normal visualization/build_response akışı
 
+    # Query Clarifier
+    clarifier_decision: Optional[str]    # PASS | CLARIFIED
+    suggested_query: Optional[str]       # Kabul edilirse user_query'yi replace eder
+
 
 def create_initial_state() -> ReportState:
     return ReportState(
@@ -105,4 +109,6 @@ def create_initial_state() -> ReportState:
         text2sql_clarification=None,
         text2sql_answers=None,
         _hitl_answered=False,
+        clarifier_decision=None,
+        suggested_query=None,
     )
