@@ -70,3 +70,28 @@ def test_too_few_rows_returns_empty():
     df = pd.DataFrame({"DocumentDate": dates, "RowAmount": [100.0] * 5})
     findings = MomentumAnalyzer().analyze(df, pd.DataFrame(), _make_ctx())
     assert findings == []
+
+
+def test_accelerating_detected():
+    from src.graphs.report_agent.insight_engine.analyzers.momentum import MomentumAnalyzer
+    # Second half grows 3× faster than first half
+    dates = pd.date_range("2024-01-01", periods=14, freq="D")
+    # First 7: slope ~10/step. Second 7: slope ~50/step
+    first_half = [100, 110, 120, 130, 140, 150, 160]
+    second_half = [160, 210, 260, 310, 360, 410, 460]
+    df = pd.DataFrame({"DocumentDate": dates, "RowAmount": first_half + second_half})
+    findings = MomentumAnalyzer().analyze(df, pd.DataFrame(), _make_ctx())
+    types = [f.type for f in findings]
+    assert "accelerating" in types
+
+
+def test_decelerating_detected():
+    from src.graphs.report_agent.insight_engine.analyzers.momentum import MomentumAnalyzer
+    # First half: strong growth. Second half: flat/declining
+    dates = pd.date_range("2024-01-01", periods=14, freq="D")
+    first_half = [100, 200, 300, 400, 500, 600, 700]
+    second_half = [710, 720, 715, 718, 712, 710, 708]  # nearly flat after strong rise
+    df = pd.DataFrame({"DocumentDate": dates, "RowAmount": first_half + second_half})
+    findings = MomentumAnalyzer().analyze(df, pd.DataFrame(), _make_ctx())
+    types = [f.type for f in findings]
+    assert "decelerating" in types

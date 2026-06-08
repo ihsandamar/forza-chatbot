@@ -13,7 +13,7 @@ MIN_ROWS = 14
 WOW_THRESHOLD = 20.0
 VOLATILITY_THRESHOLD = 0.5
 MOMENTUM_THRESHOLD = 0.07
-DATE_COLUMNS = {"DocumentDate"}
+_DATE_COLUMNS = {"DocumentDate"}
 
 
 class MomentumAnalyzer(BaseAnalyzer):
@@ -28,7 +28,7 @@ class MomentumAnalyzer(BaseAnalyzer):
         context: AnalysisContext,
     ) -> List[Finding]:
         findings: List[Finding] = []
-        date_cols = [c for c in context.dimension_columns if c in DATE_COLUMNS and c in current_df.columns]
+        date_cols = [c for c in context.dimension_columns if c in _DATE_COLUMNS and c in current_df.columns]
         metric_cols = [c for c in context.metric_columns if c in current_df.columns]
         if not date_cols or not metric_cols:
             return findings
@@ -49,7 +49,7 @@ class MomentumAnalyzer(BaseAnalyzer):
         last7 = values[-7:]
         prev7 = values[-14:-7]
         prev7_sum = float(prev7.sum())
-        if prev7_sum != 0:
+        if abs(prev7_sum) > 1e-9:
             wow_pct = (float(last7.sum()) - prev7_sum) / prev7_sum * 100
             if wow_pct >= WOW_THRESHOLD:
                 findings.append(Finding(
