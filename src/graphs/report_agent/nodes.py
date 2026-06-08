@@ -707,6 +707,7 @@ def create_insight_engine_node(llm, connection_string: str):
 
         dim_columns = _detect_columns(current_df, viz_output, role="dimension")
         metric_columns = _detect_columns(current_df, viz_output, role="metric")
+        summary = _compute_data_summary(current_df, dim_columns, metric_columns)
 
         context = AnalysisContext(
             user_query=state.get("user_query", ""),
@@ -714,6 +715,7 @@ def create_insight_engine_node(llm, connection_string: str):
             period_label=period_label,
             dimension_columns=dim_columns,
             metric_columns=metric_columns,
+            summary=summary,
         )
 
         all_findings = math_engine.run(current_df, comparison_df, context)
@@ -747,6 +749,55 @@ def _detect_columns(df, viz_output: dict, role: str):
             return [viz_output["y_field"]]
         return [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     return []
+
+
+def _compute_data_summary(df, dim_columns: list, metric_columns: list) -> dict:
+    """Aggregate stats from raw DataFrame — sent to LLM as general context."""
+    import pandas as pd
+
+    if df.empty or not metric_columns:
+        return {}
+    metric = metric_columns[0]
+    if metric not in df.columns:
+        return {}
+
+    values = df[metric].astype(float)
+    total = float(values.sum())
+
+    date_cols = [c for c in dim_columns if c == "DocumentDate" and c in df.columns]
+    date_col = date_cols[0] if date_cols else None
+    if date_col:
+        dates = pd.to_datetime(df[date_col], errors="coerce").dropna()
+        period_days = int(dates.nunique())
+    else:
+        period_days = max(len(df), 1)
+
+    daily_avg = total / period_days if period_days > 0 else total
+
+    cat_cols = [c for c in dim_columns if c not in {"DocumentDate", "DayOfWeek", "Hour"} and c in df.columns]
+    segment_col = cat_cols[0] if cat_cols else None
+    segment_count = 0
+    top_segment: Optional[str] = None
+    top_segment_share_pct = 0.0
+
+    if segment_col:
+        seg_totals = df.groupby(segment_col)[metric].sum().sort_values(ascending=False)
+        segment_count = len(seg_totals)
+        if segment_count > 0:
+            top_segment = str(seg_totals.index[0])
+            top_segment_share_pct = round(float(seg_totals.iloc[0]) / total * 100, 1) if total > 0 else 0.0
+
+    return {
+        "primary_metric": metric,
+        "total": round(total, 2),
+        "period_days": period_days,
+        "daily_avg": round(daily_avg, 2),
+        "segment_col": segment_col,
+        "segment_count": segment_count,
+        "top_segment": top_segment,
+        "top_segment_share_pct": top_segment_share_pct,
+        "date_col": date_col,
+    }
 
 
 def _build_period_label(state: dict) -> str:

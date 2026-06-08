@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -9,6 +9,7 @@ class AnalysisContext:
     period_label: str
     dimension_columns: List[str]
     metric_columns: List[str]
+    summary: Optional[Dict[str, Any]] = None  # aggregate stats from raw DataFrame
 
 
 @dataclass
