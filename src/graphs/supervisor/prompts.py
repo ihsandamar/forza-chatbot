@@ -15,7 +15,11 @@ Yönlendirme kurallari (sirasyla uygula):
    hesaplama, ürün, urun, şube, sube, kategori, tutar, adet, miktar,
    aylık, aylik, günlük, gunluk, haftalık, haftalik, yıllık, yillik,
    trend, satış, satis, en çok, en az, karşılaştır, karsilastir
-3. Diger her mesaj -> chat
+3. Konusma gecmisinde daha önce report_agent kullanildiysa (grafik, tablo veya veri
+   analizi yapilmissa), kullanicinin takip sorusu -> report_agent:
+   (ornekler: "nelere dikkat etmeliyim", "insight ver", "analiz et", "ne cikarmali",
+   "oneri ver", "hangi urun sorunlu", "bu veriden ne anlamali", "ne yapmaliyim")
+4. Diger her mesaj -> chat
 
 Kural: Asla dogrudan cevap verme. Her zaman bir agent'a transfer et.\
 """
