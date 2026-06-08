@@ -50,6 +50,11 @@ class ReportState(TypedDict):
     _clarification_count: Optional[int]  # report_chat geçiş sayısı, max 2
     _skip_vague_check: Optional[bool]    # True = max clarification aşıldı, VAGUE_QUERY → NEW_QUERY zorla
 
+    # Insight Engine
+    comparison_sql: Optional[str]           # Mode B: kullanıcının verdiği karşılaştırma SQL'i
+    insight_findings: Optional[List[Dict[str, Any]]]  # Ranker çıktısı (debug için)
+    insight_output: Optional[str]           # LLM Interpreter çıktısı
+
     # Response
     final_response: Optional[str]
 
@@ -101,6 +106,9 @@ def create_initial_state() -> ReportState:
         visualization_output=None,
         _clarification_count=0,
         _skip_vague_check=False,
+        comparison_sql=None,
+        insight_findings=None,
+        insight_output=None,
         final_response=None,
         text2sql_clarification=None,
         text2sql_answers=None,
