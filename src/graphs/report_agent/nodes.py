@@ -19,6 +19,11 @@ from src.graphs.report_agent.prompts import (
 
 from src.graphs.report_agent.response_builder import build_chart_response, DEFAULT_CONFIG
 from src.services.debug_tracer import debug_node
+from src.graphs.report_agent.insight_engine.engine import build_default_engine
+from src.graphs.report_agent.insight_engine.fetcher import ComparisonDataFetcher
+from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+from src.graphs.report_agent.insight_engine.models import AnalysisContext
+from src.graphs.report_agent.insight_engine.ranker import FindingsRanker
 
 logger = logging.getLogger(__name__)
 
@@ -655,6 +660,78 @@ def create_build_response_node(llm=None):
             "messages": [AIMessage(content=response)],
         }
     return build_response_node
+
+
+def create_insight_engine_node(llm, connection_string: str):
+    math_engine = build_default_engine()
+    ranker = FindingsRanker()
+    interpreter = LLMInterpreter(llm)
+    fetcher = ComparisonDataFetcher(connection_string)
+
+    @debug_node("insight_engine")
+    async def insight_engine_node(state: dict) -> dict:
+        import pandas as pd
+
+        active_results = state.get("active_results") or []
+        if not active_results:
+            logger.info("[INSIGHT_ENGINE] No active_results — skipping analysis")
+            return {
+                "insight_output": "Analiz yapılacak mevcut sorgu sonucu yok. Önce bir rapor sorusu sorun.",
+                "insight_findings": [],
+            }
+
+        current_df = pd.DataFrame(active_results)
+        comparison_df = await fetcher.fetch(state)
+
+        viz_output = state.get("visualization_output") or {}
+        period_label = _build_period_label(state)
+
+        dim_columns = _detect_columns(current_df, viz_output, role="dimension")
+        metric_columns = _detect_columns(current_df, viz_output, role="metric")
+
+        context = AnalysisContext(
+            user_query=state.get("user_query", ""),
+            active_filters=state.get("active_filters") or [],
+            period_label=period_label,
+            dimension_columns=dim_columns,
+            metric_columns=metric_columns,
+        )
+
+        all_findings = math_engine.run(current_df, comparison_df, context)
+        ranked = ranker.rank(all_findings)
+
+        logger.info(f"[INSIGHT_ENGINE] {len(all_findings)} findings → {len(ranked)} ranked")
+
+        insight_text = await interpreter.interpret(ranked, context)
+
+        return {
+            "insight_output": insight_text,
+            "insight_findings": [f.to_dict() for f in ranked],
+        }
+
+    return insight_engine_node
+
+
+def _detect_columns(df, viz_output: dict, role: str):
+    import pandas as pd
+    if role == "dimension":
+        if viz_output.get("x_field") and viz_output["x_field"] in df.columns:
+            return [viz_output["x_field"]]
+        return [c for c in df.columns if df[c].dtype == object or str(df[c].dtype) == "category"]
+    if role == "metric":
+        if viz_output.get("y_field") and viz_output["y_field"] in df.columns:
+            return [viz_output["y_field"]]
+        return [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    return []
+
+
+def _build_period_label(state: dict) -> str:
+    import re
+    sql = state.get("active_sql", "")
+    match = re.search(r"BETWEEN\s+'(\d{4}-\d{2}-\d{2})'\s+AND\s+'(\d{4}-\d{2}-\d{2})'", sql, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)} – {match.group(2)}"
+    return "mevcut dönem"
 
 
 @debug_node("hitl_check")
