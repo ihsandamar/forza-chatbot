@@ -168,6 +168,9 @@ def create_classify_intent_node(llm) -> Callable:
             "active_filters": None if result.intent_type == "NEW_QUERY" else state.get("active_filters"),
             "clarifier_decision": None,
             "suggested_query": None,
+            "insight_output": None,
+            "insight_findings": None,
+            "comparison_sql": None,
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:
@@ -599,6 +602,15 @@ def create_build_response_node(llm=None):
     @debug_node("build_response")
     async def build_response_node(state: dict) -> dict:
         import base64
+
+        # INSIGHT_REQUEST: insight_engine_node çıktısını doğrudan döndür
+        if state.get("intent_type") == "INSIGHT_REQUEST":
+            insight_output = state.get("insight_output") or "Analiz tamamlandı ancak sonuç üretilemedi."
+            return {
+                "final_response": insight_output,
+                "messages": [AIMessage(content=insight_output)],
+            }
+
         error = state.get("error")
         results = state.get("results") or []
         viz = state.get("visualization_output") or {}

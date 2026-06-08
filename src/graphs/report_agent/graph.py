@@ -23,6 +23,7 @@ from src.graphs.report_agent.nodes import (
     create_classify_intent_node,
     create_compute_results_node,
     create_extract_entity_node,
+    create_insight_engine_node,
     create_modify_sql_node,
     create_report_chat_node,
     hitl_check_node,
@@ -41,6 +42,8 @@ def _intent_router(state: dict) -> str:
         return "modify_sql"
     if intent == "VAGUE_QUERY":
         return "report_chat"
+    if intent == "INSIGHT_REQUEST":
+        return "insight_engine"
     if intent == "USE_RESULT":
         use_result = state.get("use_result_type")
         if use_result == "revisualize":
@@ -101,6 +104,7 @@ def build_report_agent_graph(
     graph.add_node("visualization", visualization)
     graph.add_node("build_response", create_build_response_node(llm))
     graph.add_node("hitl_check", hitl_check_node)
+    graph.add_node("insight_engine", create_insight_engine_node(llm, connection_string))
 
     graph.add_edge(START, "classify_intent")
     graph.add_conditional_edges(
@@ -113,6 +117,7 @@ def build_report_agent_graph(
             "visualization":   "visualization",
             "compute_results": "compute_results",
             "report_chat":     "report_chat",
+            "insight_engine":  "insight_engine",
         },
     )
     graph.add_edge("modify_sql", "text2sql")
@@ -137,6 +142,7 @@ def build_report_agent_graph(
         },
     )
     graph.add_edge("visualization", "build_response")
+    graph.add_edge("insight_engine", "build_response")
     graph.add_edge("build_response", END)
 
     # When checkpointer is explicitly False, compile without one (for use as subgraph
