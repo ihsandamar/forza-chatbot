@@ -68,3 +68,13 @@ def test_supervisor_all_tools_no_utility_tools():
     src = Path("src/graphs/supervisor/graph.py").read_text(encoding="utf-8")
     assert "get_current_time" not in src, "get_current_time hala all_tools'da"
     assert "get_supervisor_status" not in src, "get_supervisor_status hala all_tools'da"
+
+
+def test_supervisor_prompt_contains_turkish_report_keywords():
+    """Rule #2 hem ASCII hem Unicode Turkce keyword icermeli — gpt-4.1-mini eşleşmesi icin."""
+    from src.graphs.supervisor.prompts import SUPERVISOR_PROMPT_TEMPLATE
+    rendered = SUPERVISOR_PROMPT_TEMPLATE.format(agent_descriptions="- report_agent: test")
+    assert "satış" in rendered, "Unicode 'satış' eksik — gpt-4.1-mini eslestiremez"
+    assert "grafik" in rendered, "'grafik' eksik"
+    assert "aylık" in rendered, "Unicode 'aylık' eksik"
+    assert "ürün" in rendered, "Unicode 'ürün' eksik"
