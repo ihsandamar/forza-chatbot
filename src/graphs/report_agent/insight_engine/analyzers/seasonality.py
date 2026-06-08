@@ -10,7 +10,7 @@ from src.graphs.report_agent.insight_engine.models import AnalysisContext, Findi
 
 logger = logging.getLogger(__name__)
 
-MIN_ROWS = 14
+MIN_ROWS = 7
 AUTOCORR_THRESHOLD = 0.45
 DATE_COLUMNS = {"DocumentDate"}
 

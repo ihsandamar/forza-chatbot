@@ -11,6 +11,7 @@ from src.graphs.report_agent.insight_engine.models import AnalysisContext, Findi
 logger = logging.getLogger(__name__)
 
 CHANGE_PCT_THRESHOLD = 5.0  # % — changes below this are ignored
+_DATE_COLUMNS = {"DocumentDate"}
 
 
 class TrendAnalyzer(BaseAnalyzer):
@@ -31,6 +32,7 @@ class TrendAnalyzer(BaseAnalyzer):
         # Time series detection: single date dimension, no comparison, >2 rows
         if (
             len(context.dimension_columns) == 1
+            and context.dimension_columns[0] in _DATE_COLUMNS
             and comparison_df.empty
             and len(current_df) > 2
         ):

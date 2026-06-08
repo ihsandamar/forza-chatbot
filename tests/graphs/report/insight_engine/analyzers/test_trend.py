@@ -68,3 +68,17 @@ def test_time_series_slope():
     time_findings = [f for f in findings if f.type == "trend_decline"]
     assert len(time_findings) >= 1
     assert time_findings[0].extra.get("slope") is not None
+
+
+def test_non_date_single_dimension_does_not_trigger_timeseries():
+    from src.graphs.report_agent.insight_engine.analyzers.trend import TrendAnalyzer
+    # ProductName is not a date column — should NOT trigger time-series path
+    # Without comparison_df, segment path also returns []
+    current = pd.DataFrame({
+        "ProductName": ["Burger", "Pizza", "Salad", "Wrap", "Soup"],
+        "RowAmount": [1000.0, 800.0, 600.0, 400.0, 200.0],
+    })
+    ctx = _make_ctx(dims=["ProductName"], metrics=["RowAmount"])
+    findings = TrendAnalyzer().analyze(current, pd.DataFrame(), ctx)
+    # Should be empty — no comparison, ProductName is not a date column
+    assert findings == []
