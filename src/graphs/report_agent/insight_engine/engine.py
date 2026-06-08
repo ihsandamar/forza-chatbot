@@ -36,6 +36,8 @@ def build_default_engine() -> MathEngine:
     from src.graphs.report_agent.insight_engine.analyzers.segment import SegmentComparator
     from src.graphs.report_agent.insight_engine.analyzers.multidim import MultiDimAnalyzer
     from src.graphs.report_agent.insight_engine.analyzers.seasonality import SeasonalityAnalyzer
+    from src.graphs.report_agent.insight_engine.analyzers.momentum import MomentumAnalyzer
+    from src.graphs.report_agent.insight_engine.analyzers.correlation import CorrelationAnalyzer
 
     return MathEngine(analyzers=[
         TrendAnalyzer(),
@@ -43,4 +45,6 @@ def build_default_engine() -> MathEngine:
         SegmentComparator(),
         MultiDimAnalyzer(),
         SeasonalityAnalyzer(),
+        MomentumAnalyzer(),
+        CorrelationAnalyzer(),
     ])
