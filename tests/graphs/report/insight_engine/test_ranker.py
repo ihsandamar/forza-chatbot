@@ -21,8 +21,8 @@ def test_ranker_filters_below_threshold():
     from src.graphs.report_agent.insight_engine.ranker import FindingsRanker
     findings = [_make_finding(0.1), _make_finding(0.2), _make_finding(0.9)]
     ranked = FindingsRanker().rank(findings)
-    assert all(f.significance >= 0.40 for f in ranked)
-    assert len(ranked) == 1
+    assert all(f.significance >= 0.15 for f in ranked)
+    assert len(ranked) == 2  # 0.1 filtered, 0.2 and 0.9 pass
 
 
 def test_ranker_caps_at_top_n():

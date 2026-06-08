@@ -692,7 +692,14 @@ def create_insight_engine_node(llm, connection_string: str):
                 "insight_findings": [],
             }
 
-        current_df = pd.DataFrame(active_results)
+        try:
+            current_df = pd.DataFrame(active_results)
+        except Exception as exc:
+            logger.warning(f"[INSIGHT_ENGINE] Failed to build DataFrame from results: {exc}")
+            return {
+                "insight_output": "Analiz yapılacak mevcut sorgu sonucu yok. Önce bir rapor sorusu sorun.",
+                "insight_findings": [],
+            }
         comparison_df = await fetcher.fetch(state)
 
         viz_output = state.get("visualization_output") or {}
@@ -726,10 +733,15 @@ def create_insight_engine_node(llm, connection_string: str):
 
 def _detect_columns(df, viz_output: dict, role: str):
     import pandas as pd
+    _TIME_DIM_NAMES = {"DayOfWeek", "Hour"}
     if role == "dimension":
         if viz_output.get("x_field") and viz_output["x_field"] in df.columns:
             return [viz_output["x_field"]]
-        return [c for c in df.columns if df[c].dtype == object or str(df[c].dtype) == "category"]
+        # Include string/category columns AND known time dimension columns (int dtype)
+        return [
+            c for c in df.columns
+            if df[c].dtype == object or str(df[c].dtype) == "category" or c in _TIME_DIM_NAMES
+        ]
     if role == "metric":
         if viz_output.get("y_field") and viz_output["y_field"] in df.columns:
             return [viz_output["y_field"]]

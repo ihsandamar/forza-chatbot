@@ -2,7 +2,7 @@ from typing import List
 
 from src.graphs.report_agent.insight_engine.models import Finding
 
-SIGNIFICANCE_THRESHOLD = 0.40
+SIGNIFICANCE_THRESHOLD = 0.15  # aligned with lowest analyzer trigger
 TOP_N = 8
 
 
