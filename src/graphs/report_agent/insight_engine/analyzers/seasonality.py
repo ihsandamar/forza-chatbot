@@ -33,7 +33,7 @@ def _fft_dominant_period(values: np.ndarray) -> int:
     if peak_idx == 0 or freqs[peak_idx] == 0:
         return 0
     period = round(1.0 / float(freqs[peak_idx]))
-    # Sadece güçlü pike anlam ver: peak > 2× diğerlerin ortalaması
+    # Sadece güçlü pike anlam ver: peak > 3× diğerlerin ortalaması
     others = np.delete(fft_vals, peak_idx)
     if len(others) == 0 or float(fft_vals[peak_idx]) < 3.0 * float(np.mean(others)):
         return 0

@@ -47,5 +47,5 @@ def test_fft_period_added_to_seasonal_peak_extra():
     df = pd.DataFrame({"DocumentDate": dates, "RowAmount": values})
     findings = SeasonalityAnalyzer().analyze(df, pd.DataFrame(), _make_ctx())
     seasonal_peaks = [f for f in findings if f.type == "seasonal_peak"]
-    if seasonal_peaks:
-        assert "fft_period" in seasonal_peaks[0].extra
+    assert len(seasonal_peaks) >= 1, "Expected seasonal_peak finding for strong 7-day signal"
+    assert "fft_period" in seasonal_peaks[0].extra
