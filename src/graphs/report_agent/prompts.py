@@ -10,7 +10,7 @@ from pydantic import BaseModel, field_validator, model_validator
 class IntentClassificationResult(BaseModel):
     """Intent + query type — tek LLM çağrısı ile sınıflandırma."""
 
-    intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT", "VAGUE_QUERY"]
+    intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT", "VAGUE_QUERY", "INSIGHT_REQUEST"]
     query_type: Literal["SINGLE", "LISTING", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
     wants_visualization: bool = False
@@ -150,6 +150,10 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   → DİKKAT: "son 1 aydaki satışlar" VAGUE_QUERY DEĞİLDİR — dönem + metrik belirli (NEW_QUERY)
   → NOT: VAGUE_QUERY seçersen sorgu clarifier tarafından daha net hale getirilecek.
     Emin değilsen VAGUE_QUERY seç — NEW_QUERY'ye zorlamaya çalışma.
+- INSIGHT_REQUEST: Kullanıcı mevcut veriden içgörü, trend analizi, anomali veya aksiyon önerisi istiyor.
+  Örnek: "nelere dikkat etmeliyim", "bu veriden ne çıkarabilirim", "hangi ürün/şube sorunlu", "insight ver", "analiz et"
+  SADECE aktif sonuç varsa (has_active_sql=Evet) bu intent'i kullan.
+  Aktif sonuç yoksa VAGUE_QUERY kullan.
 - USE_RESULT: Önceki SONUÇLARI kullanmak istiyor
   → use_result_type="new_query": Sonuçtaki bir entity için tamamen yeni sorgu oluştur
   → use_result_type="revisualize": Aynı veriyi farklı chart/format ile göster
