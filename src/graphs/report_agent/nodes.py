@@ -707,7 +707,13 @@ def create_insight_engine_node(llm, connection_string: str):
 
         dim_columns = _detect_columns(current_df, viz_output, role="dimension")
         metric_columns = _detect_columns(current_df, viz_output, role="metric")
-        summary = _compute_data_summary(current_df, dim_columns, metric_columns)
+        summary = await _fetch_summary_stats(
+            connection_string,
+            state.get("active_sql", ""),
+            current_df,
+            dim_columns,
+            metric_columns,
+        )
 
         context = AnalysisContext(
             user_query=state.get("user_query", ""),
@@ -751,9 +757,67 @@ def _detect_columns(df, viz_output: dict, role: str):
     return []
 
 
-def _compute_data_summary(df, dim_columns: list, metric_columns: list) -> dict:
-    """Aggregate stats from raw DataFrame — sent to LLM as general context."""
+async def _query_metric_total(connection_string: str, active_sql: str, metric: str) -> Optional[float]:
+    """SELECT SUM([metric]) FROM same table/conditions as active_sql.
+    Returns None on any failure — caller falls back to df.sum()."""
+    import asyncio
+    import re
+
+    if not active_sql or not metric:
+        return None
+
+    sql_upper = active_sql.upper()
+
+    # Table name: first word after FROM (handles bracketed names too)
+    from_match = re.search(r'\bFROM\b\s+(\[?[\w]+\]?)', active_sql, re.IGNORECASE)
+    if not from_match:
+        return None
+    table = from_match.group(1).strip("[] \t")
+
+    # WHERE clause: everything between WHERE and GROUP BY / ORDER BY / HAVING / end
+    where_pos = sql_upper.find('WHERE')
+    where_clause = ""
+    if where_pos != -1:
+        end_pos = len(active_sql)
+        for kw in ('GROUP BY', 'ORDER BY', 'HAVING'):
+            kw_pos = sql_upper.find(kw, where_pos)
+            if kw_pos != -1:
+                end_pos = min(end_pos, kw_pos)
+        where_clause = "WHERE " + active_sql[where_pos + 5:end_pos].strip()
+
+    summary_sql = f"SELECT SUM([{metric}]) AS total_val FROM [{table}] {where_clause}".strip()
+    logger.debug(f"[SUMMARY_QUERY] {summary_sql[:160]}")
+
+    def _run() -> Optional[float]:
+        try:
+            import pyodbc
+            with pyodbc.connect(connection_string, timeout=10) as conn:
+                row = conn.cursor().execute(summary_sql).fetchone()
+                return float(row[0]) if row and row[0] is not None else None
+        except Exception as exc:
+            logger.warning(f"[SUMMARY_QUERY] failed (falling back to df.sum): {exc!r}")
+            return None
+
+    return await asyncio.to_thread(_run)
+
+
+async def _fetch_summary_stats(
+    connection_string: str,
+    active_sql: str,
+    df,
+    dim_columns: list,
+    metric_columns: list,
+) -> dict:
+    """Accurate summary stats.
+
+    period_days — derived from BETWEEN dates in SQL (no extra query, always correct
+                  even when the DataFrame was GROUP BY'd and has no date column).
+    total       — dedicated SUM query against DB; falls back to df.sum() on failure.
+    segment %   — computed from df (ratios are correct from aggregated data).
+    """
+    import re
     import pandas as pd
+    from datetime import date as date_type
 
     if df.empty or not metric_columns:
         return {}
@@ -761,19 +825,37 @@ def _compute_data_summary(df, dim_columns: list, metric_columns: list) -> dict:
     if metric not in df.columns:
         return {}
 
-    values = df[metric].astype(float)
-    total = float(values.sum())
+    # --- period_days from BETWEEN clause (free, precise) ---
+    period_days: int = 0
+    between = re.search(
+        r"BETWEEN\s+'(\d{4}-\d{2}-\d{2})'\s+AND\s+'(\d{4}-\d{2}-\d{2})'",
+        active_sql, re.IGNORECASE,
+    )
+    if between:
+        try:
+            start = date_type.fromisoformat(between.group(1))
+            end = date_type.fromisoformat(between.group(2))
+            period_days = (end - start).days + 1
+        except ValueError:
+            pass
 
-    date_cols = [c for c in dim_columns if c == "DocumentDate" and c in df.columns]
-    date_col = date_cols[0] if date_cols else None
-    if date_col:
-        dates = pd.to_datetime(df[date_col], errors="coerce").dropna()
-        period_days = int(dates.nunique())
-    else:
-        period_days = max(len(df), 1)
+    if period_days <= 0:
+        # Fallback: distinct date values in df (works when date column present)
+        date_col_in_df = next((c for c in dim_columns if c == "DocumentDate" and c in df.columns), None)
+        if date_col_in_df:
+            dates = pd.to_datetime(df[date_col_in_df], errors="coerce").dropna()
+            period_days = int(dates.nunique()) or 1
+        else:
+            period_days = max(len(df), 1)
 
-    daily_avg = total / period_days if period_days > 0 else total
+    # --- total from DB query (falls back to df.sum if query fails) ---
+    total = await _query_metric_total(connection_string, active_sql, metric)
+    if total is None:
+        total = float(df[metric].astype(float).sum())
 
+    daily_avg = round(total / period_days, 2) if period_days > 0 else round(total, 2)
+
+    # --- segment ratios from df (correct: relative shares are accurate) ---
     cat_cols = [c for c in dim_columns if c not in {"DocumentDate", "DayOfWeek", "Hour"} and c in df.columns]
     segment_col = cat_cols[0] if cat_cols else None
     segment_count = 0
@@ -781,17 +863,19 @@ def _compute_data_summary(df, dim_columns: list, metric_columns: list) -> dict:
     top_segment_share_pct = 0.0
 
     if segment_col:
-        seg_totals = df.groupby(segment_col)[metric].sum().sort_values(ascending=False)
+        seg_totals = df.groupby(segment_col)[metric].sum().astype(float).sort_values(ascending=False)
         segment_count = len(seg_totals)
         if segment_count > 0:
             top_segment = str(seg_totals.index[0])
             top_segment_share_pct = round(float(seg_totals.iloc[0]) / total * 100, 1) if total > 0 else 0.0
 
+    date_col = next((c for c in dim_columns if c == "DocumentDate" and c in df.columns), None)
+
     return {
         "primary_metric": metric,
         "total": round(total, 2),
         "period_days": period_days,
-        "daily_avg": round(daily_avg, 2),
+        "daily_avg": daily_avg,
         "segment_col": segment_col,
         "segment_count": segment_count,
         "top_segment": top_segment,
