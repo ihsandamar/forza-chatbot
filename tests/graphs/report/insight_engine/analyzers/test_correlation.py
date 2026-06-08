@@ -64,3 +64,16 @@ def test_single_product_returns_empty():
     ctx = _make_ctx(dims=["DocumentDate", "ProductName"], metrics=["RowAmount"])
     findings = CorrelationAnalyzer().analyze(df, pd.DataFrame(), ctx)
     assert findings == []
+
+
+def test_too_few_time_periods_returns_empty():
+    from src.graphs.report_agent.insight_engine.analyzers.correlation import CorrelationAnalyzer
+    dates = pd.date_range("2024-01-01", periods=6, freq="D")  # 6 < MIN_TIME_PERIODS (7)
+    rows = (
+        [{"DocumentDate": d, "ProductName": "A", "RowAmount": 100.0} for d in dates] +
+        [{"DocumentDate": d, "ProductName": "B", "RowAmount": 200.0} for d in dates]
+    )
+    df = pd.DataFrame(rows)
+    ctx = _make_ctx(dims=["DocumentDate", "ProductName"], metrics=["RowAmount"])
+    findings = CorrelationAnalyzer().analyze(df, pd.DataFrame(), ctx)
+    assert findings == []
