@@ -101,4 +101,82 @@ class SegmentComparator(BaseAnalyzer):
                 extra={"top_n": top_n, "share_pct": round(top_share * 100, 2)},
             ))
 
+        findings.extend(self._bcg_analysis(current_df, comparison_df, context))
         return findings
+
+    def _bcg_analysis(
+        self,
+        current_df: pd.DataFrame,
+        comparison_df: pd.DataFrame,
+        context: AnalysisContext,
+    ) -> List[Finding]:
+        if comparison_df.empty:
+            return []
+        dim_cols = [c for c in context.dimension_columns if c in current_df.columns and c in comparison_df.columns]
+        metric_cols = [c for c in context.metric_columns if c in current_df.columns and c in comparison_df.columns]
+        if not dim_cols or not metric_cols:
+            return []
+
+        dim = dim_cols[0]
+        metric = metric_cols[0]
+        cur = current_df.groupby(dim)[metric].sum().reset_index()
+        comp = comparison_df.groupby(dim)[metric].sum().reset_index()
+        merged = cur.merge(comp.rename(columns={metric: f"{metric}_prev"}), on=dim, how="inner")
+        if len(merged) < 4:
+            return []
+
+        merged[metric] = merged[metric].astype(float)
+        merged[f"{metric}_prev"] = merged[f"{metric}_prev"].astype(float)
+        merged["growth"] = merged.apply(
+            lambda r: (r[metric] - r[f"{metric}_prev"]) / r[f"{metric}_prev"] * 100
+            if r[f"{metric}_prev"] != 0 else 0.0,
+            axis=1,
+        )
+        total = float(merged[metric].sum())
+        if total == 0:
+            return []
+        merged["share"] = merged[metric] / total
+
+        growth_median = float(merged["growth"].median())
+        share_median = float(merged["share"].median())
+
+        _BCG = {
+            (True, True): "bcg_star",
+            (False, True): "bcg_cash_cow",
+            (True, False): "bcg_question_mark",
+            (False, False): "bcg_dog",
+        }
+        _BASE_SIG = {"bcg_star": 0.5, "bcg_dog": 0.4, "bcg_cash_cow": 0.35, "bcg_question_mark": 0.3}
+        raw: List[Finding] = []
+        for _, row in merged.iterrows():
+            is_hg = row["growth"] > growth_median
+            is_hs = row["share"] > share_median
+            bcg_type = _BCG[(is_hg, is_hs)]
+            growth_excess = abs(float(row["growth"]) - growth_median) / (abs(growth_median) + 1)
+            share_excess = abs(float(row["share"]) - share_median) / (share_median + 0.01)
+            sig = round(min(_BASE_SIG[bcg_type] + (growth_excess + share_excess) * 0.05, 1.0), 3)
+            raw.append(Finding(
+                type=bcg_type,
+                analyzer=self.name,
+                dimension=dim,
+                value=str(row[dim]),
+                metric=metric,
+                current_value=round(float(row[metric]), 2),
+                comparison_value=round(float(row[f"{metric}_prev"]), 2),
+                change_pct=round(float(row["growth"]), 2),
+                significance=sig,
+                period_label=context.period_label,
+                extra={
+                    "growth_pct": round(float(row["growth"]), 2),
+                    "revenue_share_pct": round(float(row["share"]) * 100, 2),
+                    "vs_avg_growth": round(float(row["growth"]) - growth_median, 2),
+                },
+            ))
+        # Keep top 1 per BCG type (most significant)
+        seen_types: set = set()
+        result: List[Finding] = []
+        for f in sorted(raw, key=lambda f: f.significance, reverse=True):
+            if f.type not in seen_types:
+                result.append(f)
+                seen_types.add(f.type)
+        return result
