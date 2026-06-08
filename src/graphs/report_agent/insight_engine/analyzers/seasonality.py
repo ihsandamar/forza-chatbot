@@ -15,6 +15,31 @@ AUTOCORR_THRESHOLD = 0.45
 DATE_COLUMNS = {"DocumentDate"}
 
 
+def _fft_dominant_period(values: np.ndarray) -> int:
+    """FFT ile dominant periyot bul. Detrend edilmiş sinyale uygulanır.
+    Returns period (>=2) or 0 if not significant."""
+    n = len(values)
+    if n < 8:
+        return 0
+    x = np.arange(n, dtype=float)
+    slope, intercept = np.polyfit(x, values, 1)
+    detrended = values - (slope * x + intercept)
+    fft_vals = np.abs(np.fft.rfft(detrended))
+    freqs = np.fft.rfftfreq(n)
+    fft_vals[0] = 0.0  # DC bileşeni yoksay
+    if len(fft_vals) < 2:
+        return 0
+    peak_idx = int(np.argmax(fft_vals))
+    if peak_idx == 0 or freqs[peak_idx] == 0:
+        return 0
+    period = round(1.0 / float(freqs[peak_idx]))
+    # Sadece güçlü pike anlam ver: peak > 2× diğerlerin ortalaması
+    others = np.delete(fft_vals, peak_idx)
+    if len(others) == 0 or float(fft_vals[peak_idx]) < 3.0 * float(np.mean(others)):
+        return 0
+    return max(2, int(period))
+
+
 class SeasonalityAnalyzer(BaseAnalyzer):
     @property
     def name(self) -> str:
@@ -52,8 +77,26 @@ class SeasonalityAnalyzer(BaseAnalyzer):
         corr_matrix = np.corrcoef(v1, v2)
         autocorr = float(corr_matrix[0, 1]) if not np.isnan(corr_matrix[0, 1]) else 0.0
 
+        # FFT period detection — runs before autocorr early-return
+        dominant_period = _fft_dominant_period(values)
+        if dominant_period > 0 and dominant_period != 7:
+            sig = round(min(max(abs(autocorr), 0.3), 1.0), 3)
+            findings.append(Finding(
+                type="periodic_pattern",
+                analyzer=self.name,
+                dimension=date_col,
+                value=f"{dominant_period} günlük döngü",
+                metric=metric,
+                current_value=float(dominant_period),
+                comparison_value=7.0,
+                change_pct=0.0,
+                significance=sig,
+                period_label=context.period_label,
+                extra={"fft_period": dominant_period, "autocorr_lag7": round(autocorr, 3)},
+            ))
+
         if abs(autocorr) < AUTOCORR_THRESHOLD:
-            return findings
+            return findings  # returns here with any FFT findings
 
         significance = round(min(abs(autocorr), 1.0), 3)
 
@@ -75,7 +118,7 @@ class SeasonalityAnalyzer(BaseAnalyzer):
             change_pct=round((dow_avg.max() - dow_avg.mean()) / dow_avg.mean() * 100, 2),
             significance=significance,
             period_label=context.period_label,
-            extra={"autocorr_lag7": round(autocorr, 3)},
+            extra={"autocorr_lag7": round(autocorr, 3), "fft_period": dominant_period},
         ))
 
         if float(dow_avg.min()) < float(dow_avg.mean()) * 0.7:
@@ -90,7 +133,7 @@ class SeasonalityAnalyzer(BaseAnalyzer):
                 change_pct=round((dow_avg.min() - dow_avg.mean()) / dow_avg.mean() * 100, 2),
                 significance=round(significance * 0.8, 3),
                 period_label=context.period_label,
-                extra={"autocorr_lag7": round(autocorr, 3)},
+                extra={"autocorr_lag7": round(autocorr, 3), "fft_period": dominant_period},
             ))
 
         return findings
