@@ -1,6 +1,6 @@
 # src/graphs/report_agent/insight_engine/analyzers/trend.py
 import logging
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -9,6 +9,40 @@ from src.graphs.report_agent.insight_engine.analyzers.base import BaseAnalyzer
 from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
 
 logger = logging.getLogger(__name__)
+
+
+def _mann_kendall(values: np.ndarray) -> Tuple[str, float]:
+    """Return (trend_direction, tau). O(n²) — fine for n < 400."""
+    n = len(values)
+    if n < 4:
+        return "no_trend", 0.0
+    s = 0
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            diff = float(values[j]) - float(values[i])
+            if diff > 0:
+                s += 1
+            elif diff < 0:
+                s -= 1
+    var_s = n * (n - 1) * (2 * n + 5) / 18
+    if var_s <= 0:
+        return "no_trend", 0.0
+    z = (s - 1) / np.sqrt(var_s) if s > 0 else ((s + 1) / np.sqrt(var_s) if s < 0 else 0.0)
+    tau = s / (n * (n - 1) / 2)
+    trend = "increasing" if z > 1.96 else ("decreasing" if z < -1.96 else "no_trend")
+    return trend, round(float(tau), 4)
+
+
+def _sens_slope(values: np.ndarray) -> float:
+    """Median of all pairwise (y_j - y_i) / (j - i). Robust to outliers."""
+    n = len(values)
+    slopes = [
+        (float(values[j]) - float(values[i])) / (j - i)
+        for i in range(n - 1)
+        for j in range(i + 1, n)
+    ]
+    return round(float(np.median(slopes)), 6) if slopes else 0.0
+
 
 CHANGE_PCT_THRESHOLD = 5.0  # % — changes below this are ignored
 _DATE_COLUMNS = {"DocumentDate"}
@@ -121,6 +155,9 @@ class TrendAnalyzer(BaseAnalyzer):
         first_val = float(values[0])
         last_val = float(values[-1])
         change_pct = round((last_val - first_val) / first_val * 100, 2) if first_val != 0 else 0.0
+        mk_trend, mk_tau = _mann_kendall(values)
+        sens_s = _sens_slope(values)
+
         findings.append(Finding(
             type=finding_type,
             analyzer=self.name,
@@ -132,6 +169,12 @@ class TrendAnalyzer(BaseAnalyzer):
             change_pct=change_pct,
             significance=significance,
             period_label=context.period_label,
-            extra={"slope": round(float(slope), 4), "r_squared": round(r_squared, 4)},
+            extra={
+                "slope": round(float(slope), 4),
+                "r_squared": round(r_squared, 4),
+                "mk_trend": mk_trend,
+                "mk_tau": mk_tau,
+                "sens_slope": sens_s,
+            },
         ))
         return findings
