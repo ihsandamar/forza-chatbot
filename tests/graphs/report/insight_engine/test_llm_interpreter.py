@@ -48,3 +48,71 @@ def test_interpret_returns_string():
     result = asyncio.run(interpreter.interpret(findings, ctx))
     assert isinstance(result, str)
     assert len(result) > 0
+
+
+def _make_ctx_for_prompt():
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext
+    return AnalysisContext(
+        user_query="neler önemli?",
+        active_filters=[],
+        period_label="2024-01-01 – 2024-01-31",
+        dimension_columns=["ProductName"],
+        metric_columns=["RowAmount"],
+    )
+
+
+def _make_finding2(ftype, value="TestProduct", sig=0.7, extra=None):
+    from src.graphs.report_agent.insight_engine.models import Finding
+    return Finding(
+        type=ftype,
+        analyzer="TestAnalyzer",
+        dimension="ProductName",
+        value=value,
+        metric="RowAmount",
+        current_value=100.0,
+        comparison_value=80.0,
+        change_pct=25.0,
+        significance=sig,
+        period_label="2024-01-01 – 2024-01-31",
+        extra=extra or {},
+    )
+
+
+def test_grouped_prompt_contains_category_headers():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    findings = [
+        _make_finding2("trend_decline"),
+        _make_finding2("anomaly_high"),
+        _make_finding2("cusum_shift", extra={"shift_date": "2024-01-15", "direction": "down",
+                                              "before_avg": 200.0, "after_avg": 100.0}),
+    ]
+    interp = LLMInterpreter(llm=None)
+    prompt = interp._build_prompt(findings, _make_ctx_for_prompt())
+    assert "Trend" in prompt
+    assert "Anomali" in prompt or "Kalıcı Değişim" in prompt
+
+
+def test_key_dates_section_added_when_cusum_present():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    findings = [
+        _make_finding2("cusum_shift", extra={"shift_date": "2024-01-15", "direction": "down",
+                                              "before_avg": 200.0, "after_avg": 100.0}),
+    ]
+    prompt = LLMInterpreter(llm=None)._build_prompt(findings, _make_ctx_for_prompt())
+    assert "2024-01-15" in prompt
+
+
+def test_correlation_section_added_when_correlation_present():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    findings = [
+        _make_finding2("high_positive_correlation", value="Espresso ↔ Americano",
+                      extra={"r": 0.89, "product_a": "Espresso", "product_b": "Americano"}),
+    ]
+    prompt = LLMInterpreter(llm=None)._build_prompt(findings, _make_ctx_for_prompt())
+    assert "Espresso" in prompt
+    assert "0.89" in prompt or "r=" in prompt.lower()
+
+
+def test_system_prompt_mentions_collective():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import _SYSTEM_PROMPT
+    assert "kolektif" in _SYSTEM_PROMPT.lower() or "birleştir" in _SYSTEM_PROMPT.lower() or "bütünsel" in _SYSTEM_PROMPT.lower()
