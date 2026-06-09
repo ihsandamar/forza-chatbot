@@ -10,6 +10,7 @@ class AnalysisContext:
     dimension_columns: List[str]
     metric_columns: List[str]
     summary: Optional[Dict[str, Any]] = None  # aggregate stats from raw DataFrame
+    user_role: Optional[str] = None
 
 
 @dataclass

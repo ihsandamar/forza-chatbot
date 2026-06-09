@@ -298,3 +298,59 @@ def test_build_prompt_no_raw_extra_dump():
     assert "'r_squared'" not in prompt
     assert "'mk_trend'" not in prompt
     assert "84" in prompt or "normalin" in prompt.lower()
+
+
+def test_user_role_in_prompt_for_branch_manager():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
+
+    ctx = AnalysisContext(
+        user_query="analiz et", active_filters=[], period_label="test",
+        dimension_columns=["ProductName"], metric_columns=["RowAmount"],
+        user_role="branch_manager",
+    )
+    f = Finding(
+        type="top_performer", analyzer="A", dimension="ProductName", value="LATTE",
+        metric="RowAmount", current_value=5000.0, comparison_value=1000.0,
+        change_pct=400.0, significance=0.8, period_label="test",
+        extra={"rank": 1, "total_segments": 10},
+    )
+    prompt = LLMInterpreter(None)._build_prompt([f], ctx)
+    assert "branch_manager" in prompt or "şube müdürü" in prompt.lower()
+
+
+def test_no_role_gives_no_role_block():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
+
+    ctx = AnalysisContext(
+        user_query="analiz et", active_filters=[], period_label="test",
+        dimension_columns=["ProductName"], metric_columns=["RowAmount"],
+    )
+    f = Finding(
+        type="top_performer", analyzer="A", dimension="ProductName", value="LATTE",
+        metric="RowAmount", current_value=5000.0, comparison_value=1000.0,
+        change_pct=400.0, significance=0.8, period_label="test",
+        extra={"rank": 1, "total_segments": 10},
+    )
+    prompt = LLMInterpreter(None)._build_prompt([f], ctx)
+    assert "Kullanıcı Rolü" not in prompt
+
+
+def test_analysis_context_accepts_user_role():
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext
+    ctx = AnalysisContext(
+        user_query="test", active_filters=[], period_label="test",
+        dimension_columns=[], metric_columns=[],
+        user_role="general_manager",
+    )
+    assert ctx.user_role == "general_manager"
+
+
+def test_analysis_context_user_role_defaults_none():
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext
+    ctx = AnalysisContext(
+        user_query="test", active_filters=[], period_label="test",
+        dimension_columns=[], metric_columns=[],
+    )
+    assert ctx.user_role is None

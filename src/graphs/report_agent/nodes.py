@@ -722,6 +722,7 @@ def create_insight_engine_node(llm, connection_string: str):
             dimension_columns=dim_columns,
             metric_columns=metric_columns,
             summary=summary,
+            user_role=state.get("user_role"),
         )
 
         all_findings = math_engine.run(current_df, comparison_df, context)
