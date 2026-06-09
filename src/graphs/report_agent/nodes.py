@@ -730,11 +730,18 @@ def create_insight_engine_node(llm, connection_string: str):
 
         logger.info(f"[INSIGHT_ENGINE] {len(all_findings)} findings → {len(ranked)} ranked")
 
+        # Analyzer bazlı dağılım logu (geliştirme için)
+        from collections import Counter
+        analyzer_counts = Counter(f.analyzer for f in all_findings)
+        logger.debug(f"[INSIGHT_ENGINE] analyzer breakdown: {dict(analyzer_counts)}")
+
         insight_text = await interpreter.interpret(ranked, context)
 
         return {
             "insight_output": insight_text,
             "insight_findings": [f.to_dict() for f in ranked],
+            "insight_raw_findings": [f.to_dict() for f in all_findings],  # tüm findings (ranking öncesi)
+            "insight_summary": summary,  # total, period_days, daily_avg, segment stats
         }
 
     return insight_engine_node

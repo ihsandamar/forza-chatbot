@@ -52,7 +52,9 @@ class ReportState(TypedDict):
 
     # Insight Engine
     comparison_sql: Optional[str]           # Mode B: kullanıcının verdiği karşılaştırma SQL'i
-    insight_findings: Optional[List[Dict[str, Any]]]  # Ranker çıktısı (debug için)
+    insight_findings: Optional[List[Dict[str, Any]]]  # Ranker çıktısı — ranked top-N (debug)
+    insight_raw_findings: Optional[List[Dict[str, Any]]]  # Tüm findings ranking öncesi (debug)
+    insight_summary: Optional[Dict[str, Any]]  # Özet istatistikler: total, days, avg, segment (debug)
     insight_output: Optional[str]           # LLM Interpreter çıktısı
     user_role: Optional[str]                # branch_manager | general_manager | operations
 
@@ -109,6 +111,8 @@ def create_initial_state() -> ReportState:
         _skip_vague_check=False,
         comparison_sql=None,
         insight_findings=None,
+        insight_raw_findings=None,
+        insight_summary=None,
         insight_output=None,
         user_role=None,
         final_response=None,
