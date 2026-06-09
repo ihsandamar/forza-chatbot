@@ -80,6 +80,141 @@ _NO_FINDINGS_RESPONSE = (
 )
 
 
+_FINDING_LABELS: dict = {
+    "trend_increase": "Artış trendi",
+    "trend_decline": "Düşüş trendi",
+    "anomaly_high": "Yüksek anomali",
+    "anomaly_low": "Düşük anomali",
+    "cusum_shift": "Kalıcı değişim",
+    "regime_change": "Rejim değişimi",
+    "seasonal_peak": "Zirve günü",
+    "seasonal_trough": "Düşük gün",
+    "periodic_pattern": "Tekrar eden örüntü",
+    "top_performer": "En iyi performans",
+    "bottom_performer": "En düşük performans",
+    "pareto_dominant": "Pareto baskınlığı",
+    "bcg_star": "Yıldız ürün",
+    "bcg_cash_cow": "Nakit ineği",
+    "bcg_question_mark": "Soru işareti ürün",
+    "bcg_dog": "Zayıf ürün",
+    "peak_period": "Zirve dönemi",
+    "weak_period": "Düşük dönem",
+    "wow_surge": "Haftalık sıçrama",
+    "wow_drop": "Haftalık düşüş",
+    "high_momentum": "Güçlü büyüme ivmesi",
+    "high_volatility": "Yüksek dalgalanma",
+    "accelerating": "Hızlanan büyüme",
+    "decelerating": "Yavaşlayan büyüme",
+    "high_positive_correlation": "Birlikte hareket",
+    "high_negative_correlation": "Zıt hareket",
+}
+
+
+def _risk_badge(significance: float) -> str:
+    """🔴 kritik (≥0.7) / 🟡 izle (≥0.4) / 🟢 iyi (< 0.4)."""
+    if significance >= 0.7:
+        return "🔴"
+    if significance >= 0.4:
+        return "🟡"
+    return "🟢"
+
+
+def _humanize_evidence(f: Finding) -> str:
+    """Finding.extra'daki teknik veriyi insan diline çevirir.
+    LLM'e giden promptta z_score, r_squared vb. görünmez."""
+    e = f.extra
+    cur = f.current_value
+    cmp = f.comparison_value
+    chg = f.change_pct
+    t = f.type
+
+    if t in ("anomaly_high", "anomaly_low"):
+        mean_val = e.get("mean", cmp)
+        ratio = round(abs(cur) / abs(mean_val), 1) if mean_val else 0
+        direction = "üzerinde" if chg > 0 else "altında"
+        return (
+            f"Ortalama {_fmt_number(mean_val)}'ye karşı {_fmt_number(cur)} — "
+            f"normalin {ratio}x {direction}"
+        )
+    if t == "cusum_shift":
+        shift_date = e.get("shift_date", f.value)
+        before = e.get("before_avg", cmp)
+        after = e.get("after_avg", cur)
+        direction = "yükseldi" if after > before else "düştü"
+        return (
+            f"{shift_date} tarihinden itibaren kalıcı değişim — "
+            f"{_fmt_number(before)}'den {_fmt_number(after)}'ye {direction}"
+        )
+    if t == "regime_change":
+        cp_date = e.get("changepoint_date", f.value)
+        before = e.get("before_avg", cmp)
+        after = e.get("after_avg", cur)
+        direction = "yükseldi" if after > before else "düştü"
+        return (
+            f"{cp_date} tarihinde rejim değişimi — "
+            f"{_fmt_number(before)}'den {_fmt_number(after)}'ye {direction}"
+        )
+    if t in ("trend_increase", "trend_decline"):
+        r2 = e.get("r_squared", 0)
+        reliability = "tutarlı" if r2 > 0.6 else ("kısmen tutarlı" if r2 > 0.3 else "dalgalı")
+        direction = "artış" if chg > 0 else "düşüş"
+        return f"Dönem boyunca {chg:+.1f}% {direction} — {reliability} seyir"
+    if t == "wow_surge":
+        last7 = e.get("last7_sum", cur)
+        prev7 = e.get("prev7_sum", cmp)
+        return f"Bu hafta {_fmt_number(last7)}, geçen hafta {_fmt_number(prev7)} — {chg:+.1f}% artış"
+    if t == "wow_drop":
+        last7 = e.get("last7_sum", cur)
+        prev7 = e.get("prev7_sum", cmp)
+        return f"Bu hafta {_fmt_number(last7)}, geçen hafta {_fmt_number(prev7)} — {chg:+.1f}% düşüş"
+    if t == "high_momentum":
+        return f"Dönem sonu başa göre {chg:+.1f}% — güçlü ve tutarlı büyüme"
+    if t == "high_volatility":
+        cv = e.get("cv", 0)
+        mean_val = e.get("mean", 0)
+        return (
+            f"Ortalama {_fmt_number(mean_val)}, günler arası dalgalanma yüksek "
+            f"(değişkenlik: {cv:.0%})"
+        )
+    if t == "accelerating":
+        return "Büyüme hızlanıyor — ikinci yarı ilk yarıya göre daha güçlü seyir"
+    if t == "decelerating":
+        return "Büyüme yavaşlıyor — ikinci yarı ilk yarıya kıyasla ivme kaybetti"
+    if t in ("seasonal_peak", "seasonal_trough"):
+        direction = "yüksek" if chg > 0 else "düşük"
+        return f"Haftalık ortalamadan {chg:+.1f}% {direction}"
+    if t == "periodic_pattern":
+        period = e.get("fft_period", int(cur))
+        return f"{period} günde bir tekrar eden örüntü var"
+    if t == "top_performer":
+        rank = e.get("rank", 1)
+        total_segs = e.get("total_segments", "?")
+        return f"{total_segs} segment arasında {rank}. sırada — ortalamadan {chg:+.1f}% yüksek"
+    if t == "bottom_performer":
+        rank = e.get("rank", "?")
+        total_segs = e.get("total_segments", "?")
+        return f"{total_segs} segment arasında {rank}. sırada (en düşük) — ortalamadan {chg:+.1f}% düşük"
+    if t == "pareto_dominant":
+        top_n = e.get("top_n", 1)
+        share = e.get("share_pct", abs(chg))
+        return f"İlk {top_n} segment toplam cironun %{share:.1f}'ini oluşturuyor"
+    if t in ("bcg_star", "bcg_cash_cow", "bcg_question_mark", "bcg_dog"):
+        growth = e.get("growth_pct", chg)
+        share = e.get("revenue_share_pct", 0)
+        label = _FINDING_LABELS.get(t, t)
+        return f"Büyüme {growth:+.1f}%, pay %{share:.1f} — {label}"
+    if t in ("peak_period", "weak_period"):
+        direction = "yüksek" if chg > 0 else "düşük"
+        return f"Ortalamadan {chg:+.1f}% {direction}"
+    if t in ("high_positive_correlation", "high_negative_correlation"):
+        r = abs(e.get("r", 0))
+        pa = e.get("product_a", "")
+        pb = e.get("product_b", "")
+        direction = "birlikte" if "positive" in t else "zıt yönde"
+        return f"{pa} ve {pb} {direction} hareket ediyor (güç: {r:.2f})"
+    return f"Ortalamadan {chg:+.1f}% sapma"
+
+
 def _fmt_number(value: float) -> str:
     if value >= 1_000_000:
         return f"{value / 1_000_000:.2f}M"
