@@ -207,8 +207,9 @@ def test_finding_labels_covers_all_types():
         "trend_increase", "trend_decline", "anomaly_high", "anomaly_low",
         "cusum_shift", "regime_change", "wow_surge", "wow_drop", "high_momentum",
         "high_volatility", "accelerating", "decelerating", "seasonal_peak",
-        "seasonal_trough", "top_performer", "bottom_performer", "pareto_dominant",
-        "bcg_star", "bcg_dog", "peak_period", "weak_period",
+        "seasonal_trough", "periodic_pattern", "top_performer", "bottom_performer",
+        "pareto_dominant", "bcg_star", "bcg_cash_cow", "bcg_question_mark",
+        "bcg_dog", "peak_period", "weak_period",
         "high_positive_correlation", "high_negative_correlation",
     ]
     for t in required_types:
