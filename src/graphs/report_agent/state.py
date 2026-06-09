@@ -54,6 +54,7 @@ class ReportState(TypedDict):
     comparison_sql: Optional[str]           # Mode B: kullanıcının verdiği karşılaştırma SQL'i
     insight_findings: Optional[List[Dict[str, Any]]]  # Ranker çıktısı (debug için)
     insight_output: Optional[str]           # LLM Interpreter çıktısı
+    user_role: Optional[str]                # branch_manager | general_manager | operations
 
     # Response
     final_response: Optional[str]
@@ -109,6 +110,7 @@ def create_initial_state() -> ReportState:
         comparison_sql=None,
         insight_findings=None,
         insight_output=None,
+        user_role=None,
         final_response=None,
         text2sql_clarification=None,
         text2sql_answers=None,
