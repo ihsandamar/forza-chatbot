@@ -131,7 +131,7 @@ def _humanize_evidence(f: Finding) -> str:
     if t in ("anomaly_high", "anomaly_low"):
         mean_val = e.get("mean", cmp)
         ratio = round(abs(cur) / abs(mean_val), 1) if mean_val else 0
-        direction = "üzerinde" if chg > 0 else "altında"
+        direction = "üzerinde" if chg > 0 else ("altında" if chg < 0 else "eşit")
         return (
             f"Ortalama {_fmt_number(mean_val)}'ye karşı {_fmt_number(cur)} — "
             f"normalin {ratio}x {direction}"
@@ -216,10 +216,12 @@ def _humanize_evidence(f: Finding) -> str:
 
 
 def _fmt_number(value: float) -> str:
-    if value >= 1_000_000:
-        return f"{value / 1_000_000:.2f}M"
-    if value >= 1_000:
-        return f"{value / 1_000:.1f}K"
+    sign = "-" if value < 0 else ""
+    v = abs(value)
+    if v >= 1_000_000:
+        return f"{sign}{v / 1_000_000:.2f}M"
+    if v >= 1_000:
+        return f"{sign}{v / 1_000:.1f}K"
     return f"{value:.2f}"
 
 
