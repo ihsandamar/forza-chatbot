@@ -18,15 +18,26 @@ def _make_finding(type_="trend_decline", value="Burger", sig=0.9) -> Finding:
 
 def test_build_prompt_contains_findings():
     from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
-    ctx = AnalysisContext("nelere dikkat etmeliyim", [], "bu ay", ["ProductName"], ["RowAmount"])
-    findings = [_make_finding()]
-    llm_mock = MagicMock()
-    interpreter = LLMInterpreter(llm_mock)
-    prompt = interpreter._build_prompt(findings, ctx)
-    assert "trend_decline" in prompt
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
+
+    ctx = AnalysisContext(
+        user_query="trend analizi yap",
+        active_filters=[],
+        period_label="son 7 gün",
+        dimension_columns=["ProductName"],
+        metric_columns=["RowAmount"],
+    )
+    f = Finding(
+        type="trend_decline", analyzer="TrendAnalyzer", dimension="ProductName",
+        value="Burger", metric="RowAmount",
+        current_value=670.0, comparison_value=993.0,
+        change_pct=-32.5, significance=0.91, period_label="son 7 gün",
+        extra={"slope": -10.2, "r_squared": 0.84},
+    )
+    prompt = LLMInterpreter(None)._build_prompt([f], ctx)
+    assert "Düşüş trendi" in prompt   # human label, not type name
     assert "Burger" in prompt
     assert "-32.5" in prompt
-    assert "hesaplama yapma" in prompt.lower() or "kendi hesaplama" in prompt.lower()
 
 
 def test_build_prompt_no_findings():
@@ -80,16 +91,29 @@ def _make_finding2(ftype, value="TestProduct", sig=0.7, extra=None):
 
 def test_grouped_prompt_contains_category_headers():
     from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
+
+    def _mf2(ftype, sig=0.7, extra=None):
+        return Finding(
+            type=ftype, analyzer="X", dimension="ProductName", value="V",
+            metric="RowAmount", current_value=100.0, comparison_value=80.0,
+            change_pct=25.0, significance=sig, period_label="test",
+            extra=extra or {},
+        )
+
+    ctx = AnalysisContext(
+        user_query="neler önemli?", active_filters=[], period_label="test",
+        dimension_columns=["ProductName"], metric_columns=["RowAmount"],
+    )
     findings = [
-        _make_finding2("trend_decline"),
-        _make_finding2("anomaly_high"),
-        _make_finding2("cusum_shift", extra={"shift_date": "2024-01-15", "direction": "down",
-                                              "before_avg": 200.0, "after_avg": 100.0}),
+        _mf2("trend_decline", sig=0.8),
+        _mf2("anomaly_high", sig=0.5),
+        _mf2("cusum_shift", sig=0.9, extra={"shift_date": "2024-01-15",
+              "direction": "down", "before_avg": 200.0, "after_avg": 100.0}),
     ]
-    interp = LLMInterpreter(llm=None)
-    prompt = interp._build_prompt(findings, _make_ctx_for_prompt())
-    assert "Trend" in prompt
-    assert "Anomali" in prompt or "Kalıcı Değişim" in prompt
+    prompt = LLMInterpreter(None)._build_prompt(findings, ctx)
+    assert "🔴" in prompt   # high significance → red badge
+    assert "🟡" in prompt   # medium significance → yellow badge
 
 
 def test_key_dates_section_added_when_cusum_present():
@@ -115,7 +139,8 @@ def test_correlation_section_added_when_correlation_present():
 
 def test_system_prompt_mentions_collective():
     from src.graphs.report_agent.insight_engine.llm_interpreter import _SYSTEM_PROMPT
-    assert "kolektif" in _SYSTEM_PROMPT.lower() or "birleştir" in _SYSTEM_PROMPT.lower() or "bütünsel" in _SYSTEM_PROMPT.lower()
+    lower = _SYSTEM_PROMPT.lower()
+    assert "bütünsel" in lower or "bağlantı" in lower
 
 
 def _make_finding_for_humanize(ftype, value="ESPRESSO", sig=0.67, extra=None, chg=480.5, cur=480000.0, cmp=84200.0):
@@ -215,3 +240,61 @@ def test_finding_labels_covers_all_types():
     for t in required_types:
         assert t in _FINDING_LABELS, f"Missing label for: {t}"
         assert "_" not in _FINDING_LABELS[t], f"Label has underscore: {_FINDING_LABELS[t]}"
+
+
+def test_system_prompt_bans_technical_terms():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import _SYSTEM_PROMPT
+    lower = _SYSTEM_PROMPT.lower()
+    assert "r²" not in lower
+    assert "z-score" not in lower
+    assert "teknik" in lower  # has language rules section
+
+
+def test_system_prompt_has_action_rules():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import _SYSTEM_PROMPT
+    lower = _SYSTEM_PROMPT.lower()
+    assert "maksimum 3" in lower or "max 3" in lower
+    assert "fiil" in lower or "aksiyon" in lower
+
+
+def test_build_prompt_uses_risk_badges():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
+
+    def _f(sig):
+        return Finding(
+            type="anomaly_high", analyzer="A", dimension="D", value="V",
+            metric="M", current_value=500000.0, comparison_value=84000.0,
+            change_pct=480.0, significance=sig, period_label="test",
+            extra={"z_score": 2.67, "mean": 84000.0},
+        )
+
+    ctx = AnalysisContext(
+        user_query="analiz et", active_filters=[], period_label="test",
+        dimension_columns=["ProductName"], metric_columns=["RowAmount"],
+    )
+    findings = [_f(0.9), _f(0.5)]
+    prompt = LLMInterpreter(None)._build_prompt(findings, ctx)
+    assert "🔴" in prompt
+    assert "🟡" in prompt
+
+
+def test_build_prompt_no_raw_extra_dump():
+    from src.graphs.report_agent.insight_engine.llm_interpreter import LLMInterpreter
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
+
+    ctx = AnalysisContext(
+        user_query="analiz", active_filters=[], period_label="test",
+        dimension_columns=["ProductName"], metric_columns=["RowAmount"],
+    )
+    f = Finding(
+        type="anomaly_high", analyzer="A", dimension="ProductName", value="ESPRESSO",
+        metric="RowAmount", current_value=480000.0, comparison_value=84000.0,
+        change_pct=480.5, significance=0.67, period_label="test",
+        extra={"z_score": 2.67, "mean": 84000.0, "std": 150000.0},
+    )
+    prompt = LLMInterpreter(None)._build_prompt([f], ctx)
+    assert "'z_score'" not in prompt
+    assert "'r_squared'" not in prompt
+    assert "'mk_trend'" not in prompt
+    assert "84" in prompt or "normalin" in prompt.lower()

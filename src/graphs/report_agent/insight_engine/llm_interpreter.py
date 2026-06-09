@@ -1,84 +1,20 @@
 """
 LLMInterpreter — Python → LLM geçiş katmanı.
 
-Prompt yapısı (3 katman):
-  1. GENEL TABLO    — DataFrame'den hesaplanan özet istatistikler (bağlam)
-  2. KRİTİK BULGULAR — significance > 0.6 olanlar (öncelikli okuma)
-  3. TÜM BULGULAR   — kategori bazlı gruplandırılmış tam liste
+Prompt yapısı:
+  1. GENEL TABLO    — DataFrame'den özet istatistikler (bağlam)
+  2. BULGULAR       — risk badge + insan dili delil, significance sıralı
 
-LLM çıktı formatı (6 bölüm):
-  📊 Genel Bakış / 🏆 Ürün Performansı / 📈 Trend & Momentum
-  ⚠️ Anomaliler / 📅 Sezonsallik / 💡 Aksiyon
+LLM çıktı formatı (6 bölüm, veri yoksa bölüm atlanır):
+  📊 Genel Bakış / 🏆 En İyi & En Kötü / 📈 Trend & Büyüme
+  ⚠️ Dikkat Gereken / 📅 Haftalık Örüntü / 💡 Aksiyonlar
 """
 import logging
-from collections import defaultdict
 from typing import List
 
 from src.graphs.report_agent.insight_engine.models import AnalysisContext, Finding
 
 logger = logging.getLogger(__name__)
-
-_CRITICAL_THRESHOLD = 0.6
-
-_SYSTEM_PROMPT = """Sen bir üst düzey iş analisti asistanısın.
-Sana üç katmanlı veri verilecek: (1) Genel Tablo — ham istatistikler, (2) Kritik Bulgular — en önemli matematiksel tespitler, (3) Tüm Bulgular — kategorize tam liste.
-
-KURALLAR:
-- Sadece verilen sayılardan çıkarım yap; kendi hesaplama veya tahmin yapma
-- Genel Tablo'daki sayıları (toplam, günlük ort, segment payları) bağlam olarak kullan
-- Anomali/CUSUM bulgularındaki tarihleri mutlaka yaz
-- Trend bulgularındaki R², slope, momentum_score değerlerini yorum metnine yansıt
-- Korelasyon bulgularını "ürün ilişkisi" olarak değerlendir
-- Bütünsel bir değerlendirme sun; bulgular arasındaki örüntüleri birleştir
-- Türkçe yaz; sayıları her zaman bulgulardan al
-
-ÇIKTI FORMATI (bu 6 bölümü sırayla yaz, veri yoksa bölümü atla):
-📊 Genel Bakış: (Genel Tablo'dan: toplam değer, dönem, günlük ort, genel trend yönü)
-
-🏆 Ürün/Segment Performansı: (top/bottom/pareto/BCG bulgularını değerlendir, % payları belirt)
-
-📈 Trend & Momentum: (trend_increase/decline, high_momentum, wow_surge/drop, accelerating/decelerating — R² ve slope değerleriyle)
-
-⚠️ Anomaliler & Değişimler: (anomaly_high/low, cusum_shift, regime_change — tarihleri ve z-score değerlerini mutlaka yaz)
-
-📅 Sezonsallik: (seasonal_peak/trough, periodic_pattern — varsa gün adlarını ve % farkları yaz)
-
-💡 Aksiyon Önerileri: (somut, sayıya dayalı, öncelik sıralamalı — en kritik bulgular için önce)"""
-
-_CATEGORY_MAP = {
-    "trend_increase": "📈 Trend",
-    "trend_decline": "📉 Trend",
-    "anomaly_high": "⚠️ Anomali",
-    "anomaly_low": "⚠️ Anomali",
-    "cusum_shift": "🔴 Kalıcı Değişim",
-    "regime_change": "🔄 Rejim Değişimi",
-    "seasonal_peak": "🗓️ Mevsimsellik",
-    "seasonal_trough": "🗓️ Mevsimsellik",
-    "periodic_pattern": "🗓️ Periyodik Örüntü",
-    "top_performer": "🏆 Segment",
-    "bottom_performer": "⬇️ Segment",
-    "pareto_dominant": "🎯 Pareto",
-    "bcg_star": "⭐ BCG Yıldız",
-    "bcg_cash_cow": "🐄 BCG Nakit İnek",
-    "bcg_question_mark": "❓ BCG Soru İşareti",
-    "bcg_dog": "🐕 BCG Köpek",
-    "peak_period": "⏰ Zaman",
-    "weak_period": "⏰ Zaman",
-    "wow_surge": "🚀 Momentum",
-    "wow_drop": "📉 Momentum",
-    "high_momentum": "💪 Momentum",
-    "high_volatility": "〰️ Volatilite",
-    "accelerating": "⬆️ İvme",
-    "decelerating": "⬇️ İvme",
-    "high_positive_correlation": "🔗 Korelasyon",
-    "high_negative_correlation": "🔗 Korelasyon",
-}
-
-_NO_FINDINGS_RESPONSE = (
-    "Mevcut veri üzerinde istatistiksel olarak anlamlı bir bulgu tespit edilemedi. "
-    "Daha geniş bir tarih aralığı veya farklı bir segment seçerek tekrar deneyebilirsiniz."
-)
-
 
 _FINDING_LABELS: dict = {
     "trend_increase": "Artış trendi",
@@ -109,6 +45,72 @@ _FINDING_LABELS: dict = {
     "high_negative_correlation": "Zıt hareket",
 }
 
+_ROLE_INSTRUCTIONS: dict = {
+    "branch_manager": (
+        "Kullanıcı şube müdürü — kendi şubesine odaklan, genel karşılaştırmalar gerekmez."
+    ),
+    "general_manager": (
+        "Kullanıcı genel müdür — en iyi ve en kötü şubeyi öne çıkar, tüm bazında karşılaştır."
+    ),
+    "operations": (
+        "Kullanıcı operasyon ekibi — anomalilere ve zaman örüntülerine odaklan."
+    ),
+}
+
+_SYSTEM_PROMPT = """Sen bir iş analisti asistanısın. Veriler Python tarafından analiz edilmiş
+ve insan dilinde özetlenmiştir.
+
+DİL KURALLARI — KESİNLİKLE UY:
+- Teknik terim kullanma — istatistiksel semboller ve analiz terimleri çıktıda görünmemeli
+- Her bulgu için maksimum 2 cümle
+- Önce sonuç, sonra neden: "LATTE bu hafta zirveye çıktı — geçen haftaya göre +%18"
+- Aktif dil: "incele", "takip et", "uygula" — "incelenmelidir" gibi pasif ifade yok
+- Her rakam bağlamlı: "+%18 artarak 583K" — asla sadece "583K"
+- Belirsiz ifade yok: "dikkat çekmektedir", "görülmektedir" gibi dolgu cümle yok
+
+SAYI FORMATI:
+- M veya K kullan (1.250.000 değil, 1.25M)
+- Yüzde hep yönlü: +%18 veya -%12 — asla sadece %18
+
+AKSİYONLAR:
+- Maksimum 3 öneri, en kritik önce
+- Her öneri fiille başlar: "Bu ürünü öne çıkar", "Şubeyi incele"
+- Doğrudan yapılabilir — "genel strateji geliştir" gibi muğlak öneri yok
+
+FORMAT KURALLARI:
+- 🔴 bulgular en kritik — önce bunları işle
+- Bölüm yoksa o bölümü yazma — boş bölüm çıkmasın
+- Her bölüm maksimum 3-4 cümle
+- Bütünsel değerlendirme: bulgular arasındaki bağlantıyı göster
+
+ÇIKTI FORMATI:
+📊 Genel Bakış: (Genel Tablo'dan toplam, dönem, günlük ort — 1-2 cümle)
+
+🏆 En İyi & En Kötü: (hangi ürün/segment zirve yapıyor, hangisi dipte — veri varsa)
+
+📈 Trend & Büyüme: (büyüyen/düşen ürünler, haftalık değişimler — veri varsa)
+
+⚠️ Dikkat Gereken: (anomali, kalıcı değişim, tarihle birlikte — veri varsa)
+
+📅 Haftalık Örüntü: (hangi gün yüksek/düşük — veri varsa)
+
+💡 Aksiyonlar: (maksimum 3, en kritik önce, fiille başlar)"""
+
+_NO_FINDINGS_RESPONSE = (
+    "Bu dönemde öne çıkan bir hareket tespit edilemedi. "
+    "Daha geniş bir tarih aralığı seçerek tekrar deneyebilirsiniz."
+)
+
+
+def _fmt_number(value: float) -> str:
+    sign = "-" if value < 0 else ""
+    v = abs(value)
+    if v >= 1_000_000:
+        return f"{sign}{v / 1_000_000:.2f}M"
+    if v >= 1_000:
+        return f"{sign}{v / 1_000:.1f}K"
+    return f"{value:.2f}"
+
 
 def _risk_badge(significance: float) -> str:
     """🔴 kritik (≥0.7) / 🟡 izle (≥0.4) / 🟢 iyi (< 0.4)."""
@@ -120,8 +122,7 @@ def _risk_badge(significance: float) -> str:
 
 
 def _humanize_evidence(f: Finding) -> str:
-    """Finding.extra'daki teknik veriyi insan diline çevirir.
-    LLM'e giden promptta z_score, r_squared vb. görünmez."""
+    """Finding.extra'daki teknik veriyi insan diline çevirir."""
     e = f.extra
     cur = f.current_value
     cmp = f.comparison_value
@@ -215,32 +216,11 @@ def _humanize_evidence(f: Finding) -> str:
     return f"Ortalamadan {chg:+.1f}% sapma"
 
 
-def _fmt_number(value: float) -> str:
-    sign = "-" if value < 0 else ""
-    v = abs(value)
-    if v >= 1_000_000:
-        return f"{sign}{v / 1_000_000:.2f}M"
-    if v >= 1_000:
-        return f"{sign}{v / 1_000:.1f}K"
-    return f"{value:.2f}"
-
-
-def _finding_line(f: Finding) -> str:
-    line = (
-        f"  [{f.type}] {f.dimension}={f.value} | {f.metric} | "
-        f"değişim={f.change_pct:+.1f}% | önem={f.significance:.2f}"
-    )
-    if f.extra:
-        line += f"\n    ↳ {f.extra}"
-    return line
-
-
 class LLMInterpreter:
     def __init__(self, llm):
         self._llm = llm
 
     def _build_general_table(self, context: AnalysisContext) -> str:
-        """Katman 1: DataFrame özet istatistikleri — LLM'e bağlam sağlar."""
         s = context.summary
         if not s:
             return ""
@@ -275,48 +255,34 @@ class LLMInterpreter:
 
         general_table = self._build_general_table(context)
 
-        # Katman 2: kritik bulgular
-        critical = [f for f in findings if f.significance > _CRITICAL_THRESHOLD]
-        critical_section = ""
-        if critical:
-            critical_lines = "\n".join(_finding_line(f) for f in critical)
-            critical_section = (
-                f"\n\n=== KRİTİK BULGULAR ({len(critical)} adet — önem > {_CRITICAL_THRESHOLD}) ===\n"
-                f"{critical_lines}"
-            )
+        # Bulgular: significance sıralı, risk badge + insan dili delil
+        sorted_findings = sorted(findings, key=lambda x: x.significance, reverse=True)
+        finding_lines = []
+        for f in sorted_findings:
+            badge = _risk_badge(f.significance)
+            label = _FINDING_LABELS.get(f.type, f.type)
+            evidence = _humanize_evidence(f)
+            finding_lines.append(f"{badge} {label} — {f.value}: {evidence}")
+        findings_text = "\n".join(finding_lines)
 
-        # Kilit tarihler
-        date_findings = [f for f in findings if f.type in ("cusum_shift", "regime_change")]
-        key_dates_text = ""
-        if date_findings:
-            dates = [
-                f.extra.get("shift_date") or f.extra.get("changepoint_date") or f.value
-                for f in date_findings
-            ]
-            key_dates_text = f"\nKilit Tarihler: {', '.join(filter(None, dates))}"
-
-        # Ürün ilişkileri
+        # Ürün ilişkileri (korelasyon varsa ek context)
         corr_findings = [f for f in findings if "correlation" in f.type]
         corr_text = ""
         if corr_findings:
             pairs = [
                 f"  • {f.extra.get('product_a', '')} ↔ {f.extra.get('product_b', '')} "
-                f"(r={f.extra.get('r', 0):.2f})"
+                f"(güç: {abs(f.extra.get('r', 0)):.2f})"
                 for f in corr_findings
             ]
             corr_text = "\nÜrün İlişkileri:\n" + "\n".join(pairs)
 
-        # Katman 3: tüm bulgular kategori bazlı
-        groups: dict = defaultdict(list)
-        for f in findings:
-            cat = _CATEGORY_MAP.get(f.type, "📊 Diğer")
-            groups[cat].append(f)
-        group_lines = []
-        for cat in sorted(groups.keys()):
-            group_lines.append(f"\n{cat}:")
-            for f in groups[cat]:
-                group_lines.append(_finding_line(f))
-        all_findings_section = "\n".join(group_lines)
+        # Kullanıcı rolü (varsa)
+        role_text = ""
+        role = getattr(context, "user_role", None)
+        if role:
+            role_instruction = _ROLE_INSTRUCTIONS.get(role, "")
+            if role_instruction:
+                role_text = f"\nKullanıcı Rolü: {role_instruction}"
 
         filters_text = (
             ", ".join(f"{d['field']}={d['value']}" for d in context.active_filters)
@@ -325,19 +291,14 @@ class LLMInterpreter:
 
         return (
             f"Kullanıcı sorusu: {context.user_query}\n"
-            f"Aktif filtreler: {filters_text}\n"
+            f"Filtreler: {filters_text}\n"
             f"Dönem: {context.period_label}"
-            f"{key_dates_text}"
+            f"{role_text}"
             f"{corr_text}"
             f"{general_table}"
-            f"{critical_section}"
-            f"\n\n=== TÜM BULGULAR ({len(findings)} adet, kategoriye göre) ==="
-            f"{all_findings_section}\n\n"
-            "GENEL TABLO'daki sayıları bağlam olarak sun. "
-            "Kritik Bulgular'a öncelik ver. "
-            "Anomali ve değişim bulgularındaki tarihleri mutlaka belirt. "
-            "Trend bulgularındaki R² ve slope değerlerini yorum metnine yansıt. "
-            "Kendi hesaplama yapma — sadece verilen sayıları kullan."
+            f"\n\n=== BULGULAR ({len(findings)} adet, en kritik önce) ===\n"
+            f"{findings_text}\n\n"
+            "🔴 bulgular en kritik. Tarihleri ve sayıları kullan. Kendi hesaplama yapma."
         )
 
     async def interpret(self, findings: List[Finding], context: AnalysisContext) -> str:
