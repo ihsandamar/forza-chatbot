@@ -134,6 +134,10 @@ class TrendAnalyzer(BaseAnalyzer):
             return findings
 
         metric = metric_cols[0]
+        # Sort by date to ensure values and date endpoints are aligned
+        date_col_name = context.dimension_columns[0]
+        if date_col_name in df.columns:
+            df = df.sort_values(date_col_name).reset_index(drop=True)
         values = df[metric].astype(float).values
         if len(values) < 3:
             return findings
