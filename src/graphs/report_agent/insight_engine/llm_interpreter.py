@@ -168,13 +168,31 @@ def _humanize_evidence(f: Finding) -> str:
     if t == "wow_surge":
         last7 = e.get("last7_sum", cur)
         prev7 = e.get("prev7_sum", cmp)
-        return f"Bu hafta {_fmt_number(last7)}, geçen hafta {_fmt_number(prev7)} — {chg:+.1f}% artış"
+        l_start = e.get("last7_start", "")
+        l_end = e.get("last7_end", "")
+        p_start = e.get("prev7_start", "")
+        p_end = e.get("prev7_end", "")
+        last_range = f" ({l_start}–{l_end})" if l_start and l_end else ""
+        prev_range = f" ({p_start}–{p_end})" if p_start and p_end else ""
+        return f"Bu hafta{last_range} {_fmt_number(last7)}, geçen hafta{prev_range} {_fmt_number(prev7)} — {chg:+.1f}% artış"
+
     if t == "wow_drop":
         last7 = e.get("last7_sum", cur)
         prev7 = e.get("prev7_sum", cmp)
-        return f"Bu hafta {_fmt_number(last7)}, geçen hafta {_fmt_number(prev7)} — {chg:+.1f}% düşüş"
+        l_start = e.get("last7_start", "")
+        l_end = e.get("last7_end", "")
+        p_start = e.get("prev7_start", "")
+        p_end = e.get("prev7_end", "")
+        last_range = f" ({l_start}–{l_end})" if l_start and l_end else ""
+        prev_range = f" ({p_start}–{p_end})" if p_start and p_end else ""
+        return f"Bu hafta{last_range} {_fmt_number(last7)}, geçen hafta{prev_range} {_fmt_number(prev7)} — {chg:+.1f}% düşüş"
+
     if t == "high_momentum":
-        return f"Dönem sonu başa göre {chg:+.1f}% — güçlü ve tutarlı büyüme"
+        p_start = e.get("period_start", "")
+        p_end = e.get("period_end", "")
+        date_info = f" ({p_start} – {p_end})" if p_start and p_end else ""
+        return f"Dönem sonu başa göre{date_info} {chg:+.1f}% — güçlü ve tutarlı büyüme"
+
     if t == "high_volatility":
         cv = e.get("cv", 0)
         mean_val = e.get("mean", 0)
@@ -183,9 +201,14 @@ def _humanize_evidence(f: Finding) -> str:
             f"(değişkenlik: {cv:.0%})"
         )
     if t == "accelerating":
-        return "Büyüme hızlanıyor — ikinci yarı ilk yarıya göre daha güçlü seyir"
+        second_dates = e.get("second_half_dates", "")
+        date_info = f" ({second_dates})" if second_dates else ""
+        return f"Büyüme hızlanıyor{date_info} — ikinci yarı ilk yarıya göre daha güçlü seyir"
+
     if t == "decelerating":
-        return "Büyüme yavaşlıyor — ikinci yarı ilk yarıya kıyasla ivme kaybetti"
+        second_dates = e.get("second_half_dates", "")
+        date_info = f" ({second_dates})" if second_dates else ""
+        return f"Büyüme yavaşlıyor{date_info} — ikinci yarı ilk yarıya kıyasla ivme kaybetti"
     if t in ("seasonal_peak", "seasonal_trough"):
         direction = "yüksek" if chg > 0 else "düşük"
         return f"Haftalık ortalamadan {chg:+.1f}% {direction}"

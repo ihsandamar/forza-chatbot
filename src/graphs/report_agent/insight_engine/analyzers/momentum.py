@@ -16,6 +16,14 @@ MOMENTUM_THRESHOLD = 0.07
 _DATE_COLUMNS = {"DocumentDate"}
 
 
+def _date_str(ts) -> str:
+    """pandas Timestamp or numpy datetime64 → 'YYYY-MM-DD' string."""
+    try:
+        return str(pd.Timestamp(ts).date())
+    except Exception:
+        return ""
+
+
 class MomentumAnalyzer(BaseAnalyzer):
     @property
     def name(self) -> str:
@@ -63,7 +71,14 @@ class MomentumAnalyzer(BaseAnalyzer):
                     change_pct=round(wow_pct, 2),
                     significance=round(min(wow_pct / 100, 1.0), 3),
                     period_label=context.period_label,
-                    extra={"last7_sum": round(float(last7.sum()), 2), "prev7_sum": round(prev7_sum, 2)},
+                    extra={
+                        "last7_sum": round(float(last7.sum()), 2),
+                        "prev7_sum": round(prev7_sum, 2),
+                        "last7_start": _date_str(df[date_col].iloc[-7]),
+                        "last7_end": _date_str(df[date_col].iloc[-1]),
+                        "prev7_start": _date_str(df[date_col].iloc[-14]),
+                        "prev7_end": _date_str(df[date_col].iloc[-8]),
+                    },
                 ))
             elif wow_pct <= -WOW_THRESHOLD:
                 findings.append(Finding(
@@ -77,7 +92,14 @@ class MomentumAnalyzer(BaseAnalyzer):
                     change_pct=round(wow_pct, 2),
                     significance=round(min(abs(wow_pct) / 100, 1.0), 3),
                     period_label=context.period_label,
-                    extra={"last7_sum": round(float(last7.sum()), 2), "prev7_sum": round(prev7_sum, 2)},
+                    extra={
+                        "last7_sum": round(float(last7.sum()), 2),
+                        "prev7_sum": round(prev7_sum, 2),
+                        "last7_start": _date_str(df[date_col].iloc[-7]),
+                        "last7_end": _date_str(df[date_col].iloc[-1]),
+                        "prev7_start": _date_str(df[date_col].iloc[-14]),
+                        "prev7_end": _date_str(df[date_col].iloc[-8]),
+                    },
                 ))
 
         # Volatility: coefficient of variation
@@ -128,6 +150,8 @@ class MomentumAnalyzer(BaseAnalyzer):
                         "momentum_score": round(float(momentum_score), 4),
                         "slope": round(float(slope), 4),
                         "r_squared": round(r_squared, 4),
+                        "period_start": _date_str(df[date_col].iloc[0]),
+                        "period_end": _date_str(df[date_col].iloc[-1]),
                     },
                 ))
 
@@ -142,7 +166,16 @@ class MomentumAnalyzer(BaseAnalyzer):
                 norm_s1 = slope1 / value_range
                 norm_s2 = slope2 / value_range
                 ratio = norm_s2 / norm_s1
-                extra_acc = {"first_half_slope": round(float(norm_s1), 4), "second_half_slope": round(float(norm_s2), 4)}
+                extra_acc = {
+                    "first_half_slope": round(float(norm_s1), 4),
+                    "second_half_slope": round(float(norm_s2), 4),
+                    "first_half_dates": (
+                        f"{_date_str(df[date_col].iloc[0])} – {_date_str(df[date_col].iloc[mid - 1])}"
+                    ),
+                    "second_half_dates": (
+                        f"{_date_str(df[date_col].iloc[mid])} – {_date_str(df[date_col].iloc[-1])}"
+                    ),
+                }
                 if norm_s1 > 0 and ratio >= 1.5:
                     findings.append(Finding(
                         type="accelerating",
