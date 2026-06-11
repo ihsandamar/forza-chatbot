@@ -10,7 +10,7 @@ from src.graphs.report_agent.insight_engine.models import AnalysisContext, Findi
 
 logger = logging.getLogger(__name__)
 
-Z_SCORE_THRESHOLD = 1.5
+Z_SCORE_THRESHOLD = 1.4
 
 _DATE_COLUMNS = {"DocumentDate"}
 _MIN_TS_ROWS = 10
@@ -84,6 +84,12 @@ class AnomalyDetector(BaseAnalyzer):
         if std == 0:
             return findings
 
+        # Detect date column for per-row anomaly dating
+        _date_col_in_df = next(
+            (c for c in _DATE_COLUMNS if c in current_df.columns),
+            None,
+        )
+
         for _, row in current_df.iterrows():
             val = float(row[metric])
             z = (val - mean) / std
@@ -92,6 +98,18 @@ class AnomalyDetector(BaseAnalyzer):
             finding_type = "anomaly_high" if z > 0 else "anomaly_low"
             significance = round(min(abs(z) / 4, 1.0), 3)
             vs_avg_pct = round((val - mean) / mean * 100, 2) if mean != 0 else 0.0
+            anomaly_extra: dict = {
+                "z_score": round(z, 3),
+                "mean": round(mean, 2),
+                "std": round(std, 2),
+            }
+            if _date_col_in_df is not None:
+                raw_date = row.get(_date_col_in_df)
+                if raw_date is not None:
+                    try:
+                        anomaly_extra["anomaly_date"] = str(pd.Timestamp(raw_date).date())
+                    except Exception:
+                        pass
             findings.append(Finding(
                 type=finding_type,
                 analyzer=self.name,
@@ -103,7 +121,7 @@ class AnomalyDetector(BaseAnalyzer):
                 change_pct=vs_avg_pct,
                 significance=significance,
                 period_label=context.period_label,
-                extra={"z_score": round(z, 3), "mean": round(mean, 2), "std": round(std, 2)},
+                extra=anomaly_extra,
             ))
 
         # Time-series shift detection (CUSUM + Changepoint)
@@ -130,6 +148,8 @@ class AnomalyDetector(BaseAnalyzer):
 
         values = ts[metric].astype(float).values
         dates = ts[date_col].values
+        analysis_start = str(pd.Timestamp(dates[0]).date()) if len(dates) > 0 else ""
+        analysis_end = str(pd.Timestamp(dates[-1]).date()) if len(dates) > 0 else ""
         shift_findings: List[Finding] = []
 
         # CUSUM
@@ -154,8 +174,16 @@ class AnomalyDetector(BaseAnalyzer):
                     change_pct=round(pct, 2),
                     significance=sig,
                     period_label=context.period_label,
-                    extra={"shift_date": cusum_date, "direction": direction,
-                           "before_avg": round(before_avg, 2), "after_avg": round(after_avg, 2)},
+                    extra={
+                        "shift_date": cusum_date,
+                        "direction": direction,
+                        "before_avg": round(before_avg, 2),
+                        "after_avg": round(after_avg, 2),
+                        "n_before": shift_idx,
+                        "n_after": len(values) - shift_idx,
+                        "analysis_start": analysis_start,
+                        "analysis_end": analysis_end,
+                    },
                 ))
 
         # Changepoint
@@ -178,8 +206,15 @@ class AnomalyDetector(BaseAnalyzer):
                     change_pct=round(pct, 2),
                     significance=sig,
                     period_label=context.period_label,
-                    extra={"changepoint_date": cp_date,
-                           "before_avg": round(before_avg, 2), "after_avg": round(after_avg, 2)},
+                    extra={
+                        "changepoint_date": cp_date,
+                        "before_avg": round(before_avg, 2),
+                        "after_avg": round(after_avg, 2),
+                        "n_before": cp_idx,
+                        "n_after": len(values) - cp_idx,
+                        "analysis_start": analysis_start,
+                        "analysis_end": analysis_end,
+                    },
                 ))
 
         return shift_findings

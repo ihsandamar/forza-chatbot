@@ -51,3 +51,29 @@ def test_too_few_rows_returns_empty():
     from src.graphs.report_agent.insight_engine.analyzers.anomaly import AnomalyDetector
     df = pd.DataFrame({"BranchName": ["Ankara"], "RowAmount": [1000.0]})
     assert AnomalyDetector().analyze(df, pd.DataFrame(), _make_ctx()) == []
+
+
+def test_anomaly_high_has_date_when_date_col_in_df():
+    """date×product matrix: each row has date → anomaly_date should be in extra."""
+    from src.graphs.report_agent.insight_engine.analyzers.anomaly import AnomalyDetector
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext
+    import pandas as pd
+    ctx = AnalysisContext(
+        user_query="t", active_filters=[], period_label="test",
+        dimension_columns=["ProductName", "DocumentDate"],
+        metric_columns=["RowAmount"],
+    )
+    rows = [
+        {"ProductName": "ESPRESSO", "DocumentDate": "2024-02-14", "RowAmount": 480000.0},
+        {"ProductName": "LATTE",    "DocumentDate": "2024-02-14", "RowAmount": 84000.0},
+        {"ProductName": "MOCHA",    "DocumentDate": "2024-02-14", "RowAmount": 90000.0},
+        {"ProductName": "AMERICANO","DocumentDate": "2024-02-14", "RowAmount": 80000.0},
+    ]
+    df = pd.DataFrame(rows)
+    findings = AnomalyDetector().analyze(df, pd.DataFrame(), ctx)
+    anomalies = [f for f in findings if f.type == "anomaly_high"]
+    assert len(anomalies) >= 1
+    espresso = next((f for f in anomalies if f.value == "ESPRESSO"), None)
+    assert espresso is not None
+    assert "anomaly_date" in espresso.extra
+    assert espresso.extra["anomaly_date"] == "2024-02-14"

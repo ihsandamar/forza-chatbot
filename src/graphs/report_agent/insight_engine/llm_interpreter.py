@@ -133,8 +133,10 @@ def _humanize_evidence(f: Finding) -> str:
         mean_val = e.get("mean", cmp)
         ratio = round(abs(cur) / abs(mean_val), 1) if mean_val else 0
         direction = "üzerinde" if chg > 0 else ("altında" if chg < 0 else "eşit")
+        anomaly_date = e.get("anomaly_date", "")
+        date_info = f" {anomaly_date} tarihinde" if anomaly_date else ""
         return (
-            f"Ortalama {_fmt_number(mean_val)}'ye karşı {_fmt_number(cur)} — "
+            f"Ortalama {_fmt_number(mean_val)}'ye karşı{date_info} {_fmt_number(cur)} — "
             f"normalin {ratio}x {direction}"
         )
     if t == "cusum_shift":
@@ -142,8 +144,11 @@ def _humanize_evidence(f: Finding) -> str:
         before = e.get("before_avg", cmp)
         after = e.get("after_avg", cur)
         direction = "yükseldi" if after > before else "düştü"
+        n_before = e.get("n_before", 0)
+        n_after = e.get("n_after", 0)
+        context_info = f" ({n_before} gün öncesi / {n_after} gün sonrası)" if n_before and n_after else ""
         return (
-            f"{shift_date} tarihinden itibaren kalıcı değişim — "
+            f"{shift_date} tarihinden itibaren kalıcı değişim{context_info} — "
             f"{_fmt_number(before)}'den {_fmt_number(after)}'ye {direction}"
         )
     if t == "regime_change":

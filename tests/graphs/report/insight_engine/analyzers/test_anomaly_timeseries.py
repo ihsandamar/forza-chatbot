@@ -60,3 +60,27 @@ def test_time_shift_ignored_when_no_date_column():
     findings = AnomalyDetector().analyze(df, pd.DataFrame(), ctx)
     shift_types = [f.type for f in findings if f.type in ("cusum_shift", "regime_change")]
     assert len(shift_types) == 0
+
+
+def test_cusum_shift_has_n_before_n_after():
+    from src.graphs.report_agent.insight_engine.analyzers.anomaly import AnomalyDetector
+    from src.graphs.report_agent.insight_engine.models import AnalysisContext
+    import pandas as pd
+    ctx = AnalysisContext(
+        user_query="t", active_filters=[], period_label="test",
+        dimension_columns=["DocumentDate"], metric_columns=["RowAmount"],
+    )
+    n = 20
+    dates = pd.date_range("2024-01-01", periods=n, freq="D")
+    values = [100.0] * 10 + [300.0] * 10
+    df = pd.DataFrame({"DocumentDate": dates, "RowAmount": values})
+    findings = AnomalyDetector().analyze(df, pd.DataFrame(), ctx)
+    cusum = next((f for f in findings if f.type == "cusum_shift"), None)
+    assert cusum is not None
+    assert "n_before" in cusum.extra
+    assert "n_after" in cusum.extra
+    assert "analysis_start" in cusum.extra
+    assert "analysis_end" in cusum.extra
+    assert cusum.extra["analysis_start"] == "2024-01-01"
+    assert cusum.extra["analysis_end"] == "2024-01-20"
+    assert cusum.extra["n_before"] + cusum.extra["n_after"] == n
