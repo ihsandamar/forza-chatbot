@@ -159,6 +159,11 @@ def _humanize_evidence(f: Finding) -> str:
         r2 = e.get("r_squared", 0)
         reliability = "tutarlı" if r2 > 0.6 else ("kısmen tutarlı" if r2 > 0.3 else "dalgalı")
         direction = "artış" if chg > 0 else "düşüş"
+        start = e.get("start_date", "")
+        end = e.get("end_date", "")
+        n = e.get("n_points", 0)
+        if start and end:
+            return f"{start} – {end} arasında {chg:+.1f}% {direction} — {reliability} seyir ({n} gün)"
         return f"Dönem boyunca {chg:+.1f}% {direction} — {reliability} seyir"
     if t == "wow_surge":
         last7 = e.get("last7_sum", cur)

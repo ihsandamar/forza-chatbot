@@ -155,6 +155,20 @@ class TrendAnalyzer(BaseAnalyzer):
         first_val = float(values[0])
         last_val = float(values[-1])
         change_pct = round((last_val - first_val) / first_val * 100, 2) if first_val != 0 else 0.0
+        # Date range extraction
+        date_col = context.dimension_columns[0]
+        start_date = ""
+        end_date = ""
+        n_points = len(values)
+        if date_col in df.columns:
+            try:
+                sorted_dates = pd.to_datetime(df[date_col], errors="coerce").dropna().sort_values()
+                if len(sorted_dates) >= 2:
+                    start_date = str(sorted_dates.iloc[0].date())
+                    end_date = str(sorted_dates.iloc[-1].date())
+            except Exception:
+                pass
+
         mk_trend, mk_tau = _mann_kendall(values)
         sens_s = _sens_slope(values)
 
@@ -175,6 +189,9 @@ class TrendAnalyzer(BaseAnalyzer):
                 "mk_trend": mk_trend,
                 "mk_tau": mk_tau,
                 "sens_slope": sens_s,
+                "start_date": start_date,
+                "end_date": end_date,
+                "n_points": n_points,
             },
         ))
         return findings
