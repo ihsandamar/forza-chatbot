@@ -106,6 +106,13 @@ class SeasonalityAnalyzer(BaseAnalyzer):
         trough_dow = int(dow_avg.idxmin())
         dow_names = {0: "Pazartesi", 1: "Salı", 2: "Çarşamba", 3: "Perşembe",
                      4: "Cuma", 5: "Cumartesi", 6: "Pazar"}
+        dow_averages = {
+            dow_names.get(i, str(i)): round(float(dow_avg.loc[i]), 2)
+            for i in range(7)
+            if i in dow_avg.index
+        }
+        min_dow_val = float(dow_avg.min())
+        peak_vs_trough_ratio = round(float(dow_avg.max()) / min_dow_val, 2) if min_dow_val > 0 else 0.0
 
         findings.append(Finding(
             type="seasonal_peak",
@@ -118,7 +125,12 @@ class SeasonalityAnalyzer(BaseAnalyzer):
             change_pct=round((dow_avg.max() - dow_avg.mean()) / dow_avg.mean() * 100, 2),
             significance=significance,
             period_label=context.period_label,
-            extra={"autocorr_lag7": round(autocorr, 3), "fft_period": dominant_period},
+            extra={
+                "autocorr_lag7": round(autocorr, 3),
+                "fft_period": dominant_period,
+                "dow_averages": dow_averages,
+                "peak_vs_trough_ratio": peak_vs_trough_ratio,
+            },
         ))
 
         if float(dow_avg.min()) < float(dow_avg.mean()) * 0.7:
@@ -133,7 +145,12 @@ class SeasonalityAnalyzer(BaseAnalyzer):
                 change_pct=round((dow_avg.min() - dow_avg.mean()) / dow_avg.mean() * 100, 2),
                 significance=round(significance * 0.8, 3),
                 period_label=context.period_label,
-                extra={"autocorr_lag7": round(autocorr, 3), "fft_period": dominant_period},
+                extra={
+                    "autocorr_lag7": round(autocorr, 3),
+                    "fft_period": dominant_period,
+                    "dow_averages": dow_averages,
+                    "peak_vs_trough_ratio": peak_vs_trough_ratio,
+                },
             ))
 
         return findings

@@ -216,7 +216,9 @@ def _humanize_evidence(f: Finding) -> str:
         return f"Büyüme yavaşlıyor{date_info} — ikinci yarı ilk yarıya kıyasla ivme kaybetti"
     if t in ("seasonal_peak", "seasonal_trough"):
         direction = "yüksek" if chg > 0 else "düşük"
-        return f"Haftalık ortalamadan {chg:+.1f}% {direction}"
+        ratio = e.get("peak_vs_trough_ratio", 0)
+        ratio_info = f" (zirve/dip oranı: {ratio}x)" if ratio > 1.0 else ""
+        return f"Haftalık ortalamadan {chg:+.1f}% {direction}{ratio_info}"
     if t == "periodic_pattern":
         period = e.get("fft_period", int(cur))
         return f"{period} günde bir tekrar eden örüntü var"
