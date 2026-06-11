@@ -10,7 +10,7 @@ from src.graphs.report_agent.insight_engine.models import AnalysisContext, Findi
 
 logger = logging.getLogger(__name__)
 
-Z_SCORE_THRESHOLD = 1.4
+Z_SCORE_THRESHOLD = 1.5
 
 _DATE_COLUMNS = {"DocumentDate"}
 _MIN_TS_ROWS = 10

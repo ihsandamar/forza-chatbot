@@ -64,10 +64,11 @@ def test_anomaly_high_has_date_when_date_col_in_df():
         metric_columns=["RowAmount"],
     )
     rows = [
-        {"ProductName": "ESPRESSO", "DocumentDate": "2024-02-14", "RowAmount": 480000.0},
+        {"ProductName": "ESPRESSO", "DocumentDate": "2024-02-14", "RowAmount": 900000.0},
         {"ProductName": "LATTE",    "DocumentDate": "2024-02-14", "RowAmount": 84000.0},
         {"ProductName": "MOCHA",    "DocumentDate": "2024-02-14", "RowAmount": 90000.0},
         {"ProductName": "AMERICANO","DocumentDate": "2024-02-14", "RowAmount": 80000.0},
+        {"ProductName": "FILTER",   "DocumentDate": "2024-02-14", "RowAmount": 10000.0},
     ]
     df = pd.DataFrame(rows)
     findings = AnomalyDetector().analyze(df, pd.DataFrame(), ctx)

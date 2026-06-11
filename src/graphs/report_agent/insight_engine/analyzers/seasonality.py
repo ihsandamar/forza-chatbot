@@ -106,10 +106,10 @@ class SeasonalityAnalyzer(BaseAnalyzer):
         trough_dow = int(dow_avg.idxmin())
         dow_names = {0: "Pazartesi", 1: "Salı", 2: "Çarşamba", 3: "Perşembe",
                      4: "Cuma", 5: "Cumartesi", 6: "Pazar"}
+        dow_avg_filled = dow_avg.reindex(range(7), fill_value=0.0)
         dow_averages = {
-            dow_names.get(i, str(i)): round(float(dow_avg.loc[i]), 2)
+            dow_names.get(i, str(i)): round(float(dow_avg_filled.iloc[i]), 2)
             for i in range(7)
-            if i in dow_avg.index
         }
         min_dow_val = float(dow_avg.min())
         peak_vs_trough_ratio = round(float(dow_avg.max()) / min_dow_val, 2) if min_dow_val > 0 else 0.0
