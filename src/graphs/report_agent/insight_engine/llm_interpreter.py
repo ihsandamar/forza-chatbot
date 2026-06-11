@@ -279,6 +279,12 @@ class LLMInterpreter:
             if top_seg:
                 seg_line += f" — En büyük: {top_seg} (%{top_share:.1f} pay)"
             lines.append(seg_line)
+        granularity = s.get("data_granularity", "")
+        groupby = s.get("groupby_fields", [])
+        if granularity and granularity != "bilinmiyor":
+            lines.append(f"Granülarite     : {granularity}")
+        if groupby:
+            lines.append(f"Gruplama        : {', '.join(groupby)}")
         return "\n".join(lines)
 
     def _build_prompt(self, findings: List[Finding], context: AnalysisContext) -> str:

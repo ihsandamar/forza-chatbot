@@ -863,6 +863,27 @@ async def _fetch_summary_stats(
 
     daily_avg = round(total / period_days, 2) if period_days > 0 else round(total, 2)
 
+    # --- date_col detection (needed for granularity and return dict) ---
+    date_col = next((c for c in dim_columns if c == "DocumentDate" and c in df.columns), None)
+
+    # Veri granülaritesi: medyan tarih aralığından tespit et
+    data_granularity = "bilinmiyor"
+    if date_col and date_col in df.columns:
+        try:
+            sorted_dates = pd.to_datetime(
+                df[date_col], errors="coerce"
+            ).dropna().sort_values()
+            if len(sorted_dates) >= 2:
+                median_diff = sorted_dates.diff().dropna().median().days
+                if median_diff <= 1:
+                    data_granularity = "günlük"
+                elif median_diff <= 7:
+                    data_granularity = "haftalık"
+                else:
+                    data_granularity = "aylık"
+        except Exception:
+            pass
+
     # --- segment ratios from df (correct: relative shares are accurate) ---
     cat_cols = [c for c in dim_columns if c not in {"DocumentDate", "DayOfWeek", "Hour"} and c in df.columns]
     segment_col = cat_cols[0] if cat_cols else None
@@ -877,8 +898,6 @@ async def _fetch_summary_stats(
             top_segment = str(seg_totals.index[0])
             top_segment_share_pct = round(float(seg_totals.iloc[0]) / total * 100, 1) if total > 0 else 0.0
 
-    date_col = next((c for c in dim_columns if c == "DocumentDate" and c in df.columns), None)
-
     return {
         "primary_metric": metric,
         "total": round(total, 2),
@@ -889,6 +908,8 @@ async def _fetch_summary_stats(
         "top_segment": top_segment,
         "top_segment_share_pct": top_segment_share_pct,
         "date_col": date_col,
+        "data_granularity": data_granularity,
+        "groupby_fields": cat_cols or [],
     }
 
 
