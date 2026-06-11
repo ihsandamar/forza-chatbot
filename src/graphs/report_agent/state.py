@@ -4,6 +4,41 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 
+class InsightDebugInfo(TypedDict, total=False):
+    """Insight engine'in her çalışmasının tam kaydı — LangSmith/debug tracer'da görülebilir."""
+
+    # SQL izleri
+    active_sql: str                        # orijinal sorgu SQL'i
+    comparison_sql: Optional[str]          # karşılaştırma dönemi SQL'i (varsa)
+
+    # Ham veri özeti
+    total_rows: int                        # current_df satır sayısı
+    total_value: float                     # toplam metrik (DB'den veya df.sum())
+    period_days: int                       # analiz edilen gün sayısı
+    period_label: str                      # "2024-01-01 – 2024-03-23"
+    daily_avg: float                       # günlük ortalama metrik
+    data_granularity: str                  # "günlük" / "haftalık" / "aylık" / "bilinmiyor"
+
+    # Gruplama bağlamı
+    dimension_columns: list                # ["ProductName", "DocumentDate"]
+    metric_columns: list                   # ["RowAmount"]
+    groupby_fields: list                   # date dışı boyut sütunları
+    segment_col: Optional[str]             # ana segment sütunu
+    segment_count: int                     # kaç farklı segment var
+    top_segment: Optional[str]             # en yüksek paylı segment
+    top_segment_share_pct: float           # en yüksek segmentin pay yüzdesi
+
+    # Matematiksel hesaplama sonuçları
+    analyzer_breakdown: dict               # {"TrendAnalyzer": 3, "AnomalyDetector": 2, ...}
+    all_findings_count: int                # tüm bulgular (ranking öncesi)
+    ranked_findings_count: int             # ranker sonrası kalan
+    significance_distribution: dict       # {"🔴": 3, "🟡": 5, "🟢": 2}
+
+    # LLM'e giden prompt
+    llm_prompt: str                        # gönderilen prompt metni
+    llm_prompt_chars: int                  # karakter sayısı
+
+
 class ReportState(TypedDict):
     # Core
     messages: Annotated[List[BaseMessage], add_messages]
@@ -55,6 +90,7 @@ class ReportState(TypedDict):
     insight_findings: Optional[List[Dict[str, Any]]]  # Ranker çıktısı — ranked top-N (debug)
     insight_raw_findings: Optional[List[Dict[str, Any]]]  # Tüm findings ranking öncesi (debug)
     insight_summary: Optional[Dict[str, Any]]  # Özet istatistikler: total, days, avg, segment (debug)
+    insight_debug: Optional[InsightDebugInfo]  # Tam debug kaydı: SQL + veri + matematik + LLM prompt
     insight_output: Optional[str]           # LLM Interpreter çıktısı
     user_role: Optional[str]                # branch_manager | general_manager | operations
 
@@ -113,6 +149,7 @@ def create_initial_state() -> ReportState:
         insight_findings=None,
         insight_raw_findings=None,
         insight_summary=None,
+        insight_debug=None,
         insight_output=None,
         user_role=None,
         final_response=None,

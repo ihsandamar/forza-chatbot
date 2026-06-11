@@ -730,18 +730,53 @@ def create_insight_engine_node(llm, connection_string: str):
 
         logger.info(f"[INSIGHT_ENGINE] {len(all_findings)} findings → {len(ranked)} ranked")
 
-        # Analyzer bazlı dağılım logu (geliştirme için)
         from collections import Counter
+        from src.graphs.report_agent.insight_engine.llm_interpreter import _risk_badge
+        from src.graphs.report_agent.state import InsightDebugInfo
+
         analyzer_counts = Counter(f.analyzer for f in all_findings)
         logger.debug(f"[INSIGHT_ENGINE] analyzer breakdown: {dict(analyzer_counts)}")
 
+        # Significance dağılımı
+        sig_dist: dict = {"🔴": 0, "🟡": 0, "🟢": 0}
+        for f in ranked:
+            sig_dist[_risk_badge(f.significance)] += 1
+
+        # LLM prompt (debug için)
+        llm_prompt = interpreter._build_prompt(ranked, context)
+
         insight_text = await interpreter.interpret(ranked, context)
+
+        debug_info = InsightDebugInfo(
+            active_sql=state.get("active_sql", ""),
+            comparison_sql=state.get("comparison_sql"),
+            total_rows=len(current_df),
+            total_value=summary.get("total", 0.0),
+            period_days=summary.get("period_days", 0),
+            period_label=period_label,
+            daily_avg=summary.get("daily_avg", 0.0),
+            data_granularity=summary.get("data_granularity", "bilinmiyor"),
+            dimension_columns=dim_columns,
+            metric_columns=metric_columns,
+            groupby_fields=summary.get("groupby_fields", []),
+            segment_col=summary.get("segment_col"),
+            segment_count=summary.get("segment_count", 0),
+            top_segment=summary.get("top_segment"),
+            top_segment_share_pct=summary.get("top_segment_share_pct", 0.0),
+            analyzer_breakdown=dict(analyzer_counts),
+            all_findings_count=len(all_findings),
+            ranked_findings_count=len(ranked),
+            significance_distribution=sig_dist,
+            llm_prompt=llm_prompt,
+            llm_prompt_chars=len(llm_prompt),
+        )
 
         return {
             "insight_output": insight_text,
             "insight_findings": [f.to_dict() for f in ranked],
-            "insight_raw_findings": [f.to_dict() for f in all_findings],  # tüm findings (ranking öncesi)
-            "insight_summary": summary,  # total, period_days, daily_avg, segment stats
+            "insight_raw_findings": [f.to_dict() for f in all_findings],
+            "insight_summary": summary,
+            "insight_debug": debug_info,
         }
 
     return insight_engine_node
