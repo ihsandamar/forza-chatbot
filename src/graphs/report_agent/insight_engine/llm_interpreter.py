@@ -267,19 +267,25 @@ class LLMInterpreter:
         seg_count = s.get("segment_count", 0)
         top_seg = s.get("top_segment") or ""
         top_share = s.get("top_segment_share_pct", 0.0)
+        granularity = s.get("data_granularity", "")
+        # Avg label — granülaritenin tipine göre
+        _AVG_LABELS = {"günlük": "Günlük Ort", "haftalık": "Haftalık Ort", "aylık": "Aylık Ort"}
+        avg_label = _AVG_LABELS.get(granularity, "Dönem Ort")
+        # Dönem satırı — period_days=0 ise period_label kullan
+        period_line = f"Dönem           : {days} gün" if days > 0 else "Dönem           : bilinmiyor"
         lines = [
             "\n\n=== GENEL TABLO (Bağlam) ===",
             f"Birincil Metrik : {metric}",
             f"Toplam          : {_fmt_number(total)}",
-            f"Dönem           : {days} gün",
-            f"Günlük Ort      : {_fmt_number(avg)}",
+            period_line,
         ]
+        if avg > 0:
+            lines.append(f"{avg_label:16}: {_fmt_number(avg)}")
         if seg_count > 0:
             seg_line = f"Segment         : {seg_count} {seg_col}"
             if top_seg:
                 seg_line += f" — En büyük: {top_seg} (%{top_share:.1f} pay)"
             lines.append(seg_line)
-        granularity = s.get("data_granularity", "")
         groupby = s.get("groupby_fields", [])
         if granularity and granularity != "bilinmiyor":
             lines.append(f"Granülarite     : {granularity}")

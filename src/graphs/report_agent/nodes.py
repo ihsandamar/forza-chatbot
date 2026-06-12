@@ -868,8 +868,10 @@ async def _fetch_summary_stats(
     if metric not in df.columns:
         return {}
 
-    # --- period_days from BETWEEN clause (free, precise) ---
+    # --- period_days: BETWEEN → DATEADD → df dates → unknown ---
     period_days: int = 0
+
+    # 1) Static BETWEEN dates (en kesin)
     between = re.search(
         r"BETWEEN\s+'(\d{4}-\d{2}-\d{2})'\s+AND\s+'(\d{4}-\d{2}-\d{2})'",
         active_sql, re.IGNORECASE,
@@ -882,21 +884,33 @@ async def _fetch_summary_stats(
         except ValueError:
             pass
 
+    # 2) Dynamic DATEADD: DATEADD(year/month/week/day, -N, GETDATE())
     if period_days <= 0:
-        # Fallback: distinct date values in df (works when date column present)
+        _DATEADD_DAYS = {"year": 365, "month": 30, "week": 7, "day": 1}
+        dateadd = re.search(
+            r"DATEADD\s*\(\s*(year|month|week|day)\s*,\s*-(\d+)\s*,\s*GETDATE\s*\(\s*\)\s*\)",
+            active_sql, re.IGNORECASE,
+        )
+        if dateadd:
+            unit = dateadd.group(1).lower()
+            n = int(dateadd.group(2))
+            period_days = n * _DATEADD_DAYS.get(unit, 0)
+
+    # 3) Distinct date values in df
+    if period_days <= 0:
         date_col_in_df = next((c for c in dim_columns if c == "DocumentDate" and c in df.columns), None)
         if date_col_in_df:
             dates = pd.to_datetime(df[date_col_in_df], errors="coerce").dropna()
             period_days = int(dates.nunique()) or 1
-        else:
-            period_days = max(len(df), 1)
+
+    # period_days stays 0 if unknown — callers must handle 0 gracefully
 
     # --- total from DB query (falls back to df.sum if query fails) ---
     total = await _query_metric_total(connection_string, active_sql, metric)
     if total is None:
         total = float(df[metric].astype(float).sum())
 
-    daily_avg = round(total / period_days, 2) if period_days > 0 else round(total, 2)
+    daily_avg = round(total / period_days, 2) if period_days > 0 else 0.0
 
     # --- date_col detection (needed for granularity and return dict) ---
     date_col = next((c for c in dim_columns if c == "DocumentDate" and c in df.columns), None)
@@ -951,9 +965,20 @@ async def _fetch_summary_stats(
 def _build_period_label(state: dict) -> str:
     import re
     sql = state.get("active_sql", "")
+    # Static BETWEEN dates
     match = re.search(r"BETWEEN\s+'(\d{4}-\d{2}-\d{2})'\s+AND\s+'(\d{4}-\d{2}-\d{2})'", sql, re.IGNORECASE)
     if match:
         return f"{match.group(1)} – {match.group(2)}"
+    # Dynamic DATEADD: "Son N yıl/ay/hafta/gün"
+    _UNIT_TR = {"year": "yıl", "month": "ay", "week": "hafta", "day": "gün"}
+    dateadd = re.search(
+        r"DATEADD\s*\(\s*(year|month|week|day)\s*,\s*-(\d+)\s*,\s*GETDATE\s*\(\s*\)\s*\)",
+        sql, re.IGNORECASE,
+    )
+    if dateadd:
+        unit_tr = _UNIT_TR.get(dateadd.group(1).lower(), dateadd.group(1))
+        n = dateadd.group(2)
+        return f"Son {n} {unit_tr}"
     return "mevcut dönem"
 
 
