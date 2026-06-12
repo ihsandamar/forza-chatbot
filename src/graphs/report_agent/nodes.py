@@ -703,7 +703,6 @@ def create_insight_engine_node(llm, connection_string: str):
         comparison_df = await fetcher.fetch(state)
 
         viz_output = state.get("visualization_output") or {}
-        period_label = _build_period_label(state)
 
         dim_columns = _detect_columns(current_df, viz_output, role="dimension")
         metric_columns = _detect_columns(current_df, viz_output, role="metric")
@@ -713,6 +712,13 @@ def create_insight_engine_node(llm, connection_string: str):
             current_df,
             dim_columns,
             metric_columns,
+        )
+
+        # period_label: DB'den gelen gerçek tarihler öncelikli (SQL pattern bağımsız)
+        period_label = (
+            f"{summary['period_start']} – {summary['period_end']}"
+            if summary.get("period_start") and summary.get("period_end")
+            else _build_period_label(state)
         )
 
         context = AnalysisContext(
@@ -800,24 +806,16 @@ def _detect_columns(df, viz_output: dict, role: str):
     return []
 
 
-async def _query_metric_total(connection_string: str, active_sql: str, metric: str) -> Optional[float]:
-    """SELECT SUM([metric]) FROM same table/conditions as active_sql.
-    Returns None on any failure — caller falls back to df.sum()."""
-    import asyncio
+def _extract_table_and_where(active_sql: str) -> tuple:
+    """Parse (table_name, where_clause) from a SQL string.
+    Returns ('', '') if table cannot be found.
+    """
     import re
-
-    if not active_sql or not metric:
-        return None
-
     sql_upper = active_sql.upper()
-
-    # Table name: first word after FROM (handles bracketed names too)
     from_match = re.search(r'\bFROM\b\s+(\[?[\w]+\]?)', active_sql, re.IGNORECASE)
     if not from_match:
-        return None
+        return ("", "")
     table = from_match.group(1).strip("[] \t")
-
-    # WHERE clause: everything between WHERE and GROUP BY / ORDER BY / HAVING / end
     where_pos = sql_upper.find('WHERE')
     where_clause = ""
     if where_pos != -1:
@@ -827,19 +825,68 @@ async def _query_metric_total(connection_string: str, active_sql: str, metric: s
             if kw_pos != -1:
                 end_pos = min(end_pos, kw_pos)
         where_clause = "WHERE " + active_sql[where_pos + 5:end_pos].strip()
+    return (table, where_clause)
 
-    summary_sql = f"SELECT SUM([{metric}]) AS total_val FROM [{table}] {where_clause}".strip()
-    logger.debug(f"[SUMMARY_QUERY] {summary_sql[:160]}")
 
-    def _run() -> Optional[float]:
+async def _fetch_data_context(
+    connection_string: str,
+    active_sql: str,
+    metric: str,
+    date_col: str = "DocumentDate",
+) -> dict:
+    """Single DB query: total + actual date range.
+
+    SELECT SUM([metric]), MIN(date_col), MAX(date_col), COUNT(DISTINCT date_col)
+    FROM [table] WHERE [same conditions as active_sql]
+
+    Works for ANY SQL date pattern (BETWEEN, DATEADD, subquery, etc.).
+    Returns {} on any failure — callers fall back to df-based calculations.
+    """
+    import asyncio
+    from datetime import date as date_type
+
+    if not active_sql or not metric:
+        return {}
+
+    table, where_clause = _extract_table_and_where(active_sql)
+    if not table:
+        return {}
+
+    ctx_sql = (
+        f"SELECT "
+        f"SUM([{metric}]) AS total_val, "
+        f"MIN(CAST([{date_col}] AS DATE)) AS period_start, "
+        f"MAX(CAST([{date_col}] AS DATE)) AS period_end, "
+        f"COUNT(DISTINCT CAST([{date_col}] AS DATE)) AS distinct_days "
+        f"FROM [{table}] {where_clause}"
+    ).strip()
+    logger.debug(f"[DATA_CONTEXT] {ctx_sql[:220]}")
+
+    def _run() -> dict:
         try:
             import pyodbc
             with pyodbc.connect(connection_string, timeout=10) as conn:
-                row = conn.cursor().execute(summary_sql).fetchone()
-                return float(row[0]) if row and row[0] is not None else None
+                row = conn.cursor().execute(ctx_sql).fetchone()
+                if not row:
+                    return {}
+                result: dict = {}
+                if row[0] is not None:
+                    result["total"] = float(row[0])
+                if row[1] is not None and row[2] is not None:
+                    try:
+                        start = date_type.fromisoformat(str(row[1]))
+                        end = date_type.fromisoformat(str(row[2]))
+                        result["period_start"] = str(start)
+                        result["period_end"] = str(end)
+                        result["period_days"] = (end - start).days + 1
+                    except (ValueError, TypeError):
+                        pass
+                if row[3] is not None:
+                    result["distinct_dates"] = int(row[3])
+                return result
         except Exception as exc:
-            logger.warning(f"[SUMMARY_QUERY] failed (falling back to df.sum): {exc!r}")
-            return None
+            logger.warning(f"[DATA_CONTEXT] query failed (using fallbacks): {exc!r}")
+            return {}
 
     return await asyncio.to_thread(_run)
 
@@ -851,16 +898,13 @@ async def _fetch_summary_stats(
     dim_columns: list,
     metric_columns: list,
 ) -> dict:
-    """Accurate summary stats.
+    """Accurate summary stats via a single DB context query.
 
-    period_days — derived from BETWEEN dates in SQL (no extra query, always correct
-                  even when the DataFrame was GROUP BY'd and has no date column).
-    total       — dedicated SUM query against DB; falls back to df.sum() on failure.
-    segment %   — computed from df (ratios are correct from aggregated data).
+    Uses _fetch_data_context to get total + actual date range in one DB call.
+    Works for ANY SQL date pattern (BETWEEN, DATEADD, custom functions, etc.).
+    Falls back to df-based calculations when DB query fails.
     """
-    import re
     import pandas as pd
-    from datetime import date as date_type
 
     if df.empty or not metric_columns:
         return {}
@@ -868,47 +912,24 @@ async def _fetch_summary_stats(
     if metric not in df.columns:
         return {}
 
-    # --- period_days: BETWEEN → DATEADD → df dates → unknown ---
-    period_days: int = 0
+    # Single DB query: total + actual date range (no SQL text parsing needed)
+    db_ctx = await _fetch_data_context(connection_string, active_sql, metric)
 
-    # 1) Static BETWEEN dates (en kesin)
-    between = re.search(
-        r"BETWEEN\s+'(\d{4}-\d{2}-\d{2})'\s+AND\s+'(\d{4}-\d{2}-\d{2})'",
-        active_sql, re.IGNORECASE,
-    )
-    if between:
-        try:
-            start = date_type.fromisoformat(between.group(1))
-            end = date_type.fromisoformat(between.group(2))
-            period_days = (end - start).days + 1
-        except ValueError:
-            pass
+    total: float = db_ctx.get("total") or float(df[metric].astype(float).sum())
+    period_days: int = db_ctx.get("period_days", 0)
+    period_start: str = db_ctx.get("period_start", "")
+    period_end: str = db_ctx.get("period_end", "")
 
-    # 2) Dynamic DATEADD: DATEADD(year/month/week/day, -N, GETDATE())
-    if period_days <= 0:
-        _DATEADD_DAYS = {"year": 365, "month": 30, "week": 7, "day": 1}
-        dateadd = re.search(
-            r"DATEADD\s*\(\s*(year|month|week|day)\s*,\s*-(\d+)\s*,\s*GETDATE\s*\(\s*\)\s*\)",
-            active_sql, re.IGNORECASE,
-        )
-        if dateadd:
-            unit = dateadd.group(1).lower()
-            n = int(dateadd.group(2))
-            period_days = n * _DATEADD_DAYS.get(unit, 0)
-
-    # 3) Distinct date values in df
+    # Fallback: distinct date values in df (when DocumentDate present in grouped data)
     if period_days <= 0:
         date_col_in_df = next((c for c in dim_columns if c == "DocumentDate" and c in df.columns), None)
         if date_col_in_df:
             dates = pd.to_datetime(df[date_col_in_df], errors="coerce").dropna()
             period_days = int(dates.nunique()) or 1
-
-    # period_days stays 0 if unknown — callers must handle 0 gracefully
-
-    # --- total from DB query (falls back to df.sum if query fails) ---
-    total = await _query_metric_total(connection_string, active_sql, metric)
-    if total is None:
-        total = float(df[metric].astype(float).sum())
+            # Extract start/end from df dates as fallback
+            if not period_start and len(dates) > 0:
+                period_start = str(dates.min().date())
+                period_end = str(dates.max().date())
 
     daily_avg = round(total / period_days, 2) if period_days > 0 else 0.0
 
@@ -951,6 +972,8 @@ async def _fetch_summary_stats(
         "primary_metric": metric,
         "total": round(total, 2),
         "period_days": period_days,
+        "period_start": period_start,  # gerçek başlangıç tarihi (DB'den)
+        "period_end": period_end,       # gerçek bitiş tarihi (DB'den)
         "daily_avg": daily_avg,
         "segment_col": segment_col,
         "segment_count": segment_count,
