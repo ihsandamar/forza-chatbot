@@ -23,7 +23,10 @@ from src.graphs.report_agent.subagents.visualization_v2.data_analyzer import Dat
 from src.graphs.report_agent.subagents.visualization_v2.models import ChartSpec
 from src.graphs.report_agent.subagents.visualization_v2.prompts import VIZ_DECIDER_PROMPT
 from src.graphs.report_agent.subagents.visualization_v2.validator import validate_spec
-from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import render_chart
+from src.graphs.report_agent.subagents.visualization_v2.chart_renderer import (
+    render_chart,
+    render_chart_summary,
+)
 from src.graphs.report_agent.subagents.visualization_v2.turkey_geo import detect_city_column
 from src.graphs.report_agent.subagents.text2sql.nodes import AGGREGATE_PERIOD_GRANULARITIES
 
@@ -443,11 +446,13 @@ async def template_renderer_node(state: dict, config: Optional[RunnableConfig] =
         logger.warning("[V2:RENDERER] Template failed, falling back to table")
         return {
             "plotly_html_snippet": None,
+            "summary_html_snippet": None,
             "viz_decision": {**viz_decision, "needs_graph": False, "chart_type": "table"},
         }
 
-    logger.info(f"[V2:RENDERER] HTML: {len(html)} chars")
-    return {"plotly_html_snippet": html}
+    summary_html = render_chart_summary(viz_decision, results, column_metadata)
+    logger.info(f"[V2:RENDERER] HTML: {len(html)} chars, summary: {len(summary_html) if summary_html else 0} chars")
+    return {"plotly_html_snippet": html, "summary_html_snippet": summary_html}
 
 
 # =========================================================================
@@ -460,6 +465,7 @@ async def response_builder_node(state: dict) -> dict:
     viz_decision = state.get("viz_decision") or {}
     data_profile = state.get("data_profile") or {}
     html_snippet = state.get("plotly_html_snippet")
+    summary_html_snippet = state.get("summary_html_snippet")
 
     chart_type = viz_decision.get("chart_type", "table")
     needs_graph = viz_decision.get("needs_graph", False)
@@ -470,6 +476,7 @@ async def response_builder_node(state: dict) -> dict:
         "needs_graph": needs_graph,
         "chart_type": chart_type,
         "plotly_html_snippet": html_snippet,
+        "summary_html_snippet": summary_html_snippet,
         "summary": summary,
         "x_field": viz_decision.get("x_field"),
         "y_field": viz_decision.get("y_field"),

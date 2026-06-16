@@ -624,45 +624,52 @@ def create_build_response_node(llm=None):
         elif not results:
             response = "Bu sorgu için sonuç bulunamadı."
         elif viz.get("needs_graph") and viz.get("plotly_html_snippet"):
-            html_snippet = viz["plotly_html_snippet"]
+            detail_html = viz["plotly_html_snippet"]
+            summary_html = viz.get("summary_html_snippet")
             chart_type = viz.get("chart_type", "chart")
 
-            inner_html = (
-                '<!DOCTYPE html><html><head>'
-                '<meta charset="UTF-8">'
-                '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
-                '<style>'
-                'html,body{margin:0;padding:0;height:100%;overflow:hidden;}'
-                '.plotly-graph-div{width:100%!important;height:100%!important;}'
-                '</style>'
-                '</head><body>'
-                f'{html_snippet}'
-                '</body></html>'
-            )
-            srcdoc = inner_html.replace('&', '&amp;').replace('"', '&quot;')
-            src_b64 = base64.b64encode(inner_html.encode("utf-8")).decode("utf-8")
-            height = '600px' if chart_type == 'turkey_map' else '480px'
-            iframe = (
-                f'<iframe srcdoc="{srcdoc}" '
-                f'src="data:text/html;charset=utf-8;base64,{src_b64}" '
-                f'style="width:100%;height:{height};border:none;display:block;"></iframe>'
-            )
+            def _make_iframe(html: str, height: str) -> str:
+                # PyECharts full HTML goes directly into srcdoc; Plotly snippets need a wrapper.
+                if html.lstrip().startswith("<!DOCTYPE") or html.lstrip().startswith("<html"):
+                    full = html
+                else:
+                    full = (
+                        '<!DOCTYPE html><html><head>'
+                        '<meta charset="UTF-8">'
+                        '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+                        '<style>html,body{margin:0;padding:0;height:100%;overflow:hidden;}'
+                        '.plotly-graph-div{width:100%!important;height:100%!important;}'
+                        '</style></head><body>'
+                        f'{html}</body></html>'
+                    )
+                srcdoc = full.replace('&', '&amp;').replace('"', '&quot;')
+                src_b64 = base64.b64encode(full.encode("utf-8")).decode("utf-8")
+                return (
+                    f'<iframe srcdoc="{srcdoc}" '
+                    f'src="data:text/html;charset=utf-8;base64,{src_b64}" '
+                    f'style="width:100%;height:{height};border:none;display:block;"></iframe>'
+                )
+
+            detail_height = '600px' if chart_type == 'turkey_map' else '480px'
+            detail_iframe = _make_iframe(detail_html, detail_height)
 
             summary_text = await build_chart_response(
                 results, viz, state.get("user_query", ""), DEFAULT_CONFIG, llm
             )
 
-            # Full response with iframe for user display
-            full_response = summary_text + "\n\n" + iframe
+            if summary_html:
+                # Inline: compact sparkline (130px); detail sent separately in additional_kwargs
+                inline_iframe = _make_iframe(summary_html, "130px")
+                full_response = summary_text + "\n\n" + inline_iframe
+                additional = {"chart_html": detail_iframe, "chart_html_summary": inline_iframe}
+            else:
+                # No summary available — fall back to full detail inline
+                full_response = summary_text + "\n\n" + detail_iframe
+                additional = {"chart_html": detail_iframe}
 
-            # Messages: short summary in content (LLM sees this)
-            # chart_html in additional_kwargs (LLM does NOT see this, chat_service extracts it)
             return {
                 "final_response": full_response,
-                "messages": [AIMessage(
-                    content=summary_text,
-                    additional_kwargs={"chart_html": iframe},
-                )],
+                "messages": [AIMessage(content=summary_text, additional_kwargs=additional)],
             }
         else:
             response = _results_to_markdown_table(results)

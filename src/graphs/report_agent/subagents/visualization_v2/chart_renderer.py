@@ -46,6 +46,10 @@ def render_chart(
         df = pd.DataFrame(results)
         df = _apply_preprocessing(df, spec)
         df = _apply_composite_time(df, spec)
+
+        if chart_type == "line_chart":
+            return _render_line_pyechart(df, spec, column_metadata)
+
         fig = _BUILDERS[chart_type](df, spec)
         if fig is None:
             return None
@@ -61,6 +65,147 @@ def render_chart(
     except Exception as e:
         logger.error(f"[RENDERER] Failed: {e}")
         return None
+
+
+def render_chart_summary(
+    spec: dict,
+    results: List[Dict[str, Any]],
+    column_metadata: Dict[str, Any],
+) -> Optional[str]:
+    """
+    Render a compact sparkline-style summary chart for inline chat display.
+
+    Currently only line_chart is supported; returns None for other types.
+    """
+    if not results:
+        return None
+    spec = dict(spec)
+    chart_type = spec.get("chart_type")
+    if chart_type != "line_chart":
+        return None
+    try:
+        df = pd.DataFrame(results)
+        df = _apply_preprocessing(df, spec)
+        df = _apply_composite_time(df, spec)
+        return _render_line_summary(df, spec, column_metadata)
+    except Exception as e:
+        logger.error(f"[RENDERER:SUMMARY] Failed: {e}")
+        return None
+
+
+def _render_line_summary(
+    df: pd.DataFrame, spec: dict, column_metadata: dict
+) -> Optional[str]:
+    """
+    Compact A+B hybrid sparkline: smooth line + gradient area + first/last x labels
+    + last-point value label. No datazoom, no tooltip, no legend, no title.
+    Height: 130px.
+    """
+    import json
+
+    x_field = spec.get("x_field")
+    y_field = spec.get("y_field")
+
+    if not x_field or not y_field:
+        return None
+    if x_field not in df.columns or y_field not in df.columns:
+        return None
+
+    df_sorted = df.sort_values(x_field)
+    x_data = [str(v) for v in df_sorted[x_field].tolist()]
+    y_raw = df_sorted[y_field].tolist()
+
+    if not y_raw:
+        return None
+
+    # Last value formatted for the endpoint label
+    last_val = y_raw[-1]
+    try:
+        lv = float(last_val)
+        if lv >= 1_000_000:
+            last_fmt = f"{lv / 1_000_000:.1f}M"
+        elif lv >= 1_000:
+            last_fmt = f"{lv / 1_000:.1f}K"
+        else:
+            last_fmt = str(int(lv)) if lv == int(lv) else f"{lv:.1f}"
+    except (TypeError, ValueError):
+        last_fmt = str(last_val)
+
+    # Mark only the last point with a circle + label
+    series_data = []
+    for i, v in enumerate(y_raw):
+        if i == len(y_raw) - 1:
+            series_data.append({
+                "value": v,
+                "symbol": "circle",
+                "symbolSize": 7,
+                "itemStyle": {"color": "#2563eb", "borderColor": "#fff", "borderWidth": 2},
+                "label": {
+                    "show": True, "position": "top",
+                    "formatter": last_fmt,
+                    "color": "#2563eb", "fontWeight": "bold", "fontSize": 11,
+                },
+            })
+        else:
+            series_data.append(v)
+
+    n = len(x_data)
+    # Show only first and last x-axis label
+    XLBL_FMT = f"function(v,i){{return i===0||i==={n - 1}?v:''}}"
+    NUM_FMT = "function(v){return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}"
+    AREA_GRAD = (
+        "new echarts.graphic.LinearGradient(0,0,0,1,"
+        "[{offset:0,color:'rgba(37,99,235,0.14)'},{offset:1,color:'rgba(37,99,235,0.01)'}])"
+    )
+
+    option = {
+        "backgroundColor": "#ffffff",
+        "animation": False,
+        "grid": {"top": 20, "right": 14, "bottom": 30, "left": 46},
+        "xAxis": {
+            "type": "category", "data": x_data,
+            "axisLabel": {"color": "#bbb", "fontSize": 10, "formatter": "__XLBL_FMT__"},
+            "axisLine": {"show": False},
+            "axisTick": {"show": False},
+            "splitLine": {"show": False},
+        },
+        "yAxis": {
+            "type": "value",
+            "min": "dataMin",
+            "axisLabel": {"color": "#bbb", "fontSize": 10, "formatter": "__NUM_FMT__"},
+            "axisLine": {"show": False},
+            "axisTick": {"show": False},
+            "splitLine": {
+                "lineStyle": {"color": "#f5f5f5", "type": "dashed"},
+            },
+        },
+        "tooltip": {"show": False},
+        "series": [{
+            "type": "line", "data": series_data,
+            "smooth": True, "symbol": "none",
+            "lineStyle": {"width": 2, "color": "#2563eb"},
+            "areaStyle": {"color": "__AREA_GRAD__"},
+        }],
+    }
+
+    opt_json = (
+        json.dumps(option, ensure_ascii=False)
+        .replace('"__XLBL_FMT__"', XLBL_FMT)
+        .replace('"__NUM_FMT__"', NUM_FMT)
+        .replace('"__AREA_GRAD__"', AREA_GRAD)
+    )
+
+    return (
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+        "<script src='https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js'></script>"
+        "<style>html,body{margin:0;padding:0;width:100%;height:100%;background:#fff}"
+        "#c{width:100%;height:100%;min-height:120px}</style></head>"
+        "<body><div id='c'></div><script>"
+        "var ec=echarts.init(document.getElementById('c'));"
+        f"ec.setOption({opt_json});"
+        "window.addEventListener('resize',function(){{ec.resize();}});"
+        "</script></body></html>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +347,164 @@ def _build_line(df: pd.DataFrame, spec: dict) -> go.Figure:
 
     df_sorted = df.sort_values(x)
     return px.line(df_sorted, x=x, y=y, color=series, title=title, markers=True)
+
+
+def _render_line_pyechart(
+    df: pd.DataFrame, spec: dict, column_metadata: dict
+) -> Optional[str]:
+    """Render line chart as standalone ECharts HTML — Clean & Minimal corporate style.
+
+    Generates HTML directly for full control over legend (right-side panel),
+    grid margins, formatters, and gradient fills without PyECharts rendering quirks.
+    """
+    import json
+
+    x_field = spec.get("x_field")
+    y_field = spec.get("y_field")
+    y_fields = spec.get("y_fields")
+    series_field = spec.get("series_field")
+    title = spec.get("title") or ""
+
+    if not x_field or x_field not in df.columns:
+        return None
+
+    df_sorted = df.sort_values(x_field)
+    x_label = _get_label(x_field, column_metadata)
+    y_label = _get_label(y_field, column_metadata) if y_field else ""
+
+    if series_field and series_field in df.columns:
+        x_vals = df_sorted[x_field].unique().tolist()
+    else:
+        x_vals = df_sorted[x_field].tolist()
+    x_data = [str(v) for v in x_vals]
+
+    _PALETTE = ["#2563eb", "#0891b2", "#059669", "#d97706", "#dc2626", "#7c3aed"]
+
+    # Build series list
+    series_list: list = []
+    multi_series = False
+
+    if y_fields and len(y_fields) > 1:
+        multi_series = True
+        for i, metric in enumerate(y_fields):
+            if metric not in df_sorted.columns:
+                continue
+            c = _PALETTE[i % len(_PALETTE)]
+            series_list.append({
+                "name": _get_label(metric, column_metadata) or metric,
+                "type": "line", "data": df_sorted[metric].tolist(),
+                "smooth": True, "symbol": "circle", "symbolSize": 6,
+                "lineStyle": {"width": 2.5, "color": c},
+                "itemStyle": {"color": c, "borderColor": "#fff", "borderWidth": 2},
+                "label": {"show": False},
+            })
+
+    elif series_field and series_field in df.columns and y_field and y_field in df.columns:
+        multi_series = True
+        for i, sv in enumerate(df_sorted[series_field].unique().tolist()):
+            group = df_sorted[df_sorted[series_field] == sv].sort_values(x_field)
+            val_map = dict(zip([str(v) for v in group[x_field]], group[y_field]))
+            c = _PALETTE[i % len(_PALETTE)]
+            series_list.append({
+                "name": str(sv),
+                "type": "line", "data": [val_map.get(x) for x in x_data],
+                "smooth": True, "symbol": "circle", "symbolSize": 6,
+                "lineStyle": {"width": 2.5, "color": c},
+                "itemStyle": {"color": c, "borderColor": "#fff", "borderWidth": 2},
+                "label": {"show": False},
+            })
+
+    elif y_field and y_field in df_sorted.columns:
+        series_list.append({
+            "name": y_label or y_field,
+            "type": "line", "data": df_sorted[y_field].tolist(),
+            "smooth": True, "symbol": "circle", "symbolSize": 6,
+            "lineStyle": {"width": 2.5, "color": "#2563eb"},
+            "itemStyle": {"color": "#2563eb", "borderColor": "#fff", "borderWidth": 2},
+            "label": {"show": False},
+            "areaStyle": {"color": "__AREA_GRAD__"},
+        })
+
+    else:
+        return None
+
+    grid_right = 155 if multi_series else 20
+
+    option = {
+        "backgroundColor": "#ffffff",
+        "title": {
+            "text": title, "left": "center",
+            "textStyle": {"fontSize": 15, "fontWeight": "bold", "color": "#1d1d1f"},
+        },
+        "tooltip": {
+            "trigger": "axis",
+            "backgroundColor": "#ffffff",
+            "borderColor": "#e8e8e8", "borderWidth": 1,
+            "textStyle": {"color": "#333333", "fontSize": 13},
+            "formatter": "__TIP_FMT__",
+        },
+        "legend": {
+            "show": multi_series,
+            "orient": "vertical", "right": 10, "top": "middle",
+            "textStyle": {"color": "#333333", "fontSize": 12},
+            "itemWidth": 16, "itemHeight": 4, "itemGap": 14,
+            "icon": "roundRect",
+        },
+        "grid": {"top": 56, "right": grid_right, "bottom": 64, "left": 60},
+        "xAxis": {
+            "type": "category", "data": x_data,
+            "name": x_label, "nameLocation": "middle", "nameGap": 32,
+            "nameTextStyle": {"color": "#888888", "fontSize": 11},
+            "axisLabel": {"color": "#888888", "fontSize": 11, "rotate": 30},
+            "axisLine": {"lineStyle": {"color": "#e0e0e0"}},
+            "axisTick": {"show": False}, "splitLine": {"show": False},
+        },
+        "yAxis": {
+            "type": "value",
+            "name": y_label, "nameLocation": "middle", "nameGap": 50,
+            "nameTextStyle": {"color": "#888888", "fontSize": 11},
+            "axisLabel": {"color": "#888888", "fontSize": 11, "formatter": "__NUM_FMT__"},
+            "axisLine": {"show": False}, "axisTick": {"show": False},
+            "splitLine": {"lineStyle": {"color": "#f0f0f0", "type": "dashed"}},
+        },
+        "dataZoom": [{"type": "slider", "start": 0, "end": 100, "height": 18, "bottom": 10}],
+        "series": series_list,
+    }
+
+    NUM_FMT = "function(v){return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}"
+    TIP_FMT = (
+        "function(p){"
+        "var s='<div style=\"font-weight:700;margin-bottom:4px;color:#1d1d1f\">'+p[0].axisValue+'</div>';"
+        "p.forEach(function(x){"
+        "var v=x.value==null?'-':x.value;"
+        "var f=typeof v==='number'?"
+        "(v>=1e6?(v/1e6).toFixed(2)+'M':v>=1000?(v/1000).toFixed(1)+'K':v.toLocaleString('tr')):v;"
+        "s+=x.marker+' <span style=\"color:#555\">'+x.seriesName+'</span>: <b>'+f+'</b><br/>';});"
+        "return s;}"
+    )
+    AREA_GRAD = (
+        "new echarts.graphic.LinearGradient(0,0,0,1,"
+        "[{offset:0,color:'rgba(37,99,235,0.18)'},{offset:1,color:'rgba(37,99,235,0.01)'}])"
+    )
+
+    opt_json = (
+        json.dumps(option, ensure_ascii=False)
+        .replace('"__NUM_FMT__"', NUM_FMT)
+        .replace('"__TIP_FMT__"', TIP_FMT)
+        .replace('"__AREA_GRAD__"', AREA_GRAD)
+    )
+
+    return (
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+        "<script src='https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js'></script>"
+        "<style>html,body{margin:0;padding:0;width:100%;height:100%;background:#fff}"
+        "#c{width:100%;height:100%;min-height:420px}</style></head>"
+        "<body><div id='c'></div><script>"
+        "var ec=echarts.init(document.getElementById('c'));"
+        f"ec.setOption({opt_json});"
+        "window.addEventListener('resize',function(){ec.resize();});"
+        "</script></body></html>"
+    )
 
 
 def _build_pie(df: pd.DataFrame, spec: dict) -> go.Figure:

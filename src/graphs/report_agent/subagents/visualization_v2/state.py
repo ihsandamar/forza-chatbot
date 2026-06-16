@@ -77,3 +77,4 @@ class VisualizationState(TypedDict, total=False):
     data_profile: Optional[DataProfile]   # typed — DataProfile defined above
     viz_decision: Optional[Dict[str, Any]]  # ChartSpec.model_dump()
     plotly_html_snippet: Optional[str]
+    summary_html_snippet: Optional[str]   # compact sparkline for inline chat display
