@@ -151,6 +151,7 @@ class ChatService:
                 if chart_html:
                     return {
                         "html": chart_html,
+                        "html_summary": additional_kwargs.get("chart_html_summary"),
                         "text": str(content),
                     }
 
@@ -459,6 +460,9 @@ class ChatService:
             )
         elif report_info:
             # Report/visualization response with special format
+            chart_params = {}
+            if report_info.get("html_summary"):
+                chart_params["chart_html_summary"] = report_info["html_summary"]
             response_data = ResponseData(
                 text=report_info["text"] or "Grafik oluşturuldu",
                 type="report",
@@ -466,7 +470,7 @@ class ChatService:
                 action=ActionResponse(
                     type="chart",
                     target=report_info["html"],
-                    params={}
+                    params=chart_params,
                 )
             )
         else:
@@ -661,12 +665,15 @@ class ChatService:
                         action={"type": "routing", "target": routing_info["url"], "params": {}},
                     )
                 elif report_info:
+                    stream_params = {}
+                    if report_info.get("html_summary"):
+                        stream_params["chart_html_summary"] = report_info["html_summary"]
                     yield StreamEvent(
                         event_type="result",
                         text=report_info["text"] or "Grafik oluşturuldu",
                         type="report",
                         confidence=0.85,
-                        action={"type": "chart", "target": report_info["html"], "params": {}},
+                        action={"type": "chart", "target": report_info["html"], "params": stream_params},
                     )
                 else:
                     yield StreamEvent(

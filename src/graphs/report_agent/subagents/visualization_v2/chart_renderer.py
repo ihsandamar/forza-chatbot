@@ -93,64 +93,115 @@ def render_chart_summary(
         return None
 
 
+def _summary_series(y_raw: list, color: str, *, with_area: bool, show_label: bool = False) -> dict:
+    """Build a single ECharts series dict for the compact summary chart."""
+    data = []
+    for i, v in enumerate(y_raw):
+        is_last = (i == len(y_raw) - 1)
+        if is_last:
+            entry: dict = {
+                "value": v,
+                "symbol": "circle",
+                "symbolSize": 7,
+                "itemStyle": {"color": color, "borderColor": "#fff", "borderWidth": 2},
+            }
+            if show_label and v is not None:
+                entry["label"] = {
+                    "show": True, "position": "top",
+                    "formatter": _fmt_value(v),
+                    "color": color, "fontWeight": "bold", "fontSize": 11,
+                }
+            data.append(entry)
+        else:
+            data.append(v)
+
+    s: dict = {
+        "type": "line", "data": data,
+        "smooth": True, "symbol": "none",
+        "lineStyle": {"width": 2, "color": color},
+    }
+    if with_area:
+        s["areaStyle"] = {"color": "__AREA_GRAD__"}
+    return s
+
+
+def _fmt_value(v: float) -> str:
+    """Format a numeric value to K/M shorthand."""
+    try:
+        lv = float(v)
+        if lv >= 1_000_000:
+            return f"{lv / 1_000_000:.1f}M"
+        if lv >= 1_000:
+            return f"{lv / 1_000:.1f}K"
+        return str(int(lv)) if lv == int(lv) else f"{lv:.1f}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
 def _render_line_summary(
     df: pd.DataFrame, spec: dict, column_metadata: dict
 ) -> Optional[str]:
     """
-    Compact A+B hybrid sparkline: smooth line + gradient area + first/last x labels
-    + last-point value label. No datazoom, no tooltip, no legend, no title.
-    Height: 130px.
+    Compact A+B hybrid sparkline — handles single, multi-metric and series_field.
+
+    Single series: gradient area + last-point value label.
+    Multi-series (series_field / y_fields): palette-colored lines, last-point
+    circle marker per series, no area fill (avoids visual clutter).
+    No datazoom, no tooltip, no legend, no title. Height: 130px.
     """
     import json
 
     x_field = spec.get("x_field")
     y_field = spec.get("y_field")
+    y_fields = spec.get("y_fields")
+    series_field = spec.get("series_field")
 
-    if not x_field or not y_field:
-        return None
-    if x_field not in df.columns or y_field not in df.columns:
+    if not x_field or x_field not in df.columns:
         return None
 
     df_sorted = df.sort_values(x_field)
-    x_data = [str(v) for v in df_sorted[x_field].tolist()]
-    y_raw = df_sorted[y_field].tolist()
 
-    if not y_raw:
+    _PALETTE = ["#2563eb", "#0891b2", "#059669", "#d97706", "#dc2626", "#7c3aed"]
+
+    # ---------- build x_data and series_list ----------
+    series_list: list = []
+
+    if y_fields and len(y_fields) > 1:
+        # Multi-metric: one line per metric, shared x axis
+        x_vals = df_sorted[x_field].tolist()
+        x_data = [str(v) for v in x_vals]
+        for i, metric in enumerate(y_fields):
+            if metric not in df_sorted.columns:
+                continue
+            y_raw = df_sorted[metric].tolist()
+            c = _PALETTE[i % len(_PALETTE)]
+            series_list.append(_summary_series(y_raw, c, with_area=(i == 0)))
+
+    elif series_field and series_field in df.columns and y_field and y_field in df.columns:
+        # Series field: one line per category, unified x axis
+        x_vals = df_sorted[x_field].unique().tolist()
+        x_data = [str(v) for v in x_vals]
+        for i, sv in enumerate(df_sorted[series_field].unique().tolist()):
+            group = df_sorted[df_sorted[series_field] == sv].sort_values(x_field)
+            val_map = dict(zip([str(v) for v in group[x_field]], group[y_field]))
+            y_raw = [val_map.get(x) for x in x_data]
+            c = _PALETTE[i % len(_PALETTE)]
+            series_list.append(_summary_series(y_raw, c, with_area=(i == 0)))
+
+    elif y_field and y_field in df.columns:
+        # Single line — gradient area + last-point label
+        x_vals = df_sorted[x_field].tolist()
+        x_data = [str(v) for v in x_vals]
+        y_raw = df_sorted[y_field].tolist()
+        series_list.append(_summary_series(y_raw, "#2563eb", with_area=True, show_label=True))
+
+    else:
         return None
 
-    # Last value formatted for the endpoint label
-    last_val = y_raw[-1]
-    try:
-        lv = float(last_val)
-        if lv >= 1_000_000:
-            last_fmt = f"{lv / 1_000_000:.1f}M"
-        elif lv >= 1_000:
-            last_fmt = f"{lv / 1_000:.1f}K"
-        else:
-            last_fmt = str(int(lv)) if lv == int(lv) else f"{lv:.1f}"
-    except (TypeError, ValueError):
-        last_fmt = str(last_val)
-
-    # Mark only the last point with a circle + label
-    series_data = []
-    for i, v in enumerate(y_raw):
-        if i == len(y_raw) - 1:
-            series_data.append({
-                "value": v,
-                "symbol": "circle",
-                "symbolSize": 7,
-                "itemStyle": {"color": "#2563eb", "borderColor": "#fff", "borderWidth": 2},
-                "label": {
-                    "show": True, "position": "top",
-                    "formatter": last_fmt,
-                    "color": "#2563eb", "fontWeight": "bold", "fontSize": 11,
-                },
-            })
-        else:
-            series_data.append(v)
+    if not series_list:
+        return None
 
     n = len(x_data)
-    # Show only first and last x-axis label
     XLBL_FMT = f"function(v,i){{return i===0||i==={n - 1}?v:''}}"
     NUM_FMT = "function(v){return v>=1e6?(v/1e6).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}"
     AREA_GRAD = (
@@ -175,17 +226,10 @@ def _render_line_summary(
             "axisLabel": {"color": "#bbb", "fontSize": 10, "formatter": "__NUM_FMT__"},
             "axisLine": {"show": False},
             "axisTick": {"show": False},
-            "splitLine": {
-                "lineStyle": {"color": "#f5f5f5", "type": "dashed"},
-            },
+            "splitLine": {"lineStyle": {"color": "#f5f5f5", "type": "dashed"}},
         },
         "tooltip": {"show": False},
-        "series": [{
-            "type": "line", "data": series_data,
-            "smooth": True, "symbol": "none",
-            "lineStyle": {"width": 2, "color": "#2563eb"},
-            "areaStyle": {"color": "__AREA_GRAD__"},
-        }],
+        "series": series_list,
     }
 
     opt_json = (
