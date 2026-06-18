@@ -56,11 +56,21 @@ def test_after_extract_entity_router_default():
     assert _after_extract_entity_router({}) == "text2sql"
 
 
-def test_visualization_router_wants_visualization():
-    from src.graphs.report_agent.graph import _visualization_router
-    assert _visualization_router({"wants_visualization": True}) == "visualization"
+def test_after_visualization_router_wants_export():
+    from src.graphs.report_agent.graph import _after_visualization_router
+    assert _after_visualization_router({"wants_export": True}) == "export"
 
 
-def test_visualization_router_no_visualization():
-    from src.graphs.report_agent.graph import _visualization_router
-    assert _visualization_router({"wants_visualization": False}) == "build_response"
+def test_after_visualization_router_no_export():
+    from src.graphs.report_agent.graph import _after_visualization_router
+    assert _after_visualization_router({"wants_export": False}) == "build_response"
+
+
+def test_intent_router_export_request():
+    from src.graphs.report_agent.graph import _intent_router
+    assert _intent_router({"intent_type": "EXPORT_REQUEST"}) == "export"
+
+
+def test_after_hitl_check_router_wants_export():
+    from src.graphs.report_agent.graph import _after_hitl_check_router
+    assert _after_hitl_check_router({"wants_export": True}) == "export"

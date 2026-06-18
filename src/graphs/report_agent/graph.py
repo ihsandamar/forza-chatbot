@@ -31,6 +31,7 @@ from src.graphs.report_agent.nodes import (
 from src.graphs.report_agent.state import ReportState
 from src.graphs.report_agent.subagents.text2sql.graph import build_text2sql_graph
 from src.graphs.report_agent.subagents.visualization_v2.graph import build_visualization_graph
+from src.graphs.report_agent.subagents.export_v1.graph import build_export_graph
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ def _intent_router(state: dict) -> str:
         return "report_chat"
     if intent == "INSIGHT_REQUEST":
         return "insight_engine"
+    if intent == "EXPORT_REQUEST":
+        return "export"
     if intent == "USE_RESULT":
         use_result = state.get("use_result_type")
         if use_result == "revisualize":
@@ -59,16 +62,22 @@ def _after_extract_entity_router(state: dict) -> str:
     return "modify_sql" if state.get("use_result_type") == "modify_context" else "text2sql"
 
 
-def _visualization_router(state: dict) -> str:
-    """text2sql sonrası: grafik istendiyse visualization, istenmemişse direkt build_response."""
-    return "visualization" if state.get("wants_visualization", False) else "build_response"
-
-
 def _after_hitl_check_router(state: dict) -> str:
-    """hitl_check sonrası: cevap verildi → text2sql tekrar, değilse normal akış."""
+    """hitl_check sonrası: cevap verildi → text2sql tekrar, değilse visualization/export/response."""
     if state.get("_hitl_answered"):
         return "text2sql"
-    return _visualization_router(state)
+    if state.get("wants_visualization", False):
+        return "visualization"
+    if state.get("wants_export", False):
+        return "export"
+    return "build_response"
+
+
+def _after_visualization_router(state: dict) -> str:
+    """visualization sonrası: export de istendiyse export, değilse build_response."""
+    if state.get("wants_export", False):
+        return "export"
+    return "build_response"
 
 
 def build_report_agent_graph(
@@ -92,6 +101,7 @@ def build_report_agent_graph(
         effective_business_rules_path,
     )
     visualization = build_visualization_graph(llm)
+    export = build_export_graph()
 
     graph = StateGraph(ReportState, config_schema=ReportAgentConfiguration)
 
@@ -102,6 +112,7 @@ def build_report_agent_graph(
     graph.add_node("report_chat", create_report_chat_node(llm, column_metadata))
     graph.add_node("text2sql", text2sql)
     graph.add_node("visualization", visualization)
+    graph.add_node("export", export)
     graph.add_node("build_response", create_build_response_node(llm))
     graph.add_node("hitl_check", hitl_check_node)
     graph.add_node("insight_engine", create_insight_engine_node(llm, connection_string))
@@ -118,6 +129,7 @@ def build_report_agent_graph(
             "compute_results": "compute_results",
             "report_chat":     "report_chat",
             "insight_engine":  "insight_engine",
+            "export":          "export",
         },
     )
     graph.add_edge("modify_sql", "text2sql")
@@ -138,10 +150,19 @@ def build_report_agent_graph(
         {
             "text2sql":       "text2sql",
             "visualization":  "visualization",
+            "export":         "export",
             "build_response": "build_response",
         },
     )
-    graph.add_edge("visualization", "build_response")
+    graph.add_conditional_edges(
+        "visualization",
+        _after_visualization_router,
+        {
+            "export":         "export",
+            "build_response": "build_response",
+        },
+    )
+    graph.add_edge("export", "build_response")
     graph.add_edge("insight_engine", "build_response")
     graph.add_edge("build_response", END)
 
