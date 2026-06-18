@@ -10,7 +10,7 @@ from pydantic import BaseModel, field_validator, model_validator
 class IntentClassificationResult(BaseModel):
     """Intent + query type — tek LLM çağrısı ile sınıflandırma."""
 
-    intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT", "VAGUE_QUERY", "INSIGHT_REQUEST"]
+    intent_type: Literal["NEW_QUERY", "MODIFY_QUERY", "USE_RESULT", "VAGUE_QUERY", "INSIGHT_REQUEST", "EXPORT_REQUEST"]
     query_type: Literal["SINGLE", "LISTING", "RANKING", "COMPARISON", "TIME_SERIES_COMPARISON"]
     confidence: float
     wants_visualization: bool = False
@@ -26,6 +26,8 @@ class IntentClassificationResult(BaseModel):
     modification_value: Optional[str] = None
     time_breakdown: bool = False
     visualization_explicitly_set: bool = False  # kullanıcı grafik hakkında açıkça bir şey söyledi
+    wants_export: bool = False
+    export_format: Optional[str] = None    # "xlsx"|"pdf"|"html"|"docx"|"md"|"csv"
 
     @field_validator("confidence")
     @classmethod
@@ -154,6 +156,9 @@ INTENT_CLASSIFIER_PROMPT = """Sen bir rapor asistanısın. Kullanıcının mesaj
   Örnek: "nelere dikkat etmeliyim", "bu veriden ne çıkarabilirim", "hangi ürün/şube sorunlu", "insight ver", "analiz et"
   SADECE aktif sonuç varsa (has_active_sql=Evet) bu intent'i kullan.
   Aktif sonuç yoksa VAGUE_QUERY kullan.
+- EXPORT_REQUEST: Kullanıcı mevcut sonuçları bir dosya formatında indirmek istiyor.
+  Örnek: "Excel'e aktar", "PDF rapor al", "bunu indir", "Word belgesi olarak ver", "dosya olarak ver"
+  SADECE aktif sonuç varsa (has_active_sql=Evet) bu intent'i kullan. Yeni sorgu ise NEW_QUERY kullan.
 - USE_RESULT: Önceki SONUÇLARI kullanmak istiyor
   → use_result_type="new_query": Sonuçtaki bir entity için tamamen yeni sorgu oluştur
   → use_result_type="revisualize": Aynı veriyi farklı chart/format ile göster
@@ -229,6 +234,15 @@ Bu sorgular MODIFY_QUERY DEĞİLDİR — GROUP BY boyutu tamamen değiştiğinde
   - "karşılaştırma grafiği", "comparison chart" → "comparison"
 - Kullanıcı grafik tipini belirtmiyorsa (sadece "grafik göster", "görselleştir") → null
 - wants_visualization=False ise HER ZAMAN null
+
+**wants_export:**
+- True: Kullanıcı "Excel", "PDF", "Word", "indir", "aktar", "dosya", "XLSX", "CSV", "HTML", "Markdown" gibi ifadeler kullandıysa
+  → İlk sorguda da olabilir: "Satışları Excel'de göster" → wants_export=True + intent=NEW_QUERY
+- False: Export talep etmiyor (DEFAULT)
+
+**export_format:** (SADECE wants_export=True olduğunda doldur, aksi halde null)
+- Tespit edilen format: "xlsx" (Excel/varsayılan), "pdf", "html", "docx", "md" (Markdown), "csv"
+- Belirtilmemişse "xlsx" kullan
 
 **chart_x_hint:** (SADECE chart_type dolu VE kullanıcı x-ekseninde hangi boyutu istediğini açıkça belirtiyorsa)
 - Kullanıcı "X bazında", "X'e göre", "X kırılımında" gibi ifadelerle belirli bir boyut adı veriyorsa → o ismi yaz

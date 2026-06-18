@@ -171,6 +171,9 @@ def create_classify_intent_node(llm) -> Callable:
             "insight_output": None,
             "insight_findings": None,
             "comparison_sql": None,
+            "wants_export": result.wants_export,
+            "export_format": result.export_format if result.wants_export else None,
+            "export_output": None,
         }
         # Mesajı messages'a ekle; messages'tan extract ettiysek zaten orada var
         if not extracted_from_messages and user_query:

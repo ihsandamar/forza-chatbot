@@ -94,6 +94,11 @@ class ReportState(TypedDict):
     insight_output: Optional[str]           # LLM Interpreter çıktısı
     user_role: Optional[str]                # branch_manager | general_manager | operations
 
+    # Export
+    wants_export: Optional[bool]
+    export_format: Optional[str]            # "xlsx"|"pdf"|"html"|"docx"|"md"|"csv"
+    export_output: Optional[Dict[str, Any]]
+
     # Response
     final_response: Optional[str]
 
@@ -143,6 +148,9 @@ def create_initial_state() -> ReportState:
         time_breakdown=None,
         viz_request=None,
         visualization_output=None,
+        wants_export=None,
+        export_format=None,
+        export_output=None,
         _clarification_count=0,
         _skip_vague_check=False,
         comparison_sql=None,
