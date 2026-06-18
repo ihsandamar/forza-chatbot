@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from src.api.routes import chat, health, configuration, metrics, sessions
+from src.api.routes.export import router as export_router
 from src.api.utils.error_handlers import validation_exception_handler, general_exception_handler
 
 
@@ -78,6 +79,7 @@ def build_fastapi_app(config) -> FastAPI:
     app.include_router(configuration.router, prefix="/api/configuration", tags=["Configuration"])
     app.include_router(metrics.router, prefix="/api")
     app.include_router(sessions.router, prefix="/api")
+    app.include_router(export_router, prefix="/api")
 
     @app.get("/")
     async def root():
